@@ -15,7 +15,7 @@ const output = resolve(options.out);
 await mkdir(output, { recursive: true, mode: 0o700 });
 const archiveName = `dashboard-portal-${version}.tar.gz`;
 const archive = join(output, archiveName);
-await run('tar', ['--create', '--gzip', '--file', archive, '--exclude=.git', '--exclude=node_modules', '--exclude=data', '--exclude=dist', '--exclude=.env', '.'], root);
+await run('tar', ['--create', '--gzip', '--file', archive, '--exclude=.git', '--exclude=node_modules', '--exclude=data', '--exclude=dist', '--exclude=release-out', '--exclude=.env', '.'], root);
 const archiveSha256 = await digest(archive);
 const payload = {
   channel: options.channel ?? 'stable',
