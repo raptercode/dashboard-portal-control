@@ -5,14 +5,14 @@
 
 ## Context
 
-Native mode ตั้งใจให้ใช้ทรัพยากรต่ำและหลีกเลี่ยงการจัดการ runtime หลายเวอร์ชันบน host ในรุ่นแรก
+Native mode is intended to stay low-resource and avoid managing multiple runtime versions on the host in the first release.
 
 ## Decision
 
-Native mode รองรับ Node.js **24 LTS** เพียงหนึ่ง major version บน host ต่อหนึ่ง release ของ Host Manager ไม่มี UI สำหรับเลือกหรือสลับ Node.js ราย project
+Native mode supports only Node.js **24 LTS** as one major version on the host per Host Manager release. There is no UI to choose or switch Node.js per project.
 
 ## Consequences
 
-- project ที่ต้องใช้ Node.js คนละ major ให้ใช้ Docker mode หรืออยู่นอกขอบเขตรุ่นแรก
-- deployment validation ต้องตรวจ Node.js major 24 เดียวกันทั้ง UI และ CLI
-- เอกสารไม่กล่าวอ้างว่ารองรับ PHP หรือ native runtime อื่นจนกว่าจะมี ADR เพิ่ม
+- Projects that need a different Node.js major must use Docker mode or remain out of first-release scope
+- Deployment validation must check Node.js major 24 in both UI and CLI
+- Docs must not claim support for PHP or other native runtimes until additional ADRs exist

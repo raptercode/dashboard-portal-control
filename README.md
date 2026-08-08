@@ -2,30 +2,30 @@
 
 > Production status: the direct installer is deliberately TLS-only. Follow [the production acceptance runbook](docs/production-install.md) on a Ubuntu 24.04 or 25.04 amd64 host before installing it on a real host. Docker remains a development/integration environment, not a production certification.
 
-> แผงควบคุมเซิร์ฟเวอร์แบบโอเพนซอร์สสำหรับนักพัฒนาที่ดูแลเครื่องด้วยตัวเอง เน้นใช้งานง่าย ประหยัดทรัพยากร และไม่พยายามแทนที่ cPanel, DirectAdmin หรือ Plesk ทุกฟีเจอร์
+> An open-source server control panel for developers who manage their own machines. It prioritizes ease of use and low resource use, and does not try to replace every feature of cPanel, DirectAdmin, or Plesk.
 
-โปรเจกต์นี้มีเป้าหมายเพื่อรวมงานที่ต้องทำบ่อยบน Linux ไว้ใน Dashboard เดียว เช่น เชื่อม Git, deploy แอป, ผูกโดเมน, สร้าง Nginx reverse proxy, ออก SSL, restart service และดู log
+This project aims to bring common Linux host tasks into one Dashboard: connect Git, deploy apps, bind domains, create Nginx reverse proxies, issue SSL, restart services, and view logs.
 
-สถานะปัจจุบัน: **อยู่ระหว่างออกแบบและเริ่มพัฒนา**
+Current status: **in design and early development**
 
-## สถานะ implementation
+## Implementation status
 
-มี v0.1 Server Foundation ที่รันได้แล้วใน Docker sandbox: single-owner login, dashboard, `doctor`, tool inventory, allowlisted installer workflow, audit log และ Git/project-sync configuration
+v0.1 Server Foundation already runs in the Docker sandbox: single-owner login, dashboard, `doctor`, tool inventory, allowlisted installer workflow, audit log, and Git/project-sync configuration.
 
-Sandbox ตั้งใจไม่แก้ package หรือ service ของ Docker host จึงใช้ทดสอบ UI/API ได้อย่างปลอดภัย แต่ยังไม่ใช่การรับรอง privileged operations บน server จริง ดูรายละเอียดข้อจำกัดที่ [ADR 0005](docs/adr/0005-docker-is-a-sandbox-not-a-host-certification.md)
+The sandbox intentionally does not change packages or services on the Docker host, so UI/API testing is safe. It is not a certification of privileged operations on a real server. See the limits in [ADR 0005](docs/adr/0005-docker-is-a-sandbox-not-a-host-certification.md).
 
-### เริ่ม Docker sandbox สำหรับ `demo.test`
+### Start the Docker sandbox for `demo.test`
 
-1. คัดลอก `.env.example` เป็น `.env` แล้วกำหนด `HOSTMGR_ADMIN_PASSWORD` ให้ยาวและไม่ซ้ำ และสร้าง `HOSTMGR_SECRET_KEY` เพียงครั้งเดียวด้วย `openssl rand -base64 32` ห้ามเปลี่ยน key นี้หลังบันทึก credential หรือ `.env` project แล้ว เพราะจะถอดรหัสค่าที่บันทึกไว้ไม่ได้
-2. ให้ `demo.test` ชี้มายัง Docker host นี้
-3. รัน `docker compose up --build -d`
-4. เปิด `http://demo.test` แล้วเข้าสู่ระบบด้วยรหัสผ่านที่ตั้งไว้
+1. Copy `.env.example` to `.env`, set a long unique `HOSTMGR_ADMIN_PASSWORD`, and create `HOSTMGR_SECRET_KEY` once with `openssl rand -base64 32`. Do not change this key after credentials or project `.env` values have been saved, or previously stored values cannot be decrypted.
+2. Point `demo.test` at this Docker host.
+3. Run `docker compose up --build -d`.
+4. Open `http://demo.test` and sign in with the password you set.
 
-Compose publish port 80 และใช้ Ubuntu 24.04 ภายใน container หากมี service อื่นจับ port 80 อยู่ ต้องหยุด service นั้นหรือเปลี่ยน port ก่อน
+Compose publishes port 80 and uses Ubuntu 24.04 inside the container. If another service already binds port 80, stop that service or change the port first.
 
-### ติดตั้ง production โดยไม่ใช้ Docker
+### Install production without Docker
 
-เมื่อพร้อมใช้งานบน Ubuntu 24.04 หรือ 25.04 ให้ใช้ installer ใน release directory:
+When ready on Ubuntu 24.04 or 25.04, use the installer in the release directory:
 
 ```bash
 sudo ./dashboard-portal.sh --domain=dpt.domain.com --email=admin@example.com
@@ -37,17 +37,20 @@ with `sudo dashboard-portal update --channel=stable`. See
 [`docs/production-install.md`](docs/production-install.md) for initial release
 channel configuration and publishing instructions.
 
-ดูรายละเอียดและข้อกำหนด DNS/HTTPS ที่ [Production installation](docs/production-install.md)
+For the repeatable Git, signed-release, and future-AI handoff process, see
+[`docs/releasing-and-ai-handoff.md`](docs/releasing-and-ai-handoff.md).
 
-## เป้าหมายหลัก
+See details and DNS/HTTPS requirements in [Production installation](docs/production-install.md).
 
-- ใช้งานส่วนตัวบนเซิร์ฟเวอร์เครื่องเดียวเป็นหลัก
-- รองรับหลายแอปและหลายโดเมนจาก Dashboard เดียว
-- ใช้ทรัพยากรต่ำด้วยโหมด Native เป็นค่าเริ่มต้น
-- ใช้ Docker เฉพาะโปรเจกต์ที่ต้องการ isolation หรือ runtime ต่างเวอร์ชัน
-- เชื่อมต่อ GitHub และ GitLab เพื่อ deploy จาก repository
-- ตรวจสอบและติดตั้งเครื่องมือที่จำเป็นผ่าน UI หรือ CLI
-- เปิดให้ผู้ใช้ที่รู้ Linux เข้าแก้ config และจัดการระบบเองได้เมื่อจำเป็น
+## Main goals
+
+- Personal use on a single server as the primary case
+- Support multiple apps and domains from one Dashboard
+- Keep resource use low with Native mode as the default
+- Use Docker only for projects that need isolation or different runtime versions
+- Connect GitHub and GitLab to deploy from repositories
+- Detect and install required tools through the UI or CLI
+- Let Linux-fluent users edit config and manage the system when needed
 
 ## Target Environment
 
@@ -58,136 +61,136 @@ Ubuntu Server 24.04 LTS amd64
 Ubuntu Server 25.04 amd64 (operational exception; see ADR 0012)
 ```
 
-ในช่วงแรกจะทดสอบเฉพาะ environment นี้เพื่อลดความซับซ้อน ยังไม่รับประกันการทำงานบน distribution หรือ Ubuntu รุ่นอื่น
+Early testing focuses on this environment to reduce complexity. Other distributions or Ubuntu versions are not guaranteed.
 
 > [!NOTE]
-> เครื่องพัฒนาปัจจุบันอาจเป็น Ubuntu 25.04 ได้ แต่ไม่ใช่ platform ที่ระบบรองรับหรือใช้รับรอง release เพราะหมดระยะสนับสนุนแล้ว การทดสอบที่แตะ host ให้รันใน Ubuntu 24.04 environment ที่แยกออกมา; Docker เหมาะกับการทดสอบ integration ที่แยกได้ แต่ไม่ทดแทน VM สำหรับ systemd, reboot และ package installation ของ host จริง
+> A development machine may run Ubuntu 25.04, but that is not the supported or release-certification platform because it is past end of support. Host-touching tests should run in a separate Ubuntu 24.04 environment; Docker is good for isolated integration tests but does not replace a VM for systemd, reboot, and real-host package installation.
 
-## แนวคิดการ Deploy
+## Deploy model
 
-ระบบใช้แนวทาง **Native-first, Docker-optional**
+The system follows **Native-first, Docker-optional**.
 
-### Native Mode — ค่าเริ่มต้น
+### Native Mode — default
 
-แอปรันบน host โดยตรงและควบคุมผ่าน `systemd` เหมาะกับเครื่องสเปกต่ำและโปรเจกต์ที่ใช้ runtime เวอร์ชันเดียวกัน
+Apps run directly on the host and are controlled through `systemd`. Best for low-spec machines and projects that share the same runtime version.
 
-- Nginx ทำงานบน host
-- Node.js, PHP หรือ runtime อื่นติดตั้งบน host
-- แต่ละโปรเจกต์มี working directory, environment และ systemd service ของตัวเอง
-- รองรับ build, start, stop, restart และดู log ผ่าน Dashboard
+- Nginx runs on the host
+- Node.js, PHP, or other runtimes are installed on the host
+- Each project has its own working directory, environment, and systemd service
+- Build, start, stop, restart, and logs are available through the Dashboard
 
-### Docker Mode — ทางเลือก
+### Docker Mode — optional
 
-ใช้สำหรับโปรเจกต์ที่ต้องการ dependency แยกจาก host, ใช้ runtime คนละเวอร์ชัน หรือมี `Dockerfile` / Compose อยู่แล้ว
+Use for projects that need dependencies isolated from the host, different runtime versions, or an existing `Dockerfile` / Compose setup.
 
-- รองรับ Dockerfile
-- รองรับ `compose.yaml`, `compose.yml` และ `docker-compose.yml`
-- จัดการ container, image, volume และ network ที่เป็นของโปรเจกต์
-- Nginx บน host ทำ reverse proxy ไปยังพอร์ตของ container
+- Supports Dockerfile
+- Supports `compose.yaml`, `compose.yml`, and `docker-compose.yml`
+- Manages project-owned containers, images, volumes, and networks
+- Host Nginx reverse-proxies to the container port
 
-| หัวข้อ | Native | Docker |
+| Topic | Native | Docker |
 | --- | --- | --- |
-| RAM/พื้นที่จัดเก็บ | ต่ำกว่า | สูงกว่าเล็กน้อย |
-| เริ่มใช้งาน | ง่ายสำหรับผู้รู้ Linux | ต้องมี Dockerfile/Compose |
-| แยก dependency | ระดับ process/user | ระดับ container |
-| หลาย runtime version | ไม่เน้นใน v1 | รองรับตาม image |
-| เหมาะกับ | แอปส่วนตัวทั่วไป | แอปพิเศษหรือ dependency ซับซ้อน |
+| RAM / disk | Lower | Slightly higher |
+| Getting started | Easy for Linux-fluent users | Needs Dockerfile/Compose |
+| Dependency isolation | Process/user level | Container level |
+| Multiple runtime versions | Not a v1 focus | Supported via images |
+| Best for | Typical personal apps | Special apps or complex dependencies |
 
-## ฟีเจอร์ในขอบเขต v1
+## Features in v1 scope
 
 ### Dashboard
 
-- ดู CPU, RAM, disk และ load average
-- ดูสถานะ Nginx, Certbot, Git, Docker และ runtime
-- ดูโปรเจกต์ โดเมน และ deployment ล่าสุด
-- แสดงคำเตือนเมื่อ service หยุดหรือ dependency หาย
+- View CPU, RAM, disk, and load average
+- View Nginx, Certbot, Git, Docker, and runtime status
+- View projects, domains, and recent deployments
+- Warn when a service is stopped or a dependency is missing
 
 ### Project Management
 
-- สร้างโปรเจกต์แบบ Native หรือ Docker
-- กำหนด repository, branch, build command, start command และ port
-- จัดการ environment variables โดยไม่แสดง secret เต็มค่าใน UI
-- Deploy, redeploy, stop, restart และ rollback
-- Health check หลัง deploy
-- ดู build log และ runtime log
+- Create Native or Docker projects
+- Set repository, branch, build command, start command, and port
+- Manage environment variables without showing full secret values in the UI
+- Deploy, redeploy, stop, restart, and rollback
+- Health check after deploy
+- View build and runtime logs
 
 ### GitHub / GitLab
 
-- Clone repository ผ่าน HTTPS หรือ SSH deploy key
-- เลือก branch ที่ใช้ deploy
-- Pull และ deploy ด้วยตนเองจาก Dashboard
-- รองรับ webhook สำหรับ auto deploy
-- เก็บ credential แบบเข้ารหัสและไม่เขียน token ลงใน log
+- Clone repositories over HTTPS or SSH deploy keys
+- Choose the deploy branch
+- Pull and deploy manually from the Dashboard
+- Support webhooks for auto deploy
+- Store credentials encrypted and never write tokens to logs
 
 ### Domain Management
 
-- เพิ่ม แก้ไข และลบโดเมน
-- ผูกหนึ่งโดเมนหรือหลาย subdomain เข้ากับโปรเจกต์
-- ตรวจสอบว่า DNS ชี้มายัง server หรือยัง
-- Generate และ validate Nginx config ก่อนใช้งาน
-- Reload Nginx เฉพาะเมื่อ config ผ่านการตรวจสอบ
-- ตรวจหา config drift ระหว่างฐานข้อมูลของระบบกับไฟล์จริง
-- Sync จาก Dashboard ไปยัง Nginx หรือ import config ที่ระบบรองรับกลับเข้า Dashboard
+- Add, edit, and delete domains
+- Bind one domain or multiple subdomains to a project
+- Check whether DNS points at the server
+- Generate and validate Nginx config before use
+- Reload Nginx only after config validation passes
+- Detect config drift between system state and real files
+- Sync from Dashboard to Nginx, or import supported config back into the Dashboard
 
-ใน v1 คำว่า **Domain Sync** หมายถึงการซิงก์ความสัมพันธ์ระหว่าง Project, Domain, Nginx และ SSL ภายในเซิร์ฟเวอร์ ไม่รวมการเป็น DNS server หรือแก้ DNS record บน Cloudflare/ผู้ให้บริการ registrar โดยตรง
+In v1, **Domain Sync** means syncing Project, Domain, Nginx, and SSL relationships on the server. It does not include acting as a DNS server or editing DNS records on Cloudflare/a registrar directly.
 
 ### SSL
 
-- ขอใบรับรอง Let's Encrypt ผ่าน Certbot
-- เปิดใช้งาน HTTPS ให้โดเมนอัตโนมัติ
-- ดูวันหมดอายุและสถานะ renewal
-- ทดสอบ renewal จาก Dashboard หรือ CLI
-- ไม่ออก certificate หาก DNS หรือ HTTP challenge ยังไม่พร้อม
+- Request Let's Encrypt certificates through Certbot
+- Enable HTTPS for domains automatically
+- View expiry dates and renewal status
+- Test renewal from the Dashboard or CLI
+- Do not issue a certificate if DNS or the HTTP challenge is not ready
 
 ### Nginx
 
-- สร้าง reverse proxy config จาก template
-- Preview diff ก่อน apply
-- ตรวจสอบด้วย `nginx -t` ทุกครั้ง
-- สำรอง config เดิมก่อนแก้ไข
-- Restore config เดิมอัตโนมัติเมื่อ validation หรือ reload ล้มเหลว
-- มี Advanced Mode สำหรับ custom directives โดยแยกออกจากส่วนที่ระบบ generate
+- Generate reverse proxy config from templates
+- Preview diffs before apply
+- Always validate with `nginx -t`
+- Back up existing config before changes
+- Automatically restore previous config when validation or reload fails
+- Provide Advanced Mode for custom directives, separate from generated sections
 
-### Logs และ Terminal
+### Logs and Terminal
 
-- ดู deployment log
-- ดู systemd journal หรือ container log ของแต่ละโปรเจกต์
-- ค้นหาและกรอง log ตามช่วงเวลา
-- Terminal เป็น optional escape hatch และปิดไว้เป็นค่าเริ่มต้น
+- View deployment logs
+- View systemd journal or container logs per project
+- Search and filter logs by time range
+- Terminal is an optional escape hatch and is disabled by default
 
-## System Tools และ Dependency Installer
+## System Tools and Dependency Installer
 
-เมื่อติดตั้ง Dashboard ระบบจะทำ preflight check และแสดงสถานะของเครื่องมือแต่ละรายการ
+When the Dashboard is installed, the system runs a preflight check and shows the status of each tool.
 
-| Tool | ความจำเป็น | หน้าที่ |
+| Tool | Necessity | Role |
 | --- | --- | --- |
-| Nginx | Required | Reverse proxy และรับ traffic จาก domain |
-| Certbot | Required สำหรับ SSL | ออกและต่ออายุ Let's Encrypt certificate |
-| Git | Required สำหรับ Git deploy | Clone และ pull source code |
-| systemd | Required สำหรับ Native mode | ควบคุม process ของแอป |
-| Docker Engine + Compose | Optional | ใช้งาน Docker mode |
-| Node.js / PHP | Optional | ติดตั้งเฉพาะ runtime ที่ Native project ต้องใช้ |
+| Nginx | Required | Reverse proxy and receives domain traffic |
+| Certbot | Required for SSL | Issue and renew Let's Encrypt certificates |
+| Git | Required for Git deploy | Clone and pull source code |
+| systemd | Required for Native mode | Control application processes |
+| Docker Engine + Compose | Optional | Run Docker mode |
+| Node.js / PHP | Optional | Install only runtimes Native projects need |
 
-สถานะที่ UI และ CLI ต้องรายงาน:
+Statuses the UI and CLI must report:
 
-- `Installed` — พบเครื่องมือและเวอร์ชันรองรับ
-- `Missing` — ยังไม่ได้ติดตั้งและสามารถติดตั้งได้
-- `Unsupported` — พบเครื่องมือแต่เวอร์ชันไม่รองรับ
-- `Misconfigured` — ติดตั้งแล้วแต่ config หรือ permission ไม่พร้อม
-- `Healthy` / `Stopped` — สถานะ service ที่เกี่ยวข้อง
+- `Installed` — tool found at a supported version
+- `Missing` — not installed and can be installed
+- `Unsupported` — tool found but version is unsupported
+- `Misconfigured` — installed but config or permissions are not ready
+- `Healthy` / `Stopped` — related service status
 
-### ติดตั้งผ่าน UI
+### Install through the UI
 
-หน้า **Settings → System Tools** ต้องมีความสามารถดังนี้:
+**Settings → System Tools** must support:
 
-1. Scan เครื่องมือที่มีอยู่ในเครื่อง
-2. แสดง package และคำสั่งที่จะถูกเรียกก่อนติดตั้ง
-3. ให้ผู้ใช้กด **Install** เป็นรายเครื่องมือ
-4. แสดง progress และ log ที่ตัดข้อมูลลับออกแล้ว
-5. ตรวจสอบ version, config และ service หลังติดตั้ง
-6. ไม่แก้ config เดิมโดยไม่แสดง diff หรือสร้าง backup
+1. Scan tools present on the machine
+2. Show the packages and commands that will run before install
+3. Let the user click **Install** per tool
+4. Show progress and redacted logs
+5. Verify version, config, and service after install
+6. Never change existing config without showing a diff or creating a backup
 
-ตัวอย่าง:
+Example:
 
 ```text
 Nginx     Missing       [Install]
@@ -196,48 +199,48 @@ Git       Installed     2.x
 Docker    Not installed [Install optional]
 ```
 
-### ติดตั้งหรือบังคับตรวจสอบผ่าน CLI
+### Install or force-check through the CLI
 
-ชื่อคำสั่งด้านล่างเป็น interface ที่วางแผนไว้และอาจเปลี่ยนก่อน release แรก:
+The commands below are a planned interface and may change before the first release:
 
 ```bash
-# ตรวจสอบ requirement ทั้งหมด
+# Check all requirements
 hostmgr doctor
 
-# ติดตั้งเฉพาะ required tools ที่ยังขาด
+# Install only missing required tools
 sudo hostmgr tools install --required
 
-# ติดตั้งเครื่องมือที่ระบุ
+# Install specific tools
 sudo hostmgr tools install nginx certbot git
 
-# ติดตั้ง Docker ซึ่งเป็น optional tool
+# Install Docker as an optional tool
 sudo hostmgr tools install docker
 
-# บังคับติดตั้งใหม่หรือซ่อม package/config ที่ระบบจัดการ
+# Force reinstall or repair managed packages/config
 sudo hostmgr tools install nginx --force
 
-# ตรวจสอบอีกครั้งหลังติดตั้ง
+# Re-check after install
 hostmgr tools check
 ```
 
-ทั้ง UI และ CLI ต้องเรียก installer service ชุดเดียวกัน เพื่อให้ validation, log, backup และผลลัพธ์ตรงกัน
+Both UI and CLI must call the same installer service so validation, logs, backups, and results stay consistent.
 
 ## Deployment Flow
 
 ```mermaid
 flowchart TD
-    A[GitHub หรือ GitLab] --> B[Clone หรือ Pull]
+    A[GitHub or GitLab] --> B[Clone or Pull]
     B --> C{Deployment mode}
-    C -->|Native| D[Install และ Build]
-    C -->|Docker| E[Build Image หรือ Compose]
+    C -->|Native| D[Install and Build]
+    C -->|Docker| E[Build Image or Compose]
     D --> F[Start candidate]
     E --> F
     F --> G{Health check}
-    G -->|ผ่าน| H[Apply Nginx และ SSL]
-    G -->|ไม่ผ่าน| I[เก็บ release เดิมและแสดง log]
+    G -->|pass| H[Apply Nginx and SSL]
+    G -->|fail| I[Keep previous release and show logs]
 ```
 
-การ deploy ต้องไม่ตัด release ที่กำลังทำงานจนกว่า build และ health check ของ release ใหม่จะผ่าน หาก deploy ล้มเหลว ระบบต้องเก็บ release เดิมไว้และแสดงสาเหตุที่ตรวจพบ
+Deploy must not cut over from the running release until the new release's build and health check pass. If deploy fails, the previous release must remain and the detected cause must be shown.
 
 ## Proposed Architecture
 
@@ -265,31 +268,31 @@ Management API
            Host Nginx
 ```
 
-Dashboard/API ไม่ควรรันเป็น `root` งานที่ต้องใช้สิทธิ์สูงต้องส่งไปยัง privileged helper ซึ่งรับเฉพาะ operation ที่กำหนดไว้ล่วงหน้า ตรวจสอบ input และบันทึก audit log ห้ามนำค่าจาก UI ไปต่อเป็น shell command โดยตรง
+Dashboard/API should not run as `root`. Privileged work must go to a privileged helper that accepts only predefined operations, validates input, and writes audit logs. Never concatenate UI values into shell commands.
 
-## โครงสร้างข้อมูลหลัก
+## Core data model
 
 ### Server
 
-- hostname และ OS information
+- hostname and OS information
 - IP addresses
 - tool/service status
 - resource metrics
 
 ### Project
 
-- name และ slug
-- deployment mode: `native` หรือ `docker`
-- repository และ branch
+- name and slug
+- deployment mode: `native` or `docker`
+- repository and branch
 - build/start configuration
-- internal port และ health-check path
+- internal port and health-check path
 - environment variables
 - release history
 
 ### Domain
 
 - hostname
-- project และ target port
+- project and target port
 - SSL status
 - Nginx config state
 - DNS validation state
@@ -297,103 +300,103 @@ Dashboard/API ไม่ควรรันเป็น `root` งานที่�
 ### Deployment
 
 - commit SHA
-- status และ timestamps
+- status and timestamps
 - build/runtime logs
 - health-check result
 - active/rollback release
 
 ## Security Principles
 
-- Dashboard/API ทำงานด้วย Linux user ที่ไม่มีสิทธิ์ root
-- แยก privileged helper และใช้ allowlist ของ operation
-- Validate domain, path, port, repository URL และ config ทุกครั้ง
-- ห้ามเก็บ Git token, SSH private key หรือ environment secret แบบ plaintext
-- Redact secret จาก log และ error response
-- ใช้ CSRF protection, secure cookie, rate limiting และ session timeout
-- บันทึก audit log สำหรับ install, deploy, config change และ privileged action
-- สำรองไฟล์ก่อนแก้ไขและใช้ atomic write เมื่อทำได้
-- Terminal และ custom Nginx config เป็นฟีเจอร์ความเสี่ยงสูง ต้องเปิดใช้งานโดยเจ้าของเครื่อง
-- UI installer ต้องแสดงสิ่งที่จะเปลี่ยนก่อนขอสิทธิ์ และต้องไม่รันคำสั่งจาก input อิสระ
+- Dashboard/API runs as a non-root Linux user
+- Separate privileged helper with an operation allowlist
+- Validate domain, path, port, repository URL, and config every time
+- Never store Git tokens, SSH private keys, or environment secrets in plaintext
+- Redact secrets from logs and error responses
+- Use CSRF protection, secure cookies, rate limiting, and session timeout
+- Record audit logs for install, deploy, config changes, and privileged actions
+- Back up files before edits and use atomic writes when possible
+- Terminal and custom Nginx config are high-risk features and must be enabled by the machine owner
+- The UI installer must show what will change before asking for permission and must not run free-form commands
 
-## Non-goals สำหรับ v1
+## Non-goals for v1
 
 - Mail server
 - DNS server
 - FTP server
-- Shared hosting และ multi-tenant isolation
-- Reseller, license และ billing
-- รองรับ PHP/Node หลายเวอร์ชันบน host ผ่าน Dashboard
-- Kubernetes หรือ multi-server cluster
-- File manager แบบเต็มรูปแบบ
-- จัดการ DNS provider หรือ registrar อัตโนมัติ
-- รองรับทุก Linux distribution
+- Shared hosting and multi-tenant isolation
+- Reseller, license, and billing
+- Managing multiple PHP/Node versions on the host through the Dashboard
+- Kubernetes or multi-server clusters
+- Full file manager
+- Automatic DNS provider or registrar management
+- Supporting every Linux distribution
 
-การตัดสิ่งเหล่านี้ออกช่วยให้ v1 เหมาะกับการใช้งานคนเดียวและทำงานได้ดีบนเครื่องสเปกต่ำ
+Cutting these keeps v1 suitable for single-owner use and low-spec machines.
 
 ## Roadmap
 
 ### v0.1 — Server Foundation
 
-- Login สำหรับเจ้าของเครื่องหนึ่งคน
-- Dashboard และ system metrics
-- Tool detection และ `hostmgr doctor`
-- Installer สำหรับ Nginx, Certbot และ Git ผ่าน CLI/UI
+- Login for a single machine owner
+- Dashboard and system metrics
+- Tool detection and `hostmgr doctor`
+- Installer for Nginx, Certbot, and Git via CLI/UI
 - Audit log
 
 ### v0.2 — Native Projects
 
 - Git clone/pull
-- Native build และ systemd service
+- Native build and systemd service
 - Environment variables
-- Logs และ health check
-- Manual deploy และ rollback
+- Logs and health check
+- Manual deploy and rollback
 
 ### v0.3 — Domains & SSL
 
 - Domain inventory
-- Nginx template, validation, diff และ rollback
+- Nginx template, validation, diff, and rollback
 - Certbot issue/renew
-- Domain-to-project sync และ drift detection
+- Domain-to-project sync and drift detection
 
 ### v0.4 — Docker Projects
 
 - Docker/Compose installer
-- Dockerfile และ Compose deployment
-- Container logs, volumes และ networks ระดับโปรเจกต์
+- Dockerfile and Compose deployment
+- Project-scoped container logs, volumes, and networks
 
 ### v0.5 — Automation
 
 - GitHub/GitLab webhook
 - Auto deploy
-- Backup/restore รายโปรเจกต์
-- Notifications เมื่อ deploy หรือ renewal ล้มเหลว
+- Per-project backup/restore
+- Notifications when deploy or renewal fails
 
-## เกณฑ์ว่า v1 ใช้งานได้จริง
+## v1 readiness criteria
 
-- ติดตั้งบน Ubuntu target ที่สะอาดได้จาก CLI โดยไม่ต้องแก้ไฟล์ด้วยมือ
-- หาก Nginx, Certbot หรือ Git ไม่มีอยู่ ผู้ใช้ติดตั้งผ่าน UI ได้
-- เพิ่ม Native project จาก Git และเปิดผ่านโดเมน HTTPS ได้
-- เพิ่ม Docker project และใช้ Nginx ตัวเดียวกับ Native project ได้
-- config ที่ผิดไม่ทำให้ Nginx ของทั้งเครื่องหยุดทำงาน
-- deploy ที่ build หรือ health check ไม่ผ่านไม่ทำลาย release เดิม
-- restart เครื่องแล้ว Dashboard, Nginx และแอปที่เปิดใช้งานกลับมาทำงานได้
-- secret ไม่ปรากฏใน UI response, process arguments หรือ log
+- Install on a clean Ubuntu target from the CLI without hand-editing files
+- If Nginx, Certbot, or Git is missing, the user can install them from the UI
+- Add a Native project from Git and serve it over an HTTPS domain
+- Add a Docker project and share the same Nginx as Native projects
+- Bad config does not take down the whole machine's Nginx
+- A deploy that fails build or health check does not destroy the previous release
+- After reboot, Dashboard, Nginx, and enabled apps come back up
+- Secrets do not appear in UI responses, process arguments, or logs
 
-## การมีส่วนร่วม
+## Contributing
 
-โปรเจกต์ยังอยู่ในช่วงกำหนด architecture และ MVP หากต้องการช่วยพัฒนา สามารถเริ่มจาก issue ที่เกี่ยวกับ tool detection, Nginx config generation, systemd service management, Git deployment หรือ security review
+The project is still defining architecture and MVP. Useful starting points include issues about tool detection, Nginx config generation, systemd service management, Git deployment, or security review.
 
-ก่อนส่ง pull request ควรแนบ:
+Before opening a pull request, include:
 
-- คำอธิบายปัญหาและแนวทางแก้
-- วิธีทดสอบบน target environment
-- ผลกระทบต่อ permission และ security
-- migration หรือ rollback plan หากมีการเปลี่ยน config/data
+- Problem description and proposed approach
+- How to test on the target environment
+- Impact on permissions and security
+- Migration or rollback plan if config/data changes
 
 ## License
 
-ยังไม่ได้เลือก license ก่อนเปิด repository สู่สาธารณะควรเพิ่ม OSI-approved license เช่น Apache-2.0 หรือ AGPL-3.0 ตามเป้าหมายของโครงการ
+No license has been chosen yet. Before making the repository public, add an OSI-approved license such as Apache-2.0 or AGPL-3.0 based on project goals.
 
 ---
 
-เอกสารนี้เป็น product/technical scope เริ่มต้น รายละเอียดของ stack, package source, CLI flags และ API อาจเปลี่ยนระหว่างการพัฒนา
+This document is an initial product/technical scope. Stack details, package sources, CLI flags, and APIs may change during development.

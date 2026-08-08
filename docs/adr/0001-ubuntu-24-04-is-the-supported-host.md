@@ -5,16 +5,16 @@
 
 ## Context
 
-ระบบจัดการ package, systemd, Nginx และ Certbot ของ host โดยตรง จึงต้องมี platform เป้าหมายที่ทดสอบซ้ำได้เพียงหนึ่งชุดในระยะแรก เดิมเอกสารอ้าง Ubuntu 25.04 ซึ่งหมดระยะสนับสนุนแล้ว
+The system manages host packages, systemd, Nginx, and Certbot directly, so the first phase needs one repeatable target platform. Earlier docs referenced Ubuntu 25.04, which is past end of support.
 
 ## Decision
 
-รุ่นแรกจะรองรับและรับรองเฉพาะ Ubuntu Server 24.04 LTS amd64 ทุก workflow ที่เปลี่ยน host ต้องผ่านการทดสอบบน environment นี้
+The first release supports and certifies only Ubuntu Server 24.04 LTS amd64. Every host-changing workflow must be tested on this environment.
 
-เครื่องพัฒนาที่เป็น Ubuntu 25.04 ใช้ทำงานกับ source code หรือรัน Docker test ได้ แต่ไม่ถือว่าเป็นผลรับรองการทำงานบน host
+A development machine on Ubuntu 25.04 may work with source or run Docker tests, but that does not count as host certification.
 
 ## Consequences
 
-- scripts, package manifests และเอกสารติดตั้งต้องระบุ Ubuntu 24.04
-- ระบบจะยังไม่อ้างว่ารองรับ Ubuntu 26.04 หรือ distribution อื่นจนกว่าจะมี ADR และ test evidence เพิ่ม
-- Docker ใช้ทดสอบ service/API และ dependency isolation ได้ แต่ต้องมี VM test แยกสำหรับ package installation, systemd, Nginx reload และ reboot
+- Scripts, package manifests, and install docs must specify Ubuntu 24.04
+- The system will not claim support for Ubuntu 26.04 or other distributions until additional ADRs and test evidence exist
+- Docker may test service/API and dependency isolation, but separate VM tests are required for package installation, systemd, Nginx reload, and reboot

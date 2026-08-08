@@ -5,19 +5,19 @@
 
 ## Context
 
-Project sync ต้องรองรับ private repository ผ่าน HTTPS และ SSH แต่ Dashboard/API/audit log ต้องไม่เก็บหรือส่ง Git token และ SSH private key แบบ plaintext
+Project sync must support private repositories over HTTPS and SSH, but Dashboard/API/audit logs must not store or transmit Git tokens or SSH private keys in plaintext.
 
 ## Decision
 
-ผู้ใช้เลือก protocol ต่อ project:
+The user chooses a protocol per project:
 
-- HTTPS: เก็บได้เฉพาะชื่อ environment secret reference เช่น `HOSTMGR_GIT_TOKEN` ไม่มีช่องหรือ API ที่รับ token value
-- SSH: Dashboard สร้างเพียง deploy-key identifier; privileged helper บน host เป็นผู้สร้างและเก็บ private key ตาม permission ที่เหมาะสม และ UI แสดงได้เฉพาะ public key เมื่อ helper รองรับ
+- HTTPS: only an environment secret reference name may be stored, such as `HOSTMGR_GIT_TOKEN`; there is no field or API that accepts a token value
+- SSH: the Dashboard creates only a deploy-key identifier; the privileged helper on the host creates and stores the private key with appropriate permissions, and the UI may show only the public key when the helper supports it
 
-Git author name/email เป็น metadata ปกติและเก็บใน state ได้ Sync ใน Docker demo เป็น validation ของ configuration เท่านั้น ไม่ clone repository
+Git author name/email are normal metadata and may be stored in state. Sync in the Docker demo validates configuration only and does not clone the repository.
 
 ## Consequences
 
-- Token ต้องถูก provision นอก Dashboard ผ่าน secret store/environment ที่ deployment service เข้าถึงได้
-- deployment helper ในขั้นต่อไปต้อง resolve reference ในสิทธิ์จำกัดและ redact ค่าเสมอ
-- public repository ใช้ HTTPS โดยไม่ต้องมี credential reference ได้
+- Tokens must be provisioned outside the Dashboard through a secret store/environment the deployment service can access
+- The future deployment helper must resolve references with limited privileges and always redact values
+- Public repositories may use HTTPS without a credential reference

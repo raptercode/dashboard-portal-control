@@ -2,24 +2,24 @@
 
 | Term | Meaning |
 | --- | --- |
-| Active release | Release ที่รับ traffic อยู่ในขณะนั้น |
-| Audit event | บันทึกว่าใคร/อะไรเรียก operation ใด เมื่อใด ผลเป็นอย่างไร โดยตัด secret ออกแล้ว |
-| Candidate | Release ใหม่ที่ build และตรวจ health check ก่อนสลับเป็น active release |
-| Build step | npm script ที่รันหลัง `npm ci`; Project สามารถตั้งเป็นไม่มีขั้น build ได้ แต่ยังต้องมี start script |
-| Config drift | สภาพที่ไฟล์ config ที่ระบบเป็นเจ้าของไม่ตรงกับ desired state หรือ hash ที่บันทึกไว้ |
-| Desired state | สภาพ Project/Domain ที่ตั้งใจให้ระบบสร้างและเก็บในฐานข้อมูล |
-| Domain sync | การซิงก์ความสัมพันธ์ Project, Domain, Nginx และ SSL ภายใน host เท่านั้น ไม่ใช่การแก้ DNS provider |
-| Domain activation | การตรวจ DNS, สร้าง Nginx managed file, ขอหรือขยาย ACME certificate และชี้ reverse proxy ไปยัง active project release |
-| Credential reference | ชื่อ environment secret ที่ deployment service ใช้ resolve credential โดยไม่เก็บ secret value ใน Dashboard |
-| Credential vault | ส่วนที่เข้ารหัส HTTPS token ก่อนเก็บ persistent state และไม่คืน token ผ่าน API |
-| Deploy key | SSH key pair ที่ใช้ให้ host เข้าถึง repository หนึ่ง โดย UI ไม่เข้าถึง private key |
-| Native mode | การรัน application บน host โดย systemd ไม่ได้อยู่ใน Docker container |
-| Owned file | ไฟล์ที่ Host Manager สร้างและมีสิทธิ์แก้ ตาม ownership boundary |
-| Privileged helper | service แยกที่ทำ operation สิทธิ์สูงแบบ allowlist หลังตรวจ input |
-| Project user | Unix user ที่จำกัดสิทธิ์และใช้ build/run application ของ Project หนึ่ง |
-| Release | ผลลัพธ์ deployment หนึ่งครั้งที่ผูกกับ commit และ metadata ของมัน |
-| Rollback | การคืน traffic หรือ service กลับไปยัง Active release ที่ผ่านการตรวจแล้วก่อนหน้า |
-| Update manifest | เอกสาร JSON ที่เซ็นด้วย Ed25519 ซึ่งระบุ version, archive HTTPS และ SHA-256 สำหรับอัปเดต Dashboard Portal |
+| Active release | The release currently receiving traffic |
+| Audit event | A record of who/what invoked which operation, when, and with what result, with secrets redacted |
+| Candidate | A new release that is built and health-checked before becoming the active release |
+| Build step | An npm script run after `npm ci`; a Project may omit the build step but must still have a start script |
+| Config drift | Owned config files no longer match the desired state or recorded hash |
+| Desired state | The Project/Domain state the system intends to create and store in the database |
+| Domain sync | Syncing Project, Domain, Nginx, and SSL relationships on the host only; not editing a DNS provider |
+| Domain activation | Checking DNS, creating a managed Nginx file, requesting or expanding an ACME certificate, and pointing the reverse proxy at the active project release |
+| Credential reference | The name of an environment secret the deployment service resolves, without storing the secret value in the Dashboard |
+| Credential vault | Encrypted storage for HTTPS tokens in persistent state; tokens are never returned through the API |
+| Deploy key | An SSH key pair that lets the host access one repository; the UI never accesses the private key |
+| Native mode | Running the application on the host under systemd, not in a Docker container |
+| Owned file | A file Host Manager creates and is allowed to modify, within the ownership boundary |
+| Privileged helper | A separate service that performs allowlisted high-privilege operations after validating input |
+| Project user | A limited Unix user used to build/run one Project's application |
+| Release | The result of one deployment, tied to a commit and its metadata |
+| Rollback | Returning traffic or the service to a previously verified Active release |
+| Update manifest | An Ed25519-signed JSON document that names the version, HTTPS archive, and SHA-256 for a Dashboard Portal update |
 | Install snapshot | Root-only timestamped copy of the Dashboard Portal files it owns before an installer change; used to restore managed files after a failed install. |
 | TLS fail-closed | Production install does not report success or leave the login intentionally exposed over HTTP; a certificate and HTTPS health check must pass. |
 | Session identifier hash | SHA-256 hash of the browser session cookie stored in persistent state; the raw cookie remains only in the browser. |

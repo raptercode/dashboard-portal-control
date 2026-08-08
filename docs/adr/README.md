@@ -1,8 +1,8 @@
 # Architecture Decision Records
 
-เอกสารในโฟลเดอร์นี้บันทึกการตัดสินใจด้านสถาปัตยกรรมที่มีผลต่อโค้ด การปฏิบัติการ หรือขอบเขตผลิตภัณฑ์
+Documents in this folder record architecture decisions that affect code, operations, or product scope.
 
-- ตั้งชื่อเป็น `NNNN-short-title.md`
-- สถานะใช้ `Proposed`, `Accepted`, `Superseded` หรือ `Deprecated`
-- ADR ที่เป็น `Accepted` คือข้อกำหนดปัจจุบัน; หากเปลี่ยน ให้สร้าง ADR ใหม่และอ้างอิงฉบับเดิม
-- อย่าแก้ไขประวัติการตัดสินใจเพื่อให้เหมือนความคิดปัจจุบัน ให้บันทึกผลกระทบและเหตุผลของการเปลี่ยนแทน
+- Name files `NNNN-short-title.md`
+- Status is `Proposed`, `Accepted`, `Superseded`, or `Deprecated`
+- An `Accepted` ADR is current policy; if it changes, create a new ADR and reference the previous one
+- Do not rewrite decision history to match current thinking; record the impact and reasons for the change instead

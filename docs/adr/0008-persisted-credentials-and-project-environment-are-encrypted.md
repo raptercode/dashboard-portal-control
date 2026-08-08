@@ -5,18 +5,18 @@
 
 ## Context
 
-Private HTTPS repositories ต้องใช้ token จริง และ project ต้องมี `.env` ที่ใช้ซ้ำข้าม deployment ได้ ผู้ใช้เลือกให้ระบบบันทึกทั้งสองอย่างครั้งเดียวแล้วใช้ต่อได้
+Private HTTPS repositories need a real token, and projects need a `.env` that can be reused across deployments. Users may choose to store both once and reuse them.
 
 ## Decision
 
-Dashboard รับ HTTPS token และ `.env` ผ่าน authenticated, CSRF-protected request แล้วเข้ารหัสด้วย AES-256-GCM ก่อนเขียนลง persistent state API, audit log และ UI จะคืนเฉพาะ credential metadata และชื่อ environment keys เท่านั้น
+The Dashboard accepts HTTPS tokens and `.env` content through authenticated, CSRF-protected requests and encrypts them with AES-256-GCM before writing persistent state. API, audit log, and UI return only credential metadata and environment key names.
 
-`HOSTMGR_SECRET_KEY` เป็น base64 key ขนาด 32 bytes ที่อยู่ใน `.env` ของ deployment และต้องคงเดิมตลอดอายุของ state หาก key หายหรือเปลี่ยน ระบบจะไม่สามารถถอดรหัสค่าเดิมได้
+`HOSTMGR_SECRET_KEY` is a 32-byte base64 key in the deployment `.env` and must remain unchanged for the lifetime of that state. If the key is lost or changed, previously stored values cannot be decrypted.
 
-เมื่อ host deployment helper ถูกเชื่อมแล้ว helper จะถอดรหัสค่าใน memory เท่าที่จำเป็น ใช้ token กับ Git โดยไม่ใส่ใน command line/log และสร้าง `.env` ของ release ตาม permission ของ project user
+Once the host deployment helper is wired, it decrypts values in memory only as needed, uses the token with Git without putting it on the command line/logs, and creates the release `.env` with project-user permissions.
 
 ## Consequences
 
-- Backup state ต้อง backup `HOSTMGR_SECRET_KEY` อย่างปลอดภัยด้วย มิฉะนั้น restore credential ไม่ได้
-- การ rotate master key ต้องเป็น operation เฉพาะที่ถอดและเข้ารหัส secrets ทุกค่าใหม่แบบ atomic; ยังไม่รองรับใน v0.1
-- ผู้ใช้จะดู/แก้ไข `.env` ได้โดยการบันทึกเนื้อหาใหม่ ไม่ใช่ read-back ผ่าน UI
+- State backups must also back up `HOSTMGR_SECRET_KEY` securely, or credentials cannot be restored
+- Rotating the master key must be a dedicated operation that decrypts and re-encrypts every secret atomically; not supported in v0.1
+- Users view/edit `.env` by saving new content, not by reading values back through the UI

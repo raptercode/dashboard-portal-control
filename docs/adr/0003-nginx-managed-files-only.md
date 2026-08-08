@@ -5,16 +5,16 @@
 
 ## Context
 
-Host Manager ต้องสร้าง reverse proxy และตรวจ config drift แต่ไม่ควรทำลาย Nginx configuration ที่ผู้ใช้หรือเครื่องมืออื่นดูแลอยู่
+Host Manager must create reverse proxies and detect config drift, but must not destroy Nginx configuration owned by the user or other tools.
 
 ## Decision
 
-ฐานข้อมูลเก็บ desired state ของ Domain และ Project ส่วน Host Manager เป็นเจ้าของเฉพาะ config ใน directory ที่กำหนด เช่น `/etc/nginx/sites-available/hostmgr/` และ symlink ที่ระบบสร้างเองเท่านั้น
+The database stores desired Domain and Project state. Host Manager owns only config under a designated directory such as `/etc/nginx/sites-available/hostmgr/` and symlinks it creates itself.
 
-การ apply ต้อง preview diff, เขียนแบบ atomic, สำรองไฟล์ที่ระบบเป็นเจ้าของ, รัน `nginx -t` และ reload หลัง validation ผ่านเท่านั้น การ import เป็นการอ่าน/adopt เฉพาะ config ที่แปลงเป็น managed template ได้ ไม่ใช่ two-way sync ของ Nginx ทั้งเครื่อง
+Apply must preview a diff, write atomically, back up owned files, run `nginx -t`, and reload only after validation passes. Import reads/adopts only config that can be mapped to a managed template; it is not two-way sync of the whole machine's Nginx.
 
 ## Consequences
 
-- การแก้ config ที่ Host Manager เป็นเจ้าของจากภายนอกจะถูกตรวจเป็น drift และต้องให้ผู้ใช้เลือก adopt หรือ restore
-- custom directives ต้องอยู่ใน managed extension block ที่กำหนด ไม่ใช่ raw config ทั้งไฟล์
-- config นอก ownership boundary เป็น read-only สำหรับระบบนี้
+- External edits to Host Manager-owned config are detected as drift and require the user to adopt or restore
+- Custom directives must live in a defined managed extension block, not as raw whole-file config
+- Config outside the ownership boundary is read-only for this system

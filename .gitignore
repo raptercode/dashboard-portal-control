@@ -2,3 +2,7 @@
 data/
 node_modules/
 coverage/
+dist/
+release-out/
+*.tar.gz
+*.tar.gz.sha256

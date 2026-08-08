@@ -5,16 +5,16 @@
 
 ## Context
 
-README รุ่นแรกเคยระบุ build/start command แต่การรับ shell string จาก UI แล้วนำไปประกอบเป็น command หรือ systemd unit ทำให้มี command injection boundary ที่ตรวจสอบได้ยาก
+Early README drafts mentioned build/start commands. Accepting shell strings from the UI and composing them into commands or systemd units creates a command-injection boundary that is hard to audit.
 
 ## Decision
 
-Native Node.js project ระบุ `buildScript` และ `startScript` ซึ่งเป็นชื่อ npm script เท่านั้น ตัวอักษรที่อนุญาตคือ letters, digits, colon, underscore และ hyphen helper จะ execute เป็น argument vector ที่กำหนดตายตัว เช่น `/usr/bin/npm run start` ภายใต้ Unix user เฉพาะ project
+Native Node.js projects specify `buildScript` and `startScript` as npm script names only. Allowed characters are letters, digits, colon, underscore, and hyphen. The helper executes a fixed argument vector such as `/usr/bin/npm run start` under a project-specific Unix user.
 
-Environment variable จะอยู่ใน root-owned environment file แยกจาก unit และ log; ไม่แสดง value กลับผ่าน API หรือ audit event
+Environment variables live in a root-owned environment file separate from the unit and logs; values are not returned through the API or audit events.
 
 ## Consequences
 
-- native project ที่ต้องการ command นอกเหนือจาก npm script ใช้ Docker mode หรือยังไม่อยู่ในขอบเขต
-- systemd unit สามารถใช้ hardening directives และไม่มี shell interpolation จาก UI
-- README และ UI ต้องใช้คำว่า script แทน command เมื่อ Native mode
+- Native projects that need commands beyond npm scripts use Docker mode or remain out of scope
+- systemd units can use hardening directives and have no shell interpolation from the UI
+- README and UI must say script, not command, for Native mode
