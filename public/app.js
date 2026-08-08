@@ -447,7 +447,7 @@ function renderDomainList() {
 function domainStatusTone(status) {
   if (!status) return 'muted';
   if (status === 'ok') return 'ready';
-  if (status === 'mismatch' || status === 'unresolved') return 'needs';
+  if (status === 'mismatch' || status === 'unresolved' || status === 'error') return 'needs';
   return 'muted';
 }
 
@@ -456,6 +456,7 @@ function domainStatusLabel(status) {
   if (status === 'ok') return 'ชี้ IP ถูก';
   if (status === 'mismatch') return 'IP ไม่ตรง';
   if (status === 'unresolved') return 'ยังไม่ resolve';
+  if (status === 'error') return 'ตรวจไม่สำเร็จ';
   return 'ไม่ทราบสถานะ';
 }
 
@@ -468,7 +469,7 @@ async function refreshDomainStatuses() {
       const result = await api(`/api/projects/${encodeURIComponent(project.slug)}/domains/check`, { method: 'POST', body: { hostname: host } });
       state.domainStatuses[host] = result.status;
     } catch {
-      state.domainStatuses[host] = 'unresolved';
+      state.domainStatuses[host] = 'error';
     }
   }));
   if (state.domainView === 'list' && domainDialog.open) renderDomainList();
@@ -503,12 +504,14 @@ function renderDomainCheck(result) {
   const summary = $('#domain-check-summary');
   if (result.status === 'ok') summary.textContent = `${result.hostname} ชี้มายังเครื่องนี้แล้ว`;
   else if (result.status === 'mismatch') summary.textContent = `${result.hostname} resolve แล้วแต่ยังไม่ชี้ IP ของเครื่องนี้`;
+  else if (result.status === 'error') summary.textContent = result.detail || `ตรวจสอบ DNS สำหรับ ${result.hostname} ไม่สำเร็จ`;
   else summary.textContent = `${result.hostname} ยังไม่ resolve ใน DNS`;
   const detail = $('#domain-check-detail');
   detail.replaceChildren();
   appendDomainDetail(detail, 'Resolved', result.resolved?.length ? result.resolved.join(', ') : '—');
   appendDomainDetail(detail, 'Expected', result.expected?.length ? result.expected.join(', ') : '—');
   appendDomainDetail(detail, 'สถานะ', domainStatusLabel(result.status));
+  if (result.status === 'error' && result.detail) appendDomainDetail(detail, 'รายละเอียด', result.detail);
 }
 
 function appendDomainDetail(root, label, value) {

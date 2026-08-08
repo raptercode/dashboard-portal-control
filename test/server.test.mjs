@@ -150,6 +150,7 @@ test('domain DNS check returns structured soft-check status and rejects invalid 
   const { app, base } = await start({
     domainDnsCheck: async (hostname) => {
       if (hostname === 'ok.example.test') return { hostname, resolved: ['203.0.113.9'], expected: ['203.0.113.9'], matched: true, status: 'ok' };
+      if (hostname === 'boom.example.test') throw new Error('resolver exploded');
       return { hostname, resolved: [], expected: ['203.0.113.9'], matched: false, status: 'unresolved' };
     },
   });
@@ -167,8 +168,18 @@ test('domain DNS check returns structured soft-check status and rejects invalid 
   const unresolved = await fetch(`${base}/api/projects/check-app/domains/check`, { method: 'POST', headers, body: JSON.stringify({ hostname: 'missing.example.test' }) });
   assert.equal(unresolved.status, 200);
   assert.equal((await unresolved.json()).status, 'unresolved');
+  const failed = await fetch(`${base}/api/projects/check-app/domains/check`, { method: 'POST', headers, body: JSON.stringify({ hostname: 'boom.example.test' }) });
+  assert.equal(failed.status, 200);
+  const failedBody = await failed.json();
+  assert.equal(failedBody.status, 'error');
+  assert.equal(failedBody.hostname, 'boom.example.test');
+  assert.match(failedBody.detail, /DNS check failed/i);
   const rejected = await fetch(`${base}/api/projects/check-app/domains/check`, { method: 'POST', headers, body: JSON.stringify({ hostname: 'invalid host' }) });
   assert.equal(rejected.status, 400);
+  assert.match((await rejected.json()).error, /valid DNS hostname/i);
+  const missingProject = await fetch(`${base}/api/projects/missing-app/domains/check`, { method: 'POST', headers, body: JSON.stringify({ hostname: 'ok.example.test' }) });
+  assert.equal(missingProject.status, 404);
+  assert.match((await missingProject.json()).error, /not found/i);
 });
 
 test('a failed repository sync is recorded as failure and never overwrites an active release', async (t) => {

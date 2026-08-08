@@ -147,9 +147,7 @@ export async function createApplication(options = {}) {
       if (url.pathname.startsWith('/api/')) return sendJson(response, 404, { error: 'API endpoint not found.' });
       return await serveStatic(url.pathname, response);
     } catch (error) {
-      if (error instanceof InputError) return sendJson(response, 400, { error: error.message });
-      console.error(error);
-      return sendJson(response, 500, { error: 'Internal server error.' });
+      return sendCaughtError(response, error);
     }
   });
 
@@ -365,8 +363,21 @@ export async function createApplication(options = {}) {
     if (!requireSession(request, response, true)) return;
     findProject(store.snapshot(), slug);
     const hostname = validateDomain({ hostname: (await readJson(request)).hostname });
-    const result = await domainDnsCheck(hostname);
-    return sendJson(response, 200, result);
+    try {
+      const result = await domainDnsCheck(hostname);
+      return sendJson(response, 200, normalizeDomainCheckResult(hostname, result));
+    } catch (error) {
+      if (error instanceof InputError) throw error;
+      console.error(error);
+      return sendJson(response, 200, {
+        hostname,
+        resolved: [],
+        expected: [],
+        matched: false,
+        status: 'error',
+        detail: 'DNS check failed. Verify network/DNS settings and try again.',
+      });
+    }
   }
 
   async function handleProjectDomains(request, response, slug) {
@@ -570,9 +581,57 @@ async function syncDomainsOnHost(socketPath, slug) {
 
 function findProject(state, slug) {
   const project = state.projects.find((item) => item.slug === slug);
-  if (!project) throw new InputError('Project was not found.');
+  if (!project) throw new NotFoundError('Project was not found.');
   return project;
 }
+
+function normalizeDomainCheckResult(hostname, result) {
+  if (!result || typeof result !== 'object' || Array.isArray(result)) {
+    return {
+      hostname,
+      resolved: [],
+      expected: [],
+      matched: false,
+      status: 'error',
+      detail: 'DNS check failed. Verify network/DNS settings and try again.',
+    };
+  }
+  const status = ['ok', 'mismatch', 'unresolved', 'error'].includes(result.status) ? result.status : 'error';
+  const resolved = Array.isArray(result.resolved) ? result.resolved.filter((item) => typeof item === 'string') : [];
+  const expected = Array.isArray(result.expected) ? result.expected.filter((item) => typeof item === 'string') : [];
+  return {
+    hostname: typeof result.hostname === 'string' && result.hostname ? result.hostname : hostname,
+    resolved,
+    expected,
+    matched: Boolean(result.matched),
+    status,
+    ...(status === 'error' ? { detail: typeof result.detail === 'string' && result.detail ? result.detail.slice(0, 240) : 'DNS check failed. Verify network/DNS settings and try again.' } : {}),
+  };
+}
+
+function sendCaughtError(response, error) {
+  if (response.headersSent) {
+    console.error(error);
+    return;
+  }
+  if (error instanceof InputError) return sendJson(response, 400, { error: error.message });
+  if (error instanceof NotFoundError) return sendJson(response, 404, { error: error.message });
+  if (error instanceof DeploymentFailure) return sendJson(response, 422, { error: error.message });
+  console.error(error);
+  return sendJson(response, 500, { error: publicInternalError(error) });
+}
+
+function publicInternalError(error) {
+  if (!(error instanceof Error)) return 'Internal server error.';
+  const message = String(error.message || '').trim();
+  if (!message || message.length > 240) return 'Internal server error.';
+  if (/ENOENT|EACCES|EPERM|ECONNREFUSED|ECONNRESET|ENOTFOUND|EAI_AGAIN|Cannot read|is not (a )?function|Unexpected token|at process\.|node:internal/i.test(message)) {
+    return 'Internal server error.';
+  }
+  return message;
+}
+
+class NotFoundError extends Error {}
 
 function delay(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));

@@ -38,3 +38,30 @@ test('checkDomainDns reports ok, mismatch, and unresolved', async () => {
 test('checkDomainDns rejects invalid hostnames', async () => {
   await assert.rejects(() => checkDomainDns('not a domain'), InputError);
 });
+
+test('checkDomainDns soft-fails unexpected resolver or NIC errors', async () => {
+  const brokenNics = await checkDomainDns('app.example.test', {
+    expected: undefined,
+    networkInterfaces: () => { throw new Error('nic enumeration failed'); },
+    env: {},
+    resolve4: async () => ['203.0.113.9'],
+    resolve6: async () => [],
+  });
+  assert.equal(brokenNics.status, 'mismatch');
+  assert.deepEqual(brokenNics.resolved, ['203.0.113.9']);
+  assert.deepEqual(brokenNics.expected, []);
+
+  const brokenResolver = await checkDomainDns('app.example.test', {
+    expected: ['203.0.113.9'],
+    resolve4: async () => { throw Object.assign(new Error('resolver exploded'), { code: 'ESERVFAIL' }); },
+    resolve6: async () => { throw new Error('unexpected'); },
+  });
+  assert.equal(brokenResolver.status, 'unresolved');
+
+  const nonArray = await checkDomainDns('app.example.test', {
+    expected: ['203.0.113.9'],
+    resolve4: async () => undefined,
+    resolve6: async () => 'not-an-array',
+  });
+  assert.equal(nonArray.status, 'unresolved');
+});
