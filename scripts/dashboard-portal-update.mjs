@@ -78,8 +78,9 @@ async function update(values) {
 }
 
 async function download(url, destination) {
-  const response = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(60_000) });
+  const response = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(60_000) });
   if (!response.ok || !response.body) fatal('Release archive could not be downloaded.');
+  if (response.url && new URL(response.url).protocol !== 'https:') fatal('Release archive redirect must remain on HTTPS.');
   const length = Number(response.headers.get('content-length') ?? 0);
   if (Number.isFinite(length) && length > MAX_ARCHIVE_BYTES) fatal('Release archive is too large.');
   let downloaded = 0;

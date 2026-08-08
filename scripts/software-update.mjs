@@ -54,10 +54,11 @@ export async function fetchVerifiedManifest(config, fetcher = fetch) {
   const publicKey = await readFile(config.publicKeyPath, 'utf8');
   const response = await fetcher(config.manifestUrl, {
     headers: { Accept: 'application/json' },
-    redirect: 'error',
+    redirect: 'follow',
     signal: AbortSignal.timeout(10_000)
   });
   if (!response?.ok) throw new Error('Update manifest could not be downloaded.');
+  if (response.url && new URL(response.url).protocol !== 'https:') throw new Error('Update manifest redirect must remain on HTTPS.');
   const length = Number(response.headers?.get?.('content-length') ?? 0);
   if (Number.isFinite(length) && length > 64 * 1024) throw new Error('Update manifest is too large.');
   const document = await response.json();
