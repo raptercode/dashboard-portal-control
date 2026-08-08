@@ -1,0 +1,18 @@
+services:
+  hostmgr:
+    build:
+      context: .
+    image: modern-host-manager:dev
+    environment:
+      HOSTMGR_ADMIN_PASSWORD: ${HOSTMGR_ADMIN_PASSWORD:?Set HOSTMGR_ADMIN_PASSWORD in .env}
+      HOSTMGR_SECRET_KEY: ${HOSTMGR_SECRET_KEY:?Set HOSTMGR_SECRET_KEY in .env}
+      HOSTMGR_MODE: demo
+      HOSTMGR_SECURE_COOKIE: "false"
+    ports:
+      - "80:3000"
+    volumes:
+      - hostmgr-data:/var/lib/hostmgr
+    restart: unless-stopped
+
+volumes:
+  hostmgr-data:

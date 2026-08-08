@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <meta name="theme-color" content="#0b1510">
+    <title>Dashboard Portal</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="overrides.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <section id="login-view" class="login-screen" aria-labelledby="login-title">
+        <div class="login-card">
+          <div class="brand-mark" aria-hidden="true">DP</div>
+          <p class="eyebrow">DASHBOARD PORTAL</p>
+          <h1 id="login-title">จัดการ host<br>อย่างมั่นใจ</h1>
+          <p class="lede">เข้าสู่พื้นที่ควบคุมของเจ้าของเครื่อง</p>
+          <form id="login-form">
+            <label for="password">รหัสผ่าน</label>
+            <input id="password" name="password" type="password" autocomplete="current-password" minlength="12" required autofocus>
+            <button type="submit">เข้าสู่ Dashboard <span aria-hidden="true">→</span></button>
+          </form>
+          <p id="login-error" class="form-error" role="alert"></p>
+        </div>
+      </section>
+
+      <section id="dashboard-view" hidden>
+        <aside class="sidebar" aria-label="เมนูหลัก">
+          <a class="brand" href="#overview" data-page-target="overview"><span class="brand-mark">DP</span><span>Dashboard<br><b>Portal</b></span></a>
+          <nav class="primary-nav" aria-label="Dashboard sections">
+            <button class="nav-link active" data-page-target="overview" type="button"><span aria-hidden="true">⌂</span>ภาพรวม</button>
+            <button class="nav-link" data-page-target="setup" type="button"><span aria-hidden="true">◈</span>การตั้งค่า</button>
+            <button class="nav-link" data-page-target="projects" type="button"><span aria-hidden="true">▣</span>โปรเจค</button>
+            <button class="nav-link" data-page-target="credentials" type="button"><span aria-hidden="true">⌘</span>Credentials</button>
+            <button class="nav-link" data-page-target="activity" type="button"><span aria-hidden="true">◷</span>Activity</button>
+            <button class="nav-link" data-page-target="settings" type="button"><span aria-hidden="true">⚙</span>การตั้งค่าระบบ</button>
+          </nav>
+          <div class="sidebar-bottom"><span id="mode-badge" class="mode-badge"></span><button id="logout" class="signout" type="button">ออกจากระบบ</button></div>
+        </aside>
+
+        <div class="workspace">
+          <header class="mobile-bar"><a class="brand" href="#overview" data-page-target="overview"><span class="brand-mark">DP</span><span>Dashboard Portal</span></a><button id="mobile-menu" class="icon-button" type="button" aria-label="เปิดเมนู" aria-expanded="false">☰</button></header>
+
+          <section class="page" data-page="overview">
+            <header class="page-header"><div><p class="eyebrow">YOUR CONTROL PLANE</p><h1>สวัสดี, เจ้าของเครื่อง</h1><p class="subtitle">ดูความพร้อมและจัดการงานถัดไปของ host นี้</p></div><button id="refresh" class="secondary" type="button">↻ อัปเดตข้อมูล</button></header>
+            <aside id="sandbox-notice" class="notice" hidden><span aria-hidden="true">◌</span><div><strong>กำลังทำงานใน Sandbox</strong><p>การติดตั้งถูกจำลองใน container และจะไม่แก้ไข Docker host</p></div></aside>
+            <section class="metric-grid" aria-label="สถานะเครื่อง">
+              <article class="metric-card"><span class="metric-label">HOST</span><strong id="host-name">—</strong><small id="host-platform">—</small></article>
+              <article class="metric-card"><span class="metric-label">NODE RUNTIME</span><strong id="node-version">—</strong><small>รองรับเฉพาะ major 24</small></article>
+              <article class="metric-card"><span class="metric-label">SYSTEM UPTIME</span><strong id="uptime">—</strong><small id="memory">—</small></article>
+            </section>
+            <section class="split-heading"><div><p class="eyebrow">GET READY</p><h2>ก่อนเริ่ม deploy</h2></div><span id="readiness-count" class="count-pill">—</span></section>
+            <section id="readiness" class="readiness-list" aria-live="polite"></section>
+            <section class="next-action" aria-labelledby="next-action-title"><div class="next-icon" aria-hidden="true">→</div><div><p class="eyebrow">NEXT ACTION</p><h2 id="next-action-title">กำลังตรวจสอบความพร้อม</h2><p id="next-action-copy">กรุณารอสักครู่</p></div><button id="next-action-button" type="button" hidden></button></section>
+          </section>
+
+          <section class="page" data-page="setup" hidden>
+            <header class="page-header"><div><p class="eyebrow">FOUNDATION</p><h1>การตั้งค่า</h1><p class="subtitle">เตรียมเครื่องมือและตัวตน Git ก่อนเชื่อมต่อ repository</p></div></header>
+            <section class="section-card"><div class="card-head"><div><h2>เครื่องมือบน host</h2><p>ติดตั้งเฉพาะเครื่องมือที่ระบบต้องใช้ผ่าน allowlisted installer</p></div></div><section id="tools" class="tool-grid" aria-live="polite"></section></section>
+            <section class="section-card narrow"><div class="card-head"><div><h2>Git identity</h2><p>ใช้เป็นชื่อผู้สร้าง commit เท่านั้น ไม่ใช่ credential</p></div></div><form id="git-form" class="form-grid"><label for="git-name">ชื่อที่แสดงใน Git<input id="git-name" name="name" maxlength="100" required></label><label for="git-email">อีเมล Git<input id="git-email" name="email" type="email" maxlength="254" required></label><div class="form-actions"><button type="submit">บันทึก Git identity</button></div></form></section>
+          </section>
+
+          <section class="page" data-page="projects" hidden>
+            <header class="page-header"><div><p class="eyebrow">SOURCE &amp; RELEASES</p><h1>โปรเจค</h1><p class="subtitle">จัดกลุ่ม repository และติดตามสถานะการ sync ของแต่ละโปรเจค</p></div><button id="create-project" type="button">+ สร้างโปรเจค</button></header>
+            <div class="project-toolbar"><label class="search-field"><span aria-hidden="true">⌕</span><input id="project-search" type="search" placeholder="ค้นหาโปรเจคหรือ organization"></label><span id="project-count" class="count-pill">0 โปรเจค</span></div>
+            <section id="projects" class="project-groups" aria-live="polite"></section>
+          </section>
+
+          <section class="page" data-page="credentials" hidden>
+            <header class="page-header"><div><p class="eyebrow">SECURE ACCESS</p><h1>Credentials</h1><p class="subtitle">เก็บ token สำหรับ private repository ใน vault ที่เข้ารหัส</p></div></header>
+            <section class="section-card credential-create"><div class="card-head"><div><h2>เพิ่ม HTTPS token</h2><p>ค่า token จะแสดงเพียงครั้งนี้และจะไม่ส่งกลับมาทาง API</p></div></div><form id="credential-form" class="form-grid"><label for="credential-name">ชื่อ Credential<input id="credential-name" name="name" pattern="[a-z][a-z0-9\-]{0,79}" maxlength="80" placeholder="github-personal" required></label><label for="credential-token">Personal access token<input id="credential-token" name="token" type="password" maxlength="4096" autocomplete="new-password" required></label><div class="form-actions"><button type="submit">เข้ารหัสและบันทึก token</button></div></form></section>
+            <section class="split-heading"><div><p class="eyebrow">VAULT</p><h2>Credentials ที่บันทึกไว้</h2></div></section><section id="credentials" class="credential-list" aria-live="polite"></section>
+          </section>
+
+          <section class="page" data-page="activity" hidden>
+            <header class="page-header"><div><p class="eyebrow">TRACEABILITY</p><h1>Activity</h1><p class="subtitle">บันทึกกิจกรรมสำคัญของ Dashboard และ host</p></div></header>
+            <section class="section-card table-card"><table><thead><tr><th>เวลา</th><th>กิจกรรม</th><th>เป้าหมาย</th><th>ผลลัพธ์</th></tr></thead><tbody id="audit"></tbody></table></section>
+          </section>
+
+          <section class="page" data-page="settings" hidden>
+            <header class="page-header"><div><p class="eyebrow">CONTROL PLANE</p><h1>การตั้งค่าระบบ</h1><p class="subtitle">ข้อมูลสถานะของ Dashboard Portal</p></div></header>
+            <section class="settings-stack"><article class="setting-row software-update-row"><div id="software-update"><h2>Software updates</h2><p>กำลังตรวจสอบช่องทาง release</p></div><div class="update-command"><code id="update-command">sudo dashboard-portal update --channel=stable</code><button id="copy-update-command" class="secondary" type="button">คัดลอก</button></div></article><article class="setting-row"><div><h2>โหมดการทำงาน</h2><p id="mode-description">—</p></div><span id="settings-mode" class="mode-badge">—</span></article><article class="setting-row"><div><h2>Domain &amp; TLS</h2><p>การจัดการ domain, Nginx และ TLS จะพร้อมหลัง production deployment workflow ถูกเปิดใช้</p></div><span class="status-chip muted">ยังไม่พร้อม</span></article><article class="setting-row"><div><h2>Deployment service</h2><p>หน้าจอนี้จะรายงาน release, health check และ rollback เมื่อ backend รองรับการ deploy จริง</p></div><span class="status-chip muted">ยังไม่พร้อม</span></article></section>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <dialog id="project-dialog" class="modal project-modal" aria-labelledby="project-dialog-title">
+      <form id="project-form" class="wizard-form">
+        <header class="modal-header">
+          <div>
+            <p class="eyebrow">NEW PROJECT</p>
+            <h2 id="project-dialog-title">สร้างโปรเจคใหม่</h2>
+            <p id="wizard-phase-label" class="wizard-phase-label">ขั้นที่ 1 จาก 3 · ตั้งชื่อและจัดกลุ่ม</p>
+          </div>
+          <button class="modal-close" value="cancel" type="button" aria-label="ปิด">×</button>
+        </header>
+        <ol class="wizard-steps" aria-label="ขั้นตอน">
+          <li class="current" data-wizard-dot="1"><span class="wizard-dot-num">1</span><span class="wizard-dot-label">ข้อมูล</span></li>
+          <li data-wizard-dot="2"><span class="wizard-dot-num">2</span><span class="wizard-dot-label">Repository</span></li>
+          <li data-wizard-dot="3"><span class="wizard-dot-num">3</span><span class="wizard-dot-label">ตรวจสอบ</span></li>
+        </ol>
+        <div class="wizard-layout">
+          <div class="wizard-stage" tabindex="-1">
+            <section class="wizard-panel" data-wizard-step="1">
+              <h3>ตั้งชื่อและจัดกลุ่ม</h3>
+              <p>ใช้ organization เพื่อค้นหาและดูแลหลายโปรเจคได้ง่ายขึ้น</p>
+              <label for="project-organization">Organization<input id="project-organization" name="organization" maxlength="80" placeholder="Personal" required></label>
+              <label for="project-name">ชื่อโปรเจค<input id="project-name" name="name" maxlength="80" placeholder="Marketing site" required></label>
+              <label for="project-slug">Slug<small class="field-hint">สร้างอัตโนมัติจากชื่อโปรเจค แก้ได้</small><input id="project-slug" name="slug" pattern="[a-z][a-z0-9\-]{0,62}" maxlength="63" placeholder="marketing-site" required></label>
+            </section>
+            <section class="wizard-panel" data-wizard-step="2" hidden>
+              <h3>เชื่อมต่อ repository</h3>
+              <p>Sync คือ clone หรือ pull source เท่านั้น ยังไม่ใช่การ deploy</p>
+              <label for="repository">Repository URL<input id="repository" name="repository" maxlength="500" placeholder="https://github.com/org/repo.git" required></label>
+              <div class="two-fields">
+                <label for="branch">Branch<input id="branch" name="branch" value="main" maxlength="100" required></label>
+                <label for="project-port">Internal port<input id="project-port" name="port" type="number" min="1024" max="65535" value="3000" required></label>
+              </div>
+              <div class="two-fields">
+                <label for="build-script">Build script <small class="field-hint">เว้นว่างได้สำหรับ Express/Node ที่ไม่มีขั้น build</small><input id="build-script" name="buildScript" value="build" maxlength="64" pattern="[A-Za-z0-9:_-]*" placeholder="build"></label>
+                <label for="start-script">Start script<input id="start-script" name="startScript" value="start" maxlength="64" pattern="[A-Za-z0-9:_-]+" placeholder="start" required></label>
+              </div>
+              <fieldset>
+                <legend>วิธีเชื่อมต่อ</legend>
+                <label class="radio-card"><input name="protocol" value="https" type="radio" checked><span><b>HTTPS</b><small>ใช้ token จาก credential vault</small></span></label>
+                <label class="radio-card"><input name="protocol" value="ssh" type="radio"><span><b>SSH</b><small>ต้องมี deploy key บน host ก่อน</small></span></label>
+              </fieldset>
+              <div id="https-credential"><label for="credential-id">HTTPS credential<select id="credential-id" name="credentialId"><option value="">Public repository — ไม่ต้องใช้ credential</option></select></label></div>
+            </section>
+            <section class="wizard-panel review-panel" data-wizard-step="3" hidden>
+              <h3>ตรวจสอบก่อน Sync</h3>
+              <p>ยืนยันรายละเอียดด้านล่างก่อนบันทึกและ sync source</p>
+              <dl id="project-review"></dl>
+              <aside class="inline-notice"><span aria-hidden="true">i</span><p>หลัง Sync สำเร็จ ให้บันทึก `.env` อย่างน้อยหนึ่งค่า แล้วจึงสร้าง candidate release ได้</p></aside>
+            </section>
+          </div>
+          <aside class="wizard-preview" aria-live="polite">
+            <p class="eyebrow">LIVE PREVIEW</p>
+            <h3 id="wizard-preview-title">โปรเจคใหม่</h3>
+            <p id="wizard-preview-sub" class="wizard-preview-sub">กรอกข้อมูลแล้วดูสรุปที่นี่</p>
+            <dl id="wizard-preview-list" class="wizard-preview-list"></dl>
+            <p id="wizard-preview-phase" class="wizard-preview-phase">ขั้นถัดไป: เชื่อมต่อ repository</p>
+          </aside>
+        </div>
+        <footer class="modal-footer">
+          <button id="wizard-back" class="secondary" type="button" hidden>← ย้อนกลับ</button>
+          <span class="modal-spacer"></span>
+          <button id="wizard-next" type="button">ถัดไป →</button>
+          <button id="wizard-submit" type="submit" hidden>บันทึกและ Sync source</button>
+        </footer>
+      </form>
+    </dialog>
+    <dialog id="deploy-dialog" class="modal deploy-modal" aria-labelledby="deploy-dialog-title">
+      <form id="deploy-form" class="deploy-form">
+        <header class="modal-header">
+          <div>
+            <p class="eyebrow">CREATE RELEASE</p>
+            <h2 id="deploy-dialog-title">เตรียมก่อน deploy</h2>
+            <p id="deploy-project-label" class="wizard-phase-label">—</p>
+          </div>
+          <button class="modal-close" id="deploy-close" type="button" aria-label="ปิด">×</button>
+        </header>
+        <div class="deploy-body">
+          <section class="deploy-secrets">
+            <h3>Project secrets</h3>
+            <p>บันทึก `.env` ของโปรเจคนี้ก่อนสร้าง release ระบบเก็บแบบเข้ารหัสและแสดงเฉพาะชื่อ key</p>
+            <div id="deploy-existing-keys" class="env-key-list" hidden></div>
+            <label for="deploy-environment">ค่า `.env`<textarea id="deploy-environment" name="content" rows="8" placeholder="NODE_ENV=production&#10;DATABASE_URL=...&#10;API_KEY=..." spellcheck="false"></textarea></label>
+            <p id="deploy-env-hint" class="field-hint">ต้องมีอย่างน้อยหนึ่งตัวแปรก่อน deploy</p>
+          </section>
+          <aside class="inline-notice"><span aria-hidden="true">i</span><p>ระบบจะ build และ health-check candidate ก่อน activate — release ปัจจุบันจะไม่ถูกเปลี่ยนหากขั้นตอนใดล้มเหลว</p></aside>
+        </div>
+        <footer class="modal-footer">
+          <button class="secondary" id="deploy-cancel" type="button">ยกเลิก</button>
+          <span class="modal-spacer"></span>
+          <button id="deploy-submit" type="submit">บันทึกและสร้าง release</button>
+        </footer>
+      </form>
+    </dialog>
+    <dialog id="domain-dialog" class="modal deploy-modal domain-modal" aria-labelledby="domain-dialog-title">
+      <form id="domain-form" class="deploy-form">
+        <header class="modal-header">
+          <div>
+            <p class="eyebrow">DOMAIN &amp; TLS</p>
+            <h2 id="domain-dialog-title">ตั้งค่าโดเมนโปรเจค</h2>
+            <p id="domain-project-label" class="wizard-phase-label">—</p>
+          </div>
+          <button class="modal-close" id="domain-close" type="button" aria-label="ปิด">×</button>
+        </header>
+        <div class="deploy-body" data-domain-view="list">
+          <section class="deploy-secrets domain-list-panel">
+            <h3>Public domains</h3>
+            <p>เพิ่มทีละโดเมน ระบบจะตรวจว่า A/AAAA ชี้เข้าเครื่องนี้หรือยัง แล้วยังบันทึกได้แม้ DNS ยังไม่พร้อม</p>
+            <div id="domain-list" class="domain-list" aria-live="polite"></div>
+            <p id="domain-list-empty" class="field-hint">ยังไม่มีโดเมน — กดเพิ่มโดเมนเพื่อเริ่มต้น</p>
+          </section>
+          <section class="deploy-secrets domain-add-panel" hidden>
+            <ol class="domain-steps" aria-label="ขั้นตอนเพิ่มโดเมน">
+              <li class="current" data-domain-dot="1"><span class="wizard-dot-num">1</span><span class="wizard-dot-label">กรอกโดเมน</span></li>
+              <li data-domain-dot="2"><span class="wizard-dot-num">2</span><span class="wizard-dot-label">ตรวจ DNS</span></li>
+            </ol>
+            <div data-domain-step="1">
+              <h3>เพิ่มโดเมน</h3>
+              <p>ใส่ FQDN ที่จะชี้เข้าเครื่องนี้ เช่น app.example.com</p>
+              <label for="domain-hostname">Domain name<input id="domain-hostname" type="text" maxlength="253" placeholder="app.example.com" spellcheck="false" autocomplete="off"></label>
+            </div>
+            <div data-domain-step="2" hidden>
+              <h3>สถานะ DNS</h3>
+              <p id="domain-check-summary">กำลังตรวจสอบ…</p>
+              <dl id="domain-check-detail" class="domain-check-detail"></dl>
+              <aside class="inline-notice"><span aria-hidden="true">i</span><p>ยังเพิ่มโดเมนได้แม้ DNS ยังไม่ชี้ถูก — TLS sync จะสำเร็จเมื่อ record พร้อม</p></aside>
+            </div>
+          </section>
+          <aside class="inline-notice domain-list-notice"><span aria-hidden="true">i</span><p>การ sync จะเปลี่ยนเฉพาะ Nginx files ที่ Dashboard Portal เป็นเจ้าของ และทดสอบ config ก่อน reload</p></aside>
+        </div>
+        <footer class="modal-footer">
+          <button class="secondary" id="domain-cancel" type="button">ปิด</button>
+          <button class="secondary" id="domain-back" type="button" hidden>← ย้อนกลับ</button>
+          <span class="modal-spacer"></span>
+          <button id="domain-add-start" type="button">เพิ่มโดเมน</button>
+          <button id="domain-check" type="button" hidden>ตรวจสอบ</button>
+          <button id="domain-submit" type="submit" hidden>เพิ่มโดเมน</button>
+        </footer>
+      </form>
+    </dialog>
+    <dialog id="confirm-dialog" class="modal confirm-modal" aria-labelledby="confirm-title" aria-describedby="confirm-message"><form method="dialog" class="confirm-form"><div class="warning-mark" aria-hidden="true">!</div><p class="eyebrow">PRIVILEGED ACTION</p><h2 id="confirm-title">ยืนยันการติดตั้ง</h2><p id="confirm-message"></p><p class="muted-copy">กิจกรรมนี้จะถูกบันทึกใน audit log</p><div class="modal-footer"><button class="secondary" value="cancel" type="submit">ยกเลิก</button><span class="modal-spacer"></span><button id="confirm-accept" value="confirm" type="submit">ติดตั้งต่อ</button></div></form></dialog>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
