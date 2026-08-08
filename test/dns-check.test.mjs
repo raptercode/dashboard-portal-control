@@ -15,6 +15,20 @@ test('hostExpectedAddresses merges env and non-internal NIC addresses', () => {
   assert.deepEqual(addresses, ['157.245.1.2', '2001:db8::1', '203.0.113.9']);
 });
 
+test('hostExpectedAddresses survives uv_interface_addresses system errors', () => {
+  const addresses = hostExpectedAddresses(
+    { HOSTMGR_PUBLIC_IP: '203.0.113.9' },
+    () => {
+      throw Object.assign(new Error('A system error occurred: uv_interface_addresses returned Unknown system error 97'), {
+        code: 'ERR_SYSTEM_ERROR',
+        errno: 97,
+        syscall: 'uv_interface_addresses',
+      });
+    },
+  );
+  assert.deepEqual(addresses, ['203.0.113.9']);
+});
+
 test('checkDomainDns reports ok, mismatch, and unresolved', async () => {
   const ok = await checkDomainDns('App.Example.test', {
     expected: ['203.0.113.9'],

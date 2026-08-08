@@ -241,7 +241,7 @@ ProtectKernelTunables=true
 LockPersonality=true
 RestrictSUIDSGID=true
 SystemCallArchitectures=native
-RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 ReadWritePaths=${DATA_ROOT}
 
 [Install]
@@ -280,7 +280,7 @@ ProtectKernelTunables=true
 LockPersonality=true
 RestrictSUIDSGID=true
 SystemCallArchitectures=native
-RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 
 [Install]
 WantedBy=multi-user.target
