@@ -434,7 +434,14 @@ async function cloneInSandbox(project, credential, vault, projectRoot) {
   }
   try {
     const exists = await stat(join(target, '.git')).then(() => true).catch(() => false);
-    if (!exists) await run('git', ['clone', '--branch', project.branch, '--single-branch', project.repository, target], { env });
+    if (!exists) {
+      // The target directory belongs exclusively to this project. A prior
+      // interrupted clone can leave files without .git, which makes every
+      // retry fail with "destination path already exists".
+      const incompleteTarget = await stat(target).then(() => true).catch(() => false);
+      if (incompleteTarget) await rm(target, { recursive: true, force: true });
+      await run('git', ['clone', '--branch', project.branch, '--single-branch', project.repository, target], { env });
+    }
     else {
       await run('git', ['-C', target, 'fetch', '--prune', 'origin', project.branch], { env });
       await run('git', ['-C', target, 'checkout', '--force', project.branch], { env });
@@ -442,8 +449,20 @@ async function cloneInSandbox(project, credential, vault, projectRoot) {
     }
     return { status: 'synced', at: new Date().toISOString(), detail: 'Repository cloned or pulled in the sandbox.' };
   } catch (error) {
-    return { status: 'failed', at: new Date().toISOString(), detail: 'Repository sync failed. Check repository access and branch name.' };
+    return { status: 'failed', at: new Date().toISOString(), detail: `Repository sync failed: ${safeGitSyncFailure(error)}` };
   } finally { await cleanup(); }
+}
+
+export function safeGitSyncFailure(error) {
+  const message = String(error?.message ?? '');
+  if (/could not resolve host|network is unreachable|connection timed out|failed to connect/i.test(message)) return 'network connection to the repository failed.';
+  if (/remote branch .* not found|couldn.t find remote ref/i.test(message)) return 'the configured branch was not found.';
+  if (/authentication failed|could not read username|terminal prompts disabled/i.test(message)) return 'repository authentication was rejected.';
+  if (/permission denied|eacces/i.test(message)) return 'the project workspace is not writable.';
+  if (/enoent|spawn git/i.test(message)) return 'the Git executable is unavailable to the service.';
+  if (/destination path .* already exists|not an empty directory/i.test(message)) return 'an incomplete project workspace could not be reset.';
+  if (/timed out/i.test(message)) return 'the Git operation timed out.';
+  return 'Git exited without a classified error.';
 }
 
 async function prepareNativeRelease(project, release, storedProject, vault, projectRoot) {
