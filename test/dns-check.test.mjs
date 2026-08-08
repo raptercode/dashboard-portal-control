@@ -3,6 +3,10 @@ import assert from 'node:assert/strict';
 import { InputError } from '../src/core.mjs';
 import { checkDomainDns, hostExpectedAddresses } from '../src/dns-check.mjs';
 
+const noLookup = async () => {
+  throw Object.assign(new Error('ENOTFOUND'), { code: 'ENOTFOUND' });
+};
+
 test('hostExpectedAddresses merges env and non-internal NIC addresses', () => {
   const addresses = hostExpectedAddresses(
     { HOSTMGR_PUBLIC_IP: '157.245.1.2, 2001:db8::1' },
@@ -14,13 +18,15 @@ test('hostExpectedAddresses merges env and non-internal NIC addresses', () => {
 test('checkDomainDns reports ok, mismatch, and unresolved', async () => {
   const ok = await checkDomainDns('App.Example.test', {
     expected: ['203.0.113.9'],
-    resolve4: async () => ['203.0.113.9'],
+    lookup: async () => [{ address: '203.0.113.9', family: 4 }],
+    resolve4: async () => ['198.51.100.4'],
     resolve6: async () => { throw new Error('no AAAA'); },
   });
   assert.deepEqual(ok, { hostname: 'app.example.test', resolved: ['203.0.113.9'], expected: ['203.0.113.9'], matched: true, status: 'ok' });
 
   const mismatch = await checkDomainDns('app.example.test', {
     expected: ['203.0.113.9'],
+    lookup: noLookup,
     resolve4: async () => ['198.51.100.4'],
     resolve6: async () => [],
   });
@@ -29,6 +35,7 @@ test('checkDomainDns reports ok, mismatch, and unresolved', async () => {
 
   const unresolved = await checkDomainDns('missing.example.test', {
     expected: ['203.0.113.9'],
+    lookup: noLookup,
     resolve4: async () => { throw Object.assign(new Error('ENOTFOUND'), { code: 'ENOTFOUND' }); },
     resolve6: async () => { throw Object.assign(new Error('ENOTFOUND'), { code: 'ENOTFOUND' }); },
   });
@@ -44,6 +51,7 @@ test('checkDomainDns soft-fails unexpected resolver or NIC errors', async () => 
     expected: undefined,
     networkInterfaces: () => { throw new Error('nic enumeration failed'); },
     env: {},
+    lookup: async () => [{ address: '203.0.113.9', family: 4 }],
     resolve4: async () => ['203.0.113.9'],
     resolve6: async () => [],
   });
@@ -53,15 +61,26 @@ test('checkDomainDns soft-fails unexpected resolver or NIC errors', async () => 
 
   const brokenResolver = await checkDomainDns('app.example.test', {
     expected: ['203.0.113.9'],
+    lookup: noLookup,
     resolve4: async () => { throw Object.assign(new Error('resolver exploded'), { code: 'ESERVFAIL' }); },
-    resolve6: async () => { throw new Error('unexpected'); },
+    resolve6: async () => { throw Object.assign(new Error('ENOTFOUND'), { code: 'ENOTFOUND' }); },
   });
   assert.equal(brokenResolver.status, 'unresolved');
 
   const nonArray = await checkDomainDns('app.example.test', {
     expected: ['203.0.113.9'],
+    lookup: async () => undefined,
     resolve4: async () => undefined,
     resolve6: async () => 'not-an-array',
   });
   assert.equal(nonArray.status, 'unresolved');
+
+  const unexpected = await checkDomainDns('app.example.test', {
+    expected: ['203.0.113.9'],
+    lookup: async () => { throw new Error('resolver pipe broken'); },
+    resolve4: async () => { throw new Error('resolver pipe broken'); },
+    resolve6: async () => { throw new Error('resolver pipe broken'); },
+  });
+  assert.equal(unexpected.status, 'error');
+  assert.match(unexpected.detail, /DNS check failed/i);
 });

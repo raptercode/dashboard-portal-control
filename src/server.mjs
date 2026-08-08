@@ -361,21 +361,22 @@ export async function createApplication(options = {}) {
 
   async function handleProjectDomainCheck(request, response, slug) {
     if (!requireSession(request, response, true)) return;
-    findProject(store.snapshot(), slug);
-    const hostname = validateDomain({ hostname: (await readJson(request)).hostname });
+    let hostname = '';
     try {
+      findProject(store.snapshot(), slug);
+      hostname = validateDomain({ hostname: (await readJson(request)).hostname });
       const result = await domainDnsCheck(hostname);
       return sendJson(response, 200, normalizeDomainCheckResult(hostname, result));
     } catch (error) {
-      if (error instanceof InputError) throw error;
-      console.error(error);
+      if (error instanceof InputError || error instanceof NotFoundError) throw error;
+      console.error('domain DNS check failed', { slug, hostname, err: error });
       return sendJson(response, 200, {
-        hostname,
+        hostname: hostname || 'unknown',
         resolved: [],
         expected: [],
         matched: false,
         status: 'error',
-        detail: 'DNS check failed. Verify network/DNS settings and try again.',
+        detail: softDomainCheckDetail(error),
       });
     }
   }
@@ -609,6 +610,13 @@ function normalizeDomainCheckResult(hostname, result) {
   };
 }
 
+function softDomainCheckDetail(error) {
+  const code = typeof error?.code === 'string' ? error.code : '';
+  if (code === 'ETIMEOUT' || code === 'ABORT_ERR') return 'DNS check timed out. Try again in a moment.';
+  if (code) return `DNS check failed (${code}). Verify network/DNS settings and try again.`;
+  return 'DNS check failed. Verify network/DNS settings and try again.';
+}
+
 function sendCaughtError(response, error) {
   if (response.headersSent) {
     console.error(error);
@@ -625,7 +633,7 @@ function publicInternalError(error) {
   if (!(error instanceof Error)) return 'Internal server error.';
   const message = String(error.message || '').trim();
   if (!message || message.length > 240) return 'Internal server error.';
-  if (/ENOENT|EACCES|EPERM|ECONNREFUSED|ECONNRESET|ENOTFOUND|EAI_AGAIN|Cannot read|is not (a )?function|Unexpected token|at process\.|node:internal/i.test(message)) {
+  if (/ENOENT|EACCES|EPERM|ECONNREFUSED|ECONNRESET|Cannot read|is not (a )?function|Unexpected token|at process\.|node:internal/i.test(message)) {
     return 'Internal server error.';
   }
   return message;
@@ -744,8 +752,9 @@ async function serveStatic(pathname, response) {
 }
 
 function sendJson(response, status, body) {
+  const payload = JSON.stringify(body);
   response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'same-origin' });
-  response.end(JSON.stringify(body));
+  response.end(payload);
 }
 
 function constantEqual(left, right) {
