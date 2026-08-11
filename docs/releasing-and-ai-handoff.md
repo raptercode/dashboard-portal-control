@@ -135,7 +135,10 @@ Build assets into a directory outside the repository to avoid accidental commits
 npm run release:prepare -- --out=C:\\Users\\boyas\\.dashboard-portal\\releases\\v0.2.5 --archive-url=https://github.com/raptercode/dashboard-portal-control/releases/download/v0.2.5/dashboard-portal-0.2.5.tar.gz --private-key=C:\\Users\\boyas\\.dashboard-portal\\release-signing\\dashboard-portal-update-private.pem --notes="Describe the user-visible change"
 ```
 
-This creates the archive, its SHA-256 checksum, and a signed `stable.json`. Check the output and checksum before upload:
+This creates the archive, its SHA-256 checksum, and a signed `stable.json`.
+The archive is built with `git archive HEAD`, so it contains only the tagged
+Git content and keeps LF shell-script bytes intact even when prepared on
+Windows. Check the output and checksum before upload:
 
 ```powershell
 Get-ChildItem C:\\Users\\boyas\\.dashboard-portal\\releases\\v0.2.5
