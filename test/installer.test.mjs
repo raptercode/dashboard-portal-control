@@ -22,3 +22,8 @@ test('installer allows AF_NETLINK so host NIC enumeration works under systemd', 
     assert.match(value, /\bAF_UNIX\b/);
   }
 });
+
+test('installer keeps the deployed application root traversable by the service user', async () => {
+  const script = await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8');
+  assert.match(script, /mv "\$STAGING_ROOT" "\$APP_ROOT"\r?\nchown -R root:root "\$APP_ROOT"\r?\n#.*\r?\n#.*\r?\nchmod 0755 "\$APP_ROOT"\r?\nchmod -R go-w "\$APP_ROOT"/);
+});

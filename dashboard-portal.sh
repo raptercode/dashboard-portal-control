@@ -171,6 +171,9 @@ tar --exclude='.env' --exclude='data' --exclude='node_modules' --exclude='.git' 
 rm -rf -- "$APP_ROOT"
 mv "$STAGING_ROOT" "$APP_ROOT"
 chown -R root:root "$APP_ROOT"
+# The service runs as dashboardportal, so this root must be traversable even
+# when the updater extracted its staging directory with a restrictive umask.
+chmod 0755 "$APP_ROOT"
 chmod -R go-w "$APP_ROOT"
 install -d -m 0750 -o root -g root "$HELPER_ROOT"
 install -m 0750 -o root -g root "$APP_ROOT/scripts/hostmgr-deploy-helper.mjs" "$HELPER_SCRIPT"
