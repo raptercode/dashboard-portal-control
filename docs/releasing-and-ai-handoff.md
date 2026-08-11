@@ -132,7 +132,9 @@ Back up the private key in an approved secret store. Losing it prevents future s
 Build assets into a directory outside the repository to avoid accidental commits. The archive URL must refer to the tag being prepared, not `latest`.
 
 ```powershell
-npm run release:prepare -- --out=C:\\Users\\boyas\\.dashboard-portal\\releases\\v0.2.5 --archive-url=https://github.com/raptercode/dashboard-portal-control/releases/download/v0.2.5/dashboard-portal-0.2.5.tar.gz --private-key=C:\\Users\\boyas\\.dashboard-portal\\release-signing\\dashboard-portal-update-private.pem --notes="Describe the user-visible change"
+$env:DASHBOARD_PORTAL_UPDATE_PRIVATE_KEY_PATH = 'C:\\Users\\boyas\\.dashboard-portal\\release-signing\\dashboard-portal-update-private.pem'
+npm run release:prepare -- --out=C:\\Users\\boyas\\.dashboard-portal\\releases\\v0.2.5 --archive-url=https://github.com/raptercode/dashboard-portal-control/releases/download/v0.2.5/dashboard-portal-0.2.5.tar.gz --notes="Describe the user-visible change"
+Remove-Item Env:DASHBOARD_PORTAL_UPDATE_PRIVATE_KEY_PATH
 ```
 
 This creates the archive, its SHA-256 checksum, and a signed `stable.json`.

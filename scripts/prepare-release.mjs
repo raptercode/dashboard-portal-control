@@ -28,7 +28,12 @@ const payload = {
   archiveSha256,
   notes: options.notes ?? ''
 };
-const privateKey = await readFile(resolve(options['private-key']), 'utf8');
+// The private signing material must never be placed in a shell history or
+// process argument list. Release workstations provide this path through a
+// process-local environment variable instead.
+const privateKeyPath = options['private-key'] ?? process.env.DASHBOARD_PORTAL_UPDATE_PRIVATE_KEY_PATH;
+if (!privateKeyPath) fatal('A release signing key path is required through DASHBOARD_PORTAL_UPDATE_PRIVATE_KEY_PATH.');
+const privateKey = await readFile(resolve(privateKeyPath), 'utf8');
 const signature = sign(null, Buffer.from(canonicalJson(payload)), privateKey).toString('base64');
 await writeFile(join(output, `${payload.channel}.json`), `${JSON.stringify({ payload, signature }, null, 2)}\n`, { mode: 0o644 });
 await writeFile(join(output, `${archiveName}.sha256`), `${archiveSha256}  ${archiveName}\n`, { mode: 0o644 });
@@ -42,7 +47,7 @@ function parseOptions(args) {
     values[match[1]] = match[2];
   }
   const allowed = new Set(['out', 'archive-url', 'private-key', 'channel', 'notes']);
-  if (!values.out || !values['archive-url'] || !values['private-key'] || Object.keys(values).some((key) => !allowed.has(key))) usage();
+  if (!values.out || !values['archive-url'] || Object.keys(values).some((key) => !allowed.has(key))) usage();
   if (!values['archive-url'].startsWith('https://')) fatal('archive-url must use HTTPS.');
   if (values.channel && !/^[a-z0-9][a-z0-9-]{0,31}$/.test(values.channel)) fatal('channel is invalid.');
   return values;
@@ -62,7 +67,7 @@ async function digest(file) {
 }
 
 function usage() {
-  console.error('Usage: npm run release:prepare -- --out=dist --archive-url=https://host/dashboard-portal-<version>.tar.gz --private-key=/secure/key.pem [--channel=stable] [--notes=...]');
+  console.error('Usage: DASHBOARD_PORTAL_UPDATE_PRIVATE_KEY_PATH=/secure/key.pem npm run release:prepare -- --out=dist --archive-url=https://host/dashboard-portal-<version>.tar.gz [--channel=stable] [--notes=...]');
   process.exit(64);
 }
 
