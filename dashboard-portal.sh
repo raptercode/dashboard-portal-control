@@ -188,7 +188,7 @@ chmod 0750 "$UPDATE_COMMAND"
 
 install -d -m 0700 -o "$APP_USER" -g "$APP_USER" "$DATA_ROOT" "$DATA_ROOT/projects"
 install -d -m 0750 -o root -g "$APP_USER" "$CONFIG_ROOT"
-install -d -m 0750 -o root -g root /etc/hostmgr /etc/hostmgr/projects /var/lib/hostmgr /var/lib/hostmgr/acme
+install -d -m 0750 -o root -g root /etc/hostmgr /etc/hostmgr/projects /var/lib/hostmgr /var/lib/hostmgr/acme /srv/hostmgr /srv/hostmgr/projects
 install -d -m 0750 -o root -g root /srv/hostmgr/projects /etc/hostmgr/projects
 install -d -m 0755 -o root -g root /var/lib/hostmgr/acme
 if [[ ! -f "$CONFIG_ROOT/dashboard-portal.env" ]]; then

@@ -31,5 +31,5 @@ test('installer keeps the deployed application root traversable by the service u
 test('privileged helper declares the writable host paths required for project activation', async () => {
   const script = await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8');
   assert.match(script, /ProtectSystem=full[\s\S]*?ReadWritePaths=\/etc \/var\/lib\/hostmgr \/srv\/hostmgr\/projects/);
-  assert.match(script, /install -d -m 0750 -o root -g root \/etc\/hostmgr \/etc\/hostmgr\/projects \/var\/lib\/hostmgr \/var\/lib\/hostmgr\/acme/);
+  assert.match(script, /install -d -m 0750 -o root -g root \/etc\/hostmgr \/etc\/hostmgr\/projects \/var\/lib\/hostmgr \/var\/lib\/hostmgr\/acme \/srv\/hostmgr \/srv\/hostmgr\/projects/);
 });
