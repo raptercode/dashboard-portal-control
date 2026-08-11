@@ -30,9 +30,18 @@ test('installer keeps the deployed application root traversable by the service u
 
 test('privileged helper declares the writable host paths required for project activation', async () => {
   const script = await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8');
-  assert.match(script, /ProtectSystem=full[\s\S]*?ReadWritePaths=\/etc\/passwd \/etc\/shadow \/etc\/group \/etc\/gshadow[\s\S]*?\/etc\/systemd\/system[\s\S]*?\/etc\/hostmgr[\s\S]*?\/etc\/nginx[\s\S]*?\/var\/lib\/hostmgr \/srv\/hostmgr\/projects/);
+  assert.match(script, /ProtectSystem=full[\s\S]*?ReadWritePaths=\/etc\/passwd \/etc\/shadow \/etc\/group \/etc\/gshadow[\s\S]*?\/etc\/systemd\/system[\s\S]*?\/etc\/dashboard-portal[\s\S]*?\/etc\/hostmgr[\s\S]*?\/etc\/nginx[\s\S]*?\/var\/lib\/hostmgr \/srv\/hostmgr\/projects/);
   assert.match(script, /install -d -m 0750 -o root -g root \/etc\/hostmgr \/etc\/hostmgr\/projects \/var\/lib\/hostmgr \/var\/lib\/hostmgr\/acme \/srv\/hostmgr \/srv\/hostmgr\/projects/);
   assert.match(script, /install -m 0600 -o root -g root \/dev\/null \/etc\/\.pwd\.lock/);
+});
+
+test('installer provisions the reset-password command and stores the initial password encoded', async () => {
+  const script = await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8');
+  assert.match(script, /PASSWORD_SCRIPT='\/usr\/local\/lib\/dashboard-portal\/password-config\.mjs'/);
+  assert.match(script, /install -m 0750 -o root -g root "\$APP_ROOT\/scripts\/password-config\.mjs" "\$PASSWORD_SCRIPT"/);
+  assert.match(script, /\[\[ "\\\$\{1:-\}" == '--reset-pwd' \]\]/);
+  assert.match(script, /ADMIN_PASSWORD_B64="\$\(printf %s "\$ADMIN_PASSWORD" \| base64 -w 0\)"/);
+  assert.match(script, /HOSTMGR_ADMIN_PASSWORD_B64=\$\{ADMIN_PASSWORD_B64\}/);
 });
 
 test('installer restarts active services so an update cannot retain old Node modules', async () => {

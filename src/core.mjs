@@ -223,6 +223,15 @@ export function validateHttpsCredential(input) {
   return { name, token };
 }
 
+export function validatePasswordChange(input) {
+  const currentPassword = input?.currentPassword;
+  const newPassword = input?.newPassword;
+  if (typeof currentPassword !== 'string' || !currentPassword || currentPassword.length > 128 || /[\r\n\0]/.test(currentPassword)) throw new InputError('Current password is invalid.');
+  if (typeof newPassword !== 'string' || newPassword.length < 12 || newPassword.length > 128 || /[\r\n\0]/.test(newPassword)) throw new InputError('New password must be between 12 and 128 characters and must not contain a line break.');
+  if (currentPassword === newPassword) throw new InputError('Choose a different new password.');
+  return { currentPassword, newPassword };
+}
+
 export function validateEnvironmentContent(content) {
   if (typeof content !== 'string' || content.length > 128 * 1024) throw new InputError('Environment content is invalid.');
   const keys = [];

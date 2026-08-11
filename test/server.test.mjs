@@ -63,6 +63,32 @@ test('dashboard API authenticates, protects CSRF, and audits a sandbox install',
   assert.ok((await audit.json()).events.some((event) => event.action === 'tool.install'));
 });
 
+test('owner can change the password, which invalidates every existing session', async (t) => {
+  const { app, base } = await start();
+  t.after(() => app.close());
+  const login = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: 'correct-horse-battery-staple' }) });
+  const session = await login.json();
+  const oldCookie = login.headers.get('set-cookie').split(';')[0];
+  const change = await fetch(`${base}/api/settings/password`, {
+    method: 'POST',
+    headers: { cookie: oldCookie, 'content-type': 'application/json', 'x-csrf-token': session.csrfToken },
+    body: JSON.stringify({ currentPassword: 'correct-horse-battery-staple', newPassword: 'new-correct-horse-battery' })
+  });
+  assert.equal(change.status, 200);
+  const changed = await change.json();
+  const renewedCookie = change.headers.get('set-cookie').split(';')[0];
+  assert.notEqual(renewedCookie, oldCookie);
+  assert.equal((await fetch(`${base}/api/doctor`, { headers: { cookie: oldCookie } })).status, 401);
+  assert.equal((await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: 'correct-horse-battery-staple' }) })).status, 401);
+  const nextLogin = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: 'new-correct-horse-battery' }) });
+  assert.equal(nextLogin.status, 200);
+  assert.equal(changed.csrfToken.length, 43);
+  const audit = await fetch(`${base}/api/audit`, { headers: { cookie: renewedCookie } });
+  const auditText = JSON.stringify(await audit.json());
+  assert.match(auditText, /auth.password_changed/);
+  assert.equal(auditText.includes('new-correct-horse-battery'), false);
+});
+
 test('Git identity, encrypted credential, and HTTPS project sync never return a token value', async (t) => {
   const { app, base } = await start();
   t.after(() => app.close());

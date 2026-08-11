@@ -42,6 +42,7 @@ $('#logout').addEventListener('click', async () => {
 $('#refresh').addEventListener('click', () => refresh().then(() => toast('อัปเดตสถานะล่าสุดแล้ว')).catch(showError));
 $('#git-form').addEventListener('submit', (event) => saveGitConfig(event).catch(showError));
 $('#credential-form').addEventListener('submit', (event) => saveCredential(event).catch(showError));
+$('#password-change-form').addEventListener('submit', (event) => changePassword(event).catch(showError));
 $('#project-form').addEventListener('submit', (event) => syncProject(event).catch(showError));
 $('#deploy-form').addEventListener('submit', (event) => submitDeploy(event).catch(showError));
 $('#domain-form').addEventListener('submit', (event) => confirmAddDomain(event).catch(showError));
@@ -172,6 +173,22 @@ async function copyUpdateCommand() {
     await navigator.clipboard.writeText(value);
     toast('คัดลอกคำสั่ง SSH แล้ว');
   } catch { toast('คัดลอกคำสั่งไม่ได้ กรุณาเลือกข้อความด้านล่าง', true); }
+}
+
+async function changePassword(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const values = new FormData(form);
+  const newPassword = values.get('newPassword');
+  if (newPassword !== values.get('confirmPassword')) throw new Error('ยืนยันรหัสผ่านใหม่ไม่ตรงกัน');
+  const submit = form.querySelector('button[type="submit"]');
+  submit.disabled = true;
+  try {
+    const result = await api('/api/settings/password', { method: 'POST', body: { currentPassword: values.get('currentPassword'), newPassword } });
+    state.csrfToken = result.csrfToken;
+    form.reset();
+    toast('เปลี่ยนรหัสผ่านแล้ว และออกจาก session อื่นทั้งหมดแล้ว');
+  } finally { submit.disabled = false; }
 }
 
 function renderOverview() {

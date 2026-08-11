@@ -307,6 +307,11 @@
 .health-check-config .radio-card { margin: 0; }
 #health-check-path-row.is-disabled { opacity: .5; }
 .boot-card { align-items: center; text-align: center; }
+.password-setting-row { align-items: flex-start; }
+.password-change-form { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) auto; align-items: end; gap: .75rem; width: 100%; }
+.password-change-form label { display: grid; gap: .4rem; color: var(--muted); font-size: .8rem; }
+.password-change-form button { white-space: nowrap; }
+@media (max-width: 760px) { .password-change-form { grid-template-columns: 1fr; } }
 .deployment-log-events {
   display: grid;
   gap: .65rem;

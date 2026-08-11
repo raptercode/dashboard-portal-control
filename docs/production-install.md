@@ -66,6 +66,16 @@ sudo systemctl restart dashboard-portal
 sudo systemctl reload nginx
 ```
 
+### Reset an owner password over SSH
+
+If the owner password is lost, generate a new one directly on the host:
+
+```bash
+sudo dashboard-portal --reset-pwd
+```
+
+The command prints a new random password once. Store it in a password manager before closing the terminal; it invalidates all existing Dashboard Portal sessions and restarts Dashboard Portal so the new password is active immediately.
+
 Do not expose port 3100 in the firewall. If the HTTPS health check fails, investigate `journalctl` and Nginx first; do not bypass TLS by proxying the login over plain HTTP. Restore only the timestamped snapshot that predates the failed change, test `nginx -t`, and reload Nginx. The installer keeps these snapshots under `/var/backups/dashboard-portal` for that purpose.
 
 ## Software update notifications and SSH update

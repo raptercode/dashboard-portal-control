@@ -25,6 +25,7 @@ SERVICE_FILE='/etc/systemd/system/dashboard-portal.service'
 HELPER_SERVICE_FILE='/etc/systemd/system/hostmgr-deploy-helper.service'
 HELPER_ROOT='/usr/local/lib/dashboard-portal'
 HELPER_SCRIPT='/usr/local/lib/dashboard-portal/hostmgr-deploy-helper.mjs'
+PASSWORD_SCRIPT='/usr/local/lib/dashboard-portal/password-config.mjs'
 UPDATE_SCRIPT='/usr/local/lib/dashboard-portal/dashboard-portal-update.mjs'
 UPDATE_LIBRARY='/usr/local/lib/dashboard-portal/software-update.mjs'
 UPDATE_COMMAND='/usr/local/sbin/dashboard-portal'
@@ -106,7 +107,7 @@ trap rollback ERR INT TERM
 [[ $EUID -eq 0 ]] || die 'Run with sudo.'
 [[ -n "$DOMAIN" && "$DOMAIN" =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$ ]] || die 'A lower-case FQDN is required in --domain.'
 [[ -n "$EMAIL" && "$EMAIL" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]] || die 'A valid --email is required. HTTPS is mandatory for a public login.'
-[[ -f package.json && -d src && -d public && -f scripts/hostmgr-deploy-helper.mjs && -f scripts/dashboard-portal-update.mjs && -f scripts/software-update.mjs ]] || die 'Run this script from an extracted dashboard-portal release directory.'
+[[ -f package.json && -d src && -d public && -f scripts/hostmgr-deploy-helper.mjs && -f scripts/password-config.mjs && -f scripts/dashboard-portal-update.mjs && -f scripts/software-update.mjs ]] || die 'Run this script from an extracted dashboard-portal release directory.'
 source /etc/os-release
 [[ "${ID:-}" == 'ubuntu' && ( "${VERSION_ID:-}" == '24.04' || "${VERSION_ID:-}" == '25.04' ) ]] || die 'This installer supports Ubuntu 24.04 or 25.04 only.'
 [[ "$(dpkg --print-architecture)" == 'amd64' ]] || die 'This release currently supports amd64 only.'
@@ -177,10 +178,15 @@ chmod 0755 "$APP_ROOT"
 chmod -R go-w "$APP_ROOT"
 install -d -m 0750 -o root -g root "$HELPER_ROOT"
 install -m 0750 -o root -g root "$APP_ROOT/scripts/hostmgr-deploy-helper.mjs" "$HELPER_SCRIPT"
+install -m 0750 -o root -g root "$APP_ROOT/scripts/password-config.mjs" "$PASSWORD_SCRIPT"
 install -m 0750 -o root -g root "$APP_ROOT/scripts/dashboard-portal-update.mjs" "$UPDATE_SCRIPT"
 install -m 0644 -o root -g root "$APP_ROOT/scripts/software-update.mjs" "$UPDATE_LIBRARY"
 cat > "$UPDATE_COMMAND" <<EOF
 #!/usr/bin/env bash
+if [[ "\${1:-}" == '--reset-pwd' ]]; then
+  shift
+  exec /usr/local/bin/node ${PASSWORD_SCRIPT} --reset-pwd "\$@"
+fi
 exec /usr/local/bin/node ${UPDATE_SCRIPT} "\$@"
 EOF
 chown root:root "$UPDATE_COMMAND"
@@ -199,8 +205,9 @@ if [[ ! -f "$CONFIG_ROOT/dashboard-portal.env" ]]; then
   [[ ${#ADMIN_PASSWORD} -ge 12 ]] || die 'Password must be at least 12 characters.'
   [[ "$ADMIN_PASSWORD" != *$'\n'* && "$ADMIN_PASSWORD" != *$'\r'* ]] || die 'Password must not contain a line break.'
   SECRET_KEY="$(/usr/local/bin/node -e "console.log(require('crypto').randomBytes(32).toString('base64'))")"
+  ADMIN_PASSWORD_B64="$(printf %s "$ADMIN_PASSWORD" | base64 -w 0)"
   cat > "$CONFIG_ROOT/dashboard-portal.env" <<EOF
-HOSTMGR_ADMIN_PASSWORD=${ADMIN_PASSWORD}
+HOSTMGR_ADMIN_PASSWORD_B64=${ADMIN_PASSWORD_B64}
 HOSTMGR_SECRET_KEY=${SECRET_KEY}
 HOSTMGR_MODE=host
 HOSTMGR_DATABASE_PATH=${DATA_ROOT}/state.sqlite
@@ -212,7 +219,7 @@ HOSTMGR_PORTAL_DOMAIN=${DOMAIN}
 HOSTMGR_DEPLOY_HELPER_SOCKET=${HELPER_SOCKET}
 PORT=${PORT}
 EOF
-  unset ADMIN_PASSWORD SECRET_KEY
+  unset ADMIN_PASSWORD ADMIN_PASSWORD_B64 SECRET_KEY
 fi
 set_config_value HOSTMGR_ACME_EMAIL "$EMAIL" "$CONFIG_ROOT/dashboard-portal.env"
 set_config_value HOSTMGR_PORTAL_DOMAIN "$DOMAIN" "$CONFIG_ROOT/dashboard-portal.env"
@@ -293,7 +300,7 @@ RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 # deployment contract creates system users, units, managed Nginx files,
 # project environment files, and ACME material, so these writable locations
 # must be explicitly visible when ProtectSystem=full is in effect.
-ReadWritePaths=/etc/passwd /etc/shadow /etc/group /etc/gshadow /etc/subuid /etc/subgid /etc/.pwd.lock /etc/systemd/system /etc/hostmgr /etc/nginx /etc/letsencrypt /var/lib/letsencrypt /var/log/letsencrypt /var/lib/hostmgr /srv/hostmgr/projects
+ReadWritePaths=/etc/passwd /etc/shadow /etc/group /etc/gshadow /etc/subuid /etc/subgid /etc/.pwd.lock /etc/systemd/system /etc/dashboard-portal /etc/hostmgr /etc/nginx /etc/letsencrypt /var/lib/letsencrypt /var/log/letsencrypt /var/lib/hostmgr /srv/hostmgr/projects
 
 [Install]
 WantedBy=multi-user.target

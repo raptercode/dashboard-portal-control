@@ -4,6 +4,7 @@ import { spawn } from 'node:child_process';
 import { access, chmod, chown, copyFile, cp, lstat, mkdir, readFile, readlink, rename, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { updateStoredPassword } from './password-config.mjs';
 
 const MAX_REQUEST_BYTES = 16 * 1024;
 const PROJECT_ROOT = '/var/lib/dashboard-portal/projects';
@@ -62,7 +63,17 @@ async function dispatch(request) {
   if (request.operation === 'activate-project') return activateProject(request.slug, request.releaseId);
   if (request.operation === 'sync-project-domains') return syncProjectDomains(request.slug);
   if (request.operation === 'delete-project') return deleteProject(request.slug);
+  if (request.operation === 'set-admin-password') return setAdminPassword(request.password);
   throw new HelperError('Unsupported helper operation.');
+}
+
+async function setAdminPassword(password) {
+  try {
+    await updateStoredPassword(password, CONFIG_PATH);
+    return {};
+  } catch {
+    throw new HelperError('Dashboard password could not be updated.');
+  }
 }
 
 async function installTool(tool) {

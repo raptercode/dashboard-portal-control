@@ -5,11 +5,12 @@ import { fileURLToPath } from 'node:url';
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import os from 'node:os';
 import { spawn } from 'node:child_process';
-import { StateStore, TOOLS, SUPPORTED_NODE_MAJOR, SecretVault, appendAudit, validateDomain, validateEnvironmentContent, validateGitBranchRequest, validateGitIdentity, validateHttpsCredential, validateProjectDomains, validateProjectSync, validateTool, InputError } from './core.mjs';
+import { StateStore, TOOLS, SUPPORTED_NODE_MAJOR, SecretVault, appendAudit, validateDomain, validateEnvironmentContent, validateGitBranchRequest, validateGitIdentity, validateHttpsCredential, validatePasswordChange, validateProjectDomains, validateProjectSync, validateTool, InputError } from './core.mjs';
 import { checkDomainDns } from './dns-check.mjs';
 import { activateRelease, appendReleaseEvent, beginDeployment, beginRollback, createRelease, failRelease, initialDeployment, markReleaseHealthy, markReleasePendingActivation, validateNativeProject, validatePackageScripts } from './native-project.mjs';
 import { callHostHelper } from './helper-client.mjs';
 import { softwareUpdateStatus, updateConfiguration } from '../scripts/software-update.mjs';
+import { passwordFromEnvironment } from '../scripts/password-config.mjs';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const publicDir = join(here, '..', 'public');
@@ -25,7 +26,7 @@ const HOST_TOOL_COMMANDS = {
 
 export async function createApplication(options = {}) {
   const mode = options.mode ?? process.env.HOSTMGR_MODE ?? 'demo';
-  const password = options.password ?? process.env.HOSTMGR_ADMIN_PASSWORD;
+  let password = options.password ?? passwordFromEnvironment(process.env);
   const secureCookie = options.secureCookie ?? process.env.HOSTMGR_SECURE_COOKIE === 'true';
   const vaultKey = options.secretKey ?? process.env.HOSTMGR_SECRET_KEY;
   const vault = vaultKey ? new SecretVault(vaultKey) : null;
@@ -100,6 +101,7 @@ export async function createApplication(options = {}) {
         return sendJson(response, 200, { authenticated: Boolean(session), csrfToken: session?.csrf ?? null, mode });
       }
       if (request.method === 'POST' && url.pathname === '/api/login') return await handleLogin(request, response);
+      if (request.method === 'POST' && url.pathname === '/api/settings/password') return await handlePasswordChange(request, response);
       if (request.method === 'POST' && url.pathname === '/api/logout') {
         const session = requireSession(request, response, true);
         if (!session) return;
@@ -175,6 +177,27 @@ export async function createApplication(options = {}) {
     response.setHeader('Set-Cookie', sessionCookie(session.id, secureCookie));
     await store.update((state) => appendAudit(state, { action: 'auth.login', outcome: 'success', actor: 'owner', detail: 'Owner session created' }));
     return sendJson(response, 200, { ok: true, csrfToken: session.csrf, mode });
+  }
+
+  async function handlePasswordChange(request, response) {
+    if (!requireSession(request, response, true)) return;
+    const change = validatePasswordChange(await readJson(request));
+    if (!constantEqual(change.currentPassword, password)) throw new InputError('Current password is incorrect.');
+    if (mode === 'host') {
+      const socketPath = process.env.HOSTMGR_DEPLOY_HELPER_SOCKET;
+      if (!socketPath) throw new InputError('Password management is not configured. Re-run the Dashboard Portal installer.');
+      const result = await callHostHelper(socketPath, { operation: 'set-admin-password', password: change.newPassword });
+      if (!result.ok) throw new InputError('Password could not be updated.');
+    }
+    password = change.newPassword;
+    sessions.clear();
+    await store.update((state) => {
+      state.sessions = [];
+      appendAudit(state, { action: 'auth.password_changed', outcome: 'success', actor: 'owner', detail: 'Owner password changed; existing sessions were invalidated' });
+    });
+    const renewed = await newSession();
+    response.setHeader('Set-Cookie', sessionCookie(renewed.id, secureCookie));
+    return sendJson(response, 200, { ok: true, csrfToken: renewed.csrf });
   }
 
   async function handleInstall(request, response, tool) {

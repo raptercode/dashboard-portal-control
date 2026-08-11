@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { InputError, StateStore, validateDomain, validateProject, validateProjectSync, validateTool } from '../src/core.mjs';
+import { InputError, StateStore, validateDomain, validatePasswordChange, validateProject, validateProjectSync, validateTool } from '../src/core.mjs';
 
 test('validators accept a safe project and DNS hostname', () => {
   assert.deepEqual(validateProject({ name: 'Demo', slug: 'demo-app', repository: 'https://github.com/example/demo.git', port: 3000, healthCheckPath: '/ready' }), { name: 'Demo', organization: 'Default', slug: 'demo-app', repository: 'https://github.com/example/demo.git', branch: 'main', directory: '/', port: 3000, healthCheckEnabled: true, healthCheckPath: '/ready' });
@@ -18,6 +18,13 @@ test('validators reject dangerous free-form inputs', () => {
   assert.throws(() => validateProject({ name: 'Demo', slug: 'demo', repository: 'ssh://bad', port: 3000 }), InputError);
   assert.throws(() => validateProject({ name: 'Demo', slug: 'demo', repository: 'https://example.com/a.git', directory: '/../secrets', port: 3000 }), InputError);
   assert.throws(() => validateDomain({ hostname: 'not a domain' }), InputError);
+});
+
+test('password changes require a distinct, newline-free password of sufficient length', () => {
+  assert.deepEqual(validatePasswordChange({ currentPassword: 'correct-horse-battery-staple', newPassword: 'new-correct-horse-battery' }), { currentPassword: 'correct-horse-battery-staple', newPassword: 'new-correct-horse-battery' });
+  assert.throws(() => validatePasswordChange({ currentPassword: 'same-password', newPassword: 'same-password' }), InputError);
+  assert.throws(() => validatePasswordChange({ currentPassword: 'correct-horse-battery-staple', newPassword: 'short' }), InputError);
+  assert.throws(() => validatePasswordChange({ currentPassword: 'correct-horse-battery-staple', newPassword: 'new-password\nwith-break' }), InputError);
 });
 
 test('project sync accepts an explicit no-build configuration but rejects shell commands', () => {
