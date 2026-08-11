@@ -30,12 +30,19 @@ test('installer keeps the deployed application root traversable by the service u
 
 test('privileged helper declares the writable host paths required for project activation', async () => {
   const script = await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8');
-  assert.match(script, /ProtectSystem=full[\s\S]*?ReadWritePaths=\/etc \/var\/lib\/hostmgr \/srv\/hostmgr\/projects/);
+  assert.match(script, /ProtectSystem=full[\s\S]*?ReadWritePaths=\/etc\/passwd \/etc\/shadow \/etc\/group \/etc\/gshadow[\s\S]*?\/etc\/systemd\/system[\s\S]*?\/etc\/hostmgr[\s\S]*?\/etc\/nginx[\s\S]*?\/var\/lib\/hostmgr \/srv\/hostmgr\/projects/);
   assert.match(script, /install -d -m 0750 -o root -g root \/etc\/hostmgr \/etc\/hostmgr\/projects \/var\/lib\/hostmgr \/var\/lib\/hostmgr\/acme \/srv\/hostmgr \/srv\/hostmgr\/projects/);
+  assert.match(script, /install -m 0600 -o root -g root \/dev\/null \/etc\/\.pwd\.lock/);
 });
 
 test('installer restarts active services so an update cannot retain old Node modules', async () => {
   const script = await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8');
   assert.match(script, /systemctl enable hostmgr-deploy-helper\.service\r?\nsystemctl restart hostmgr-deploy-helper\.service\r?\nsystemctl enable dashboard-portal\.service\r?\nsystemctl restart dashboard-portal\.service/);
   assert.doesNotMatch(script, /systemctl enable --now dashboard-portal\.service/);
+});
+
+test('installer configures the SQLite source of truth for a clean data cutover', async () => {
+  const script = await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8');
+  assert.match(script, /HOSTMGR_DATABASE_PATH=\$\{DATA_ROOT\}\/state\.sqlite/);
+  assert.match(script, /set_config_value HOSTMGR_DATABASE_PATH "\$DATA_ROOT\/state\.sqlite"/);
 });

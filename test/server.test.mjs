@@ -159,6 +159,33 @@ test('local UI demo simulates sync and activates a release without cloning', asy
   assert.ok(payload.project.deployment.activeReleaseId);
 });
 
+test('host deployment returns immediately with a durable queued job instead of holding the HTTP request', async (t) => {
+  const { app, base } = await start({ mode: 'host', sandboxClone: false });
+  t.after(() => app.close());
+  const login = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: 'correct-horse-battery-staple' }) });
+  const session = await login.json();
+  const cookie = login.headers.get('set-cookie').split(';')[0];
+  const headers = { cookie, 'content-type': 'application/json', 'x-csrf-token': session.csrfToken };
+  await app.store.update((state) => {
+    state.projects.push({
+      name: 'Queued app', organization: 'Tests', slug: 'queued-app', repository: 'https://github.com/example/queued.git', branch: 'main', directory: '/', port: 3210,
+      healthCheckEnabled: true, healthCheckPath: '/', protocol: 'https', credentialId: null, sshKeyId: null, buildScript: null, startScript: 'start',
+      sync: { status: 'synced', at: new Date().toISOString(), detail: 'Seeded for queue test.' },
+      environment: { keys: ['NODE_ENV'], encryptedContent: { algorithm: 'aes-256-gcm', iv: 'AAAAAAAAAAAAAAAA', tag: 'AAAAAAAAAAAAAAAAAAAAAA==', ciphertext: 'AA==' } },
+      domains: { hosts: ['queued.example.test'], updatedAt: new Date().toISOString(), syncedAt: null },
+      deployment: { state: 'idle', activeReleaseId: null, previousReleaseId: null, releases: [], updatedAt: new Date().toISOString() }
+    });
+  });
+  const deploy = await fetch(`${base}/api/projects/queued-app/deploy`, { method: 'POST', headers, body: '{}' });
+  assert.equal(deploy.status, 202);
+  const payload = await deploy.json();
+  assert.equal(payload.activation, 'queued');
+  assert.match(payload.job.id, /^[a-f0-9-]{36}$/);
+  const status = await fetch(`${base}/api/jobs/${payload.job.id}`, { headers: { cookie } });
+  assert.equal(status.status, 200);
+  assert.ok(['queued', 'running', 'failed'].includes((await status.json()).job.status));
+});
+
 test('project domains are validated, persisted, and do not expose deployment secrets', async (t) => {
   const { app, base } = await start();
   t.after(() => app.close());

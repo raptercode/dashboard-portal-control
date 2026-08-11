@@ -27,9 +27,10 @@ The dashboard stays unprivileged. A root-owned helper accepts only typed
 requests over its local Unix socket. Project activation necessarily creates a
 static service account, systemd unit, encrypted-environment file, managed
 Nginx configuration, ACME working files, and project runtime. Its systemd
-sandbox therefore keeps `ProtectSystem=full` and explicitly permits `/etc`,
-`/var/lib/hostmgr`, and `/srv/hostmgr/projects` rather than disabling filesystem
-protection altogether.
+sandbox keeps `ProtectSystem=full` and permits only the exact account files,
+managed directories, and runtime paths required by those operations. A broad
+`ReadWritePaths=/etc` does not override the protected `/etc` mount on the
+supported systemd version.
 
 If activation fails, begin with the release log in the UI, then inspect the
 helper using `journalctl -u hostmgr-deploy-helper -n 100 --no-pager`. Do not

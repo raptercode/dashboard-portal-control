@@ -191,6 +191,9 @@ install -d -m 0750 -o root -g "$APP_USER" "$CONFIG_ROOT"
 install -d -m 0750 -o root -g root /etc/hostmgr /etc/hostmgr/projects /var/lib/hostmgr /var/lib/hostmgr/acme /srv/hostmgr /srv/hostmgr/projects
 install -d -m 0750 -o root -g root /srv/hostmgr/projects /etc/hostmgr/projects
 install -d -m 0755 -o root -g root /var/lib/hostmgr/acme
+# `useradd` locks this file while changing the account databases. It must exist
+# before systemd builds the helper's private mount namespace.
+install -m 0600 -o root -g root /dev/null /etc/.pwd.lock
 if [[ ! -f "$CONFIG_ROOT/dashboard-portal.env" ]]; then
   read -r -s -p 'Choose the Dashboard owner password (at least 12 characters): ' ADMIN_PASSWORD; echo
   [[ ${#ADMIN_PASSWORD} -ge 12 ]] || die 'Password must be at least 12 characters.'
@@ -200,7 +203,7 @@ if [[ ! -f "$CONFIG_ROOT/dashboard-portal.env" ]]; then
 HOSTMGR_ADMIN_PASSWORD=${ADMIN_PASSWORD}
 HOSTMGR_SECRET_KEY=${SECRET_KEY}
 HOSTMGR_MODE=host
-HOSTMGR_DATA_PATH=${DATA_ROOT}/state.json
+HOSTMGR_DATABASE_PATH=${DATA_ROOT}/state.sqlite
 HOSTMGR_PROJECT_ROOT=${DATA_ROOT}/projects
 HOSTMGR_BIND_ADDRESS=127.0.0.1
 HOSTMGR_SECURE_COOKIE=true
@@ -214,6 +217,7 @@ fi
 set_config_value HOSTMGR_ACME_EMAIL "$EMAIL" "$CONFIG_ROOT/dashboard-portal.env"
 set_config_value HOSTMGR_PORTAL_DOMAIN "$DOMAIN" "$CONFIG_ROOT/dashboard-portal.env"
 set_config_value HOSTMGR_DEPLOY_HELPER_SOCKET "$HELPER_SOCKET" "$CONFIG_ROOT/dashboard-portal.env"
+set_config_value HOSTMGR_DATABASE_PATH "$DATA_ROOT/state.sqlite" "$CONFIG_ROOT/dashboard-portal.env"
 chown root:"$APP_USER" "$CONFIG_ROOT/dashboard-portal.env"
 chmod 0640 "$CONFIG_ROOT/dashboard-portal.env"
 
@@ -289,7 +293,7 @@ RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 # deployment contract creates system users, units, managed Nginx files,
 # project environment files, and ACME material, so these writable locations
 # must be explicitly visible when ProtectSystem=full is in effect.
-ReadWritePaths=/etc /var/lib/hostmgr /srv/hostmgr/projects
+ReadWritePaths=/etc/passwd /etc/shadow /etc/group /etc/gshadow /etc/subuid /etc/subgid /etc/.pwd.lock /etc/systemd/system /etc/hostmgr /etc/nginx /etc/letsencrypt /var/lib/letsencrypt /var/log/letsencrypt /var/lib/hostmgr /srv/hostmgr/projects
 
 [Install]
 WantedBy=multi-user.target

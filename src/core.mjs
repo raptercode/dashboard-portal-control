@@ -1,6 +1,7 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { createCipheriv, createDecipheriv, randomBytes, randomUUID } from 'node:crypto';
+import { DatabaseSync } from 'node:sqlite';
 
 export const SUPPORTED_NODE_MAJOR = 24;
 export const TOOLS = {
@@ -12,7 +13,7 @@ export const TOOLS = {
 
 export function createInitialState() {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     createdAt: new Date().toISOString(),
     tools: Object.fromEntries(Object.entries(TOOLS).map(([id, tool]) => [id, {
       id,
@@ -26,12 +27,14 @@ export function createInitialState() {
     sessions: [],
     credentials: [],
     projects: [],
-    audit: []
+    audit: [],
+    jobs: []
   };
 }
 
 export class StateStore {
   #path;
+  #database;
   #state;
   #queue = Promise.resolve();
 
@@ -40,13 +43,24 @@ export class StateStore {
   }
 
   async load() {
-    try {
-      this.#state = migrateState(JSON.parse(await readFile(this.#path, 'utf8')));
-    } catch (error) {
-      if (error.code !== 'ENOENT') throw error;
-      this.#state = createInitialState();
-      await this.#persist(this.#state);
-    }
+    await mkdir(dirname(this.#path), { recursive: true, mode: 0o700 });
+    this.#database = new DatabaseSync(this.#path);
+    this.#database.exec(`
+      PRAGMA journal_mode = WAL;
+      PRAGMA foreign_keys = ON;
+      PRAGMA busy_timeout = 5000;
+      CREATE TABLE IF NOT EXISTS portal_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
+      CREATE TABLE IF NOT EXISTS tools (id TEXT PRIMARY KEY, payload TEXT NOT NULL) STRICT;
+      CREATE TABLE IF NOT EXISTS sessions (id_hash TEXT PRIMARY KEY, payload TEXT NOT NULL) STRICT;
+      CREATE TABLE IF NOT EXISTS credentials (id TEXT PRIMARY KEY, payload TEXT NOT NULL) STRICT;
+      CREATE TABLE IF NOT EXISTS projects (slug TEXT PRIMARY KEY, payload TEXT NOT NULL) STRICT;
+      CREATE TABLE IF NOT EXISTS audit_events (id TEXT PRIMARY KEY, occurred_at TEXT NOT NULL, payload TEXT NOT NULL) STRICT;
+      CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, project_slug TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL, started_at TEXT, finished_at TEXT, payload TEXT NOT NULL) STRICT;
+      CREATE INDEX IF NOT EXISTS jobs_by_status ON jobs(status, created_at);
+    `);
+    const initialized = this.#database.prepare('SELECT value FROM portal_meta WHERE key = ?').get('initialized');
+    if (!initialized) this.#persist(createInitialState());
+    this.#state = migrateState(this.#readState());
     return this.snapshot();
   }
 
@@ -67,10 +81,54 @@ export class StateStore {
   }
 
   async #persist(state) {
-    await mkdir(dirname(this.#path), { recursive: true });
-    const tempPath = `${this.#path}.${process.pid}.${randomUUID()}.tmp`;
-    await writeFile(tempPath, `${JSON.stringify(state, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
-    await rename(tempPath, this.#path);
+    const database = this.#database;
+    database.exec('BEGIN IMMEDIATE');
+    try {
+      database.prepare('DELETE FROM tools').run();
+      database.prepare('DELETE FROM sessions').run();
+      database.prepare('DELETE FROM credentials').run();
+      database.prepare('DELETE FROM projects').run();
+      database.prepare('DELETE FROM audit_events').run();
+      database.prepare('DELETE FROM jobs').run();
+      const insertTool = database.prepare('INSERT INTO tools (id, payload) VALUES (?, ?)');
+      const insertSession = database.prepare('INSERT INTO sessions (id_hash, payload) VALUES (?, ?)');
+      const insertCredential = database.prepare('INSERT INTO credentials (id, payload) VALUES (?, ?)');
+      const insertProject = database.prepare('INSERT INTO projects (slug, payload) VALUES (?, ?)');
+      const insertAudit = database.prepare('INSERT INTO audit_events (id, occurred_at, payload) VALUES (?, ?, ?)');
+      const insertJob = database.prepare('INSERT INTO jobs (id, project_slug, status, created_at, started_at, finished_at, payload) VALUES (?, ?, ?, ?, ?, ?, ?)');
+      for (const [id, tool] of Object.entries(state.tools)) insertTool.run(id, JSON.stringify(tool));
+      for (const session of state.sessions) insertSession.run(session.idHash, JSON.stringify(session));
+      for (const credential of state.credentials) insertCredential.run(credential.id, JSON.stringify(credential));
+      for (const project of state.projects) insertProject.run(project.slug, JSON.stringify(project));
+      for (const event of state.audit) insertAudit.run(event.id, event.at, JSON.stringify(event));
+      for (const job of state.jobs ?? []) insertJob.run(job.id, job.projectSlug, job.status, job.createdAt, job.startedAt ?? null, job.finishedAt ?? null, JSON.stringify(job));
+      const setMeta = database.prepare('INSERT OR REPLACE INTO portal_meta (key, value) VALUES (?, ?)');
+      setMeta.run('initialized', 'true');
+      setMeta.run('schema_version', String(state.schemaVersion ?? 2));
+      setMeta.run('created_at', state.createdAt ?? new Date().toISOString());
+      setMeta.run('git', JSON.stringify(state.git ?? { identity: null }));
+      database.exec('COMMIT');
+    } catch (error) {
+      database.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
+  #readState() {
+    const database = this.#database;
+    const readPayloads = (query) => database.prepare(query).all().map((row) => JSON.parse(row.payload));
+    const meta = (key, fallback) => database.prepare('SELECT value FROM portal_meta WHERE key = ?').get(key)?.value ?? fallback;
+    return {
+      schemaVersion: Number(meta('schema_version', '2')),
+      createdAt: meta('created_at', new Date().toISOString()),
+      tools: Object.fromEntries(database.prepare('SELECT id, payload FROM tools').all().map((row) => [row.id, JSON.parse(row.payload)])),
+      git: JSON.parse(meta('git', '{"identity":null}')),
+      sessions: readPayloads('SELECT payload FROM sessions'),
+      credentials: readPayloads('SELECT payload FROM credentials'),
+      projects: readPayloads('SELECT payload FROM projects'),
+      audit: readPayloads('SELECT payload FROM audit_events ORDER BY occurred_at DESC'),
+      jobs: readPayloads('SELECT payload FROM jobs ORDER BY created_at ASC')
+    };
   }
 }
 
@@ -235,6 +293,7 @@ export function appendAudit(state, event) {
 }
 
 function migrateState(state) {
+  state.schemaVersion = 2;
   state.git ??= { identity: null };
   state.sessions ??= [];
   state.credentials ??= [];
@@ -244,5 +303,6 @@ function migrateState(state) {
     project.deployment ??= { state: 'idle', activeReleaseId: null, previousReleaseId: null, releases: [], updatedAt: new Date().toISOString() };
   }
   state.audit ??= [];
+  state.jobs ??= [];
   return state;
 }

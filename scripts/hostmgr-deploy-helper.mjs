@@ -3,10 +3,11 @@ import { createServer } from 'node:net';
 import { spawn } from 'node:child_process';
 import { access, chmod, chown, copyFile, cp, lstat, mkdir, readFile, readlink, rename, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 
 const MAX_REQUEST_BYTES = 16 * 1024;
 const PROJECT_ROOT = '/var/lib/dashboard-portal/projects';
-const STATE_PATH = '/var/lib/dashboard-portal/state.json';
+const STATE_DATABASE_PATH = '/var/lib/dashboard-portal/state.sqlite';
 const RUNTIME_ROOT = '/srv/hostmgr/projects';
 const ENVIRONMENT_ROOT = '/etc/hostmgr/projects';
 const ACME_ROOT = '/var/lib/hostmgr/acme';
@@ -120,9 +121,7 @@ async function deleteProject(slug) {
 
 async function loadProject(slug) {
   validateSlug(slug);
-  let state;
-  try { state = JSON.parse(await readFile(STATE_PATH, 'utf8')); } catch { throw new HelperError('Dashboard state could not be read.'); }
-  const project = state.projects?.find((item) => item.slug === slug);
+  const project = readProject(slug);
   if (!project) throw new HelperError('Project was not found.');
   validateProject(project);
   return project;
@@ -130,9 +129,18 @@ async function loadProject(slug) {
 
 async function loadProjectForDeletion(slug) {
   validateSlug(slug);
-  let state;
-  try { state = JSON.parse(await readFile(STATE_PATH, 'utf8')); } catch { throw new HelperError('Dashboard state could not be read.'); }
-  if (!state.projects?.some((item) => item?.slug === slug)) throw new HelperError('Project was not found.');
+  if (!readProject(slug)) throw new HelperError('Project was not found.');
+}
+
+function readProject(slug) {
+  let database;
+  try {
+    database = new DatabaseSync(STATE_DATABASE_PATH, { readOnly: true });
+    const row = database.prepare('SELECT payload FROM projects WHERE slug = ?').get(slug);
+    return row ? JSON.parse(row.payload) : null;
+  } catch {
+    throw new HelperError('Dashboard database could not be read.');
+  } finally { database?.close(); }
 }
 
 function validateProject(project) {

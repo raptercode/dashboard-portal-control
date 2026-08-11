@@ -1,6 +1,6 @@
 import { pageForPathname, pathnameForPage } from '/router.js';
 
-const state = { csrfToken: null, mode: null, doctor: null, git: null, projects: [], credentials: [], audit: [], softwareUpdate: null, wizardStep: 1, slugManual: false, editingProject: null, deployProject: null, domainProject: null, domainDraftHosts: [], domainStatuses: {}, domainView: 'list', domainStep: 1, domainCheck: null };
+const state = { csrfToken: null, mode: null, doctor: null, git: null, projects: [], credentials: [], audit: [], softwareUpdate: null, wizardStep: 1, slugManual: false, editingProject: null, deployProject: null, domainProject: null, domainDraftHosts: [], domainStatuses: {}, domainView: 'list', domainStep: 1, domainCheck: null, deploymentPollers: new Map() };
 const wizardPhases = [
   { title: 'ตั้งชื่อและจัดกลุ่ม', next: 'ขั้นถัดไป: เชื่อมต่อ repository' },
   { title: 'เชื่อมต่อ repository', next: 'ขั้นถัดไป: ตรวจสอบก่อน Sync' },
@@ -672,13 +672,39 @@ async function submitDeploy(event) {
     if (content || !hasKeys) await api(`/api/projects/${encodeURIComponent(project.slug)}/environment`, { method: 'POST', body: { content } });
     const result = await api(`/api/projects/${encodeURIComponent(project.slug)}/deploy`, { method: 'POST', body: {} });
     state.deployProject = null;
-    toast(result.activation === 'pending' ? 'Candidate ผ่าน health check แล้ว — รอ privileged helper activate บน host' : 'Deploy สำเร็จและเปิดใช้งาน release ใหม่แล้ว');
+    if (result.activation === 'queued') {
+      toast('เพิ่มงาน deploy เข้าคิวแล้ว — คุณปิดหน้าต่างนี้ได้ ระบบจะทำงานต่อ');
+      watchDeploymentJob(result.job.id, project.slug);
+    } else {
+      toast(result.activation === 'pending' ? 'Candidate ผ่าน health check แล้ว — รอ privileged helper activate บน host' : 'Deploy สำเร็จและเปิดใช้งาน release ใหม่แล้ว');
+    }
     await refresh();
     if (deployDialog.open) deployDialog.close();
   } catch (error) {
     toast(error.message, true);
     submit.disabled = false;
   }
+}
+
+function watchDeploymentJob(jobId, slug) {
+  clearTimeout(state.deploymentPollers.get(jobId));
+  const poll = async () => {
+    try {
+      const { job } = await api(`/api/jobs/${encodeURIComponent(jobId)}`);
+      await refresh();
+      if (['queued', 'running'].includes(job.status)) {
+        state.deploymentPollers.set(jobId, setTimeout(poll, 1500));
+        return;
+      }
+      state.deploymentPollers.delete(jobId);
+      if (job.status === 'succeeded') toast(`Deploy ${slug} สำเร็จแล้ว`);
+      else toast(`Deploy ${slug} ไม่สำเร็จ: ${job.failure || 'ดู Logs ของ release ล่าสุด'}`, true);
+    } catch (error) {
+      state.deploymentPollers.delete(jobId);
+      toast(error.message, true);
+    }
+  };
+  void poll();
 }
 
 async function rollbackProject(project, button) {

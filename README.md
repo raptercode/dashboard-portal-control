@@ -227,6 +227,11 @@ Both UI and CLI must call the same installer service so validation, logs, backup
 
 ## Deployment Flow
 
+Deploy requests are queued durably in the local SQLite control-plane database.
+The browser receives an immediate job id and follows phase events; one worker
+builds at a time so a small host is not overloaded and reverse-proxy timeouts
+do not cancel a build.
+
 ```mermaid
 flowchart TD
     A[GitHub or GitLab] --> B[Clone or Pull]

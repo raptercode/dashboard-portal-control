@@ -38,7 +38,7 @@ export async function createApplication(options = {}) {
   const softwareVersion = options.softwareVersion ?? await installedSoftwareVersion();
   const domainDnsCheck = options.domainDnsCheck ?? checkDomainDns;
   const branchFetcher = options.branchFetcher ?? listRemoteBranches;
-  const store = new StateStore(options.dataPath ?? process.env.HOSTMGR_DATA_PATH ?? join(here, '..', 'data', 'state.json'));
+  const store = new StateStore(options.dataPath ?? process.env.HOSTMGR_DATABASE_PATH ?? process.env.HOSTMGR_DATA_PATH ?? join(here, '..', 'data', 'state.sqlite'));
   if (!password || password.length < 12) throw new Error('HOSTMGR_ADMIN_PASSWORD must be at least 12 characters.');
   if (!['demo', 'host'].includes(mode)) throw new Error('HOSTMGR_MODE must be demo or host.');
   await store.load();
@@ -46,6 +46,7 @@ export async function createApplication(options = {}) {
     .filter((session) => validStoredSession(session))
     .map((session) => [session.idHash, { csrf: session.csrf, expiresAt: session.expiresAt }]));
   const loginAttempts = new Map();
+  let deploymentQueueDraining = false;
 
   async function newSession() {
     const id = randomBytes(32).toString('base64url');
@@ -130,6 +131,8 @@ export async function createApplication(options = {}) {
       }
       if (request.method === 'POST' && url.pathname === '/api/git/branches') return await handleGitBranches(request, response);
       if (request.method === 'POST' && url.pathname === '/api/projects/sync') return await handleProjectSync(request, response);
+      const jobMatch = url.pathname.match(/^\/api\/jobs\/([a-f0-9-]{36})$/i);
+      if (request.method === 'GET' && jobMatch) return await handleJobStatus(request, response, jobMatch[1]);
       const deleteMatch = url.pathname.match(/^\/api\/projects\/([a-z][a-z0-9-]{0,62})$/);
       if (request.method === 'DELETE' && deleteMatch) return await handleProjectDelete(request, response, deleteMatch[1]);
       const deployMatch = url.pathname.match(/^\/api\/projects\/([a-z][a-z0-9-]{0,62})\/deploy$/);
@@ -251,6 +254,7 @@ export async function createApplication(options = {}) {
   async function handleProjectDelete(request, response, slug) {
     if (!requireSession(request, response, true)) return;
     const project = findProject(store.snapshot(), slug);
+    if (store.snapshot().jobs.some((item) => item.projectSlug === slug && ['queued', 'running'].includes(item.status))) throw new InputError('Wait for the queued deployment to finish before deleting this project.');
     if (mode === 'host') {
       const socketPath = process.env.HOSTMGR_DEPLOY_HELPER_SOCKET;
       if (!socketPath) throw new InputError('Host project cleanup is not configured. Re-run the Dashboard Portal installer.');
@@ -286,52 +290,134 @@ export async function createApplication(options = {}) {
       return sendJson(response, 200, { ok: true, activation: 'complete', project: publicProject(store.snapshot().projects.find((item) => item.slug === slug)) });
     }
     const release = createRelease(nativeProject, await projectRevision(project, projectRoot));
+    const job = { id: randomUUID(), kind: 'deploy', projectSlug: slug, releaseId: release.id, status: 'queued', createdAt: new Date().toISOString(), startedAt: null, finishedAt: null, events: [{ at: new Date().toISOString(), status: 'queued', message: 'Deployment is queued.' }], failure: null };
     await store.update((state) => {
       const target = findProject(state, slug);
+      if (state.jobs.some((item) => item.projectSlug === slug && ['queued', 'running'].includes(item.status))) throw new InputError('This project already has a queued or running deployment.');
       target.deployment = beginDeployment(target.deployment, release);
-      appendAudit(state, { action: 'project.deploy', outcome: 'started', actor: 'owner', target: slug, detail: `Prepared candidate release ${release.id}` });
+      state.jobs = [...state.jobs, job].slice(-100);
+      appendAudit(state, { action: 'project.deploy', outcome: 'queued', actor: 'owner', target: slug, detail: `Queued candidate release ${release.id}` });
+    });
+    scheduleDeploymentQueue();
+    return sendJson(response, 202, { ok: true, activation: 'queued', job: publicJob(job), project: publicProject(store.snapshot().projects.find((item) => item.slug === slug)) });
+  }
+
+  async function runDeploymentJob(jobId) {
+    const job = store.snapshot().jobs.find((item) => item.id === jobId);
+    if (!job || job.status !== 'queued') return;
+    const project = store.snapshot().projects.find((item) => item.slug === job.projectSlug);
+    if (!project) return markJobFailed(jobId, 'Project was removed before deployment started.');
+    const release = project.deployment?.releases?.find((item) => item.id === job.releaseId);
+    if (!release) return markJobFailed(jobId, 'Candidate release was not found.');
+    const nativeProject = validateNativeProject({ ...project, environment: {} });
+    await updateJob(jobId, (current) => {
+      current.status = 'running';
+      current.startedAt = new Date().toISOString();
+      appendJobEvent(current, 'running', 'Candidate preparation started.');
     });
     const recordPhase = async (phase, status, detail) => {
       await store.update((state) => {
-        const target = findProject(state, slug);
+        const target = findProject(state, job.projectSlug);
         target.deployment = appendReleaseEvent(target.deployment, release.id, phase, status, detail);
+        const targetJob = findJob(state, jobId);
+        appendJobEvent(targetJob, status, detail, phase);
       });
     };
     try {
       await prepareNativeRelease(nativeProject, release, project, vault, projectRoot, recordPhase);
       await store.update((state) => {
-        const target = findProject(state, slug);
+        const target = findProject(state, job.projectSlug);
         target.deployment = markReleaseHealthy(target.deployment, release.id);
         target.deployment = appendReleaseEvent(target.deployment, release.id, 'candidate_health', nativeProject.healthCheckEnabled ? 'passed' : 'skipped', nativeProject.healthCheckEnabled ? 'Candidate health check passed.' : 'Candidate health check was skipped by project configuration.');
       });
       const helperSocket = process.env.HOSTMGR_DEPLOY_HELPER_SOCKET;
       if (!helperSocket) {
         await store.update((state) => {
-          const target = findProject(state, slug);
+          const target = findProject(state, job.projectSlug);
           target.deployment = markReleasePendingActivation(target.deployment, release.id);
-          appendAudit(state, { action: 'project.deploy', outcome: 'pending_activation', actor: 'owner', target: slug, detail: 'Candidate is healthy; a reviewed deployment helper is required to switch the systemd release.' });
+          appendAudit(state, { action: 'project.deploy', outcome: 'pending_activation', actor: 'owner', target: job.projectSlug, detail: 'Candidate is healthy; a reviewed deployment helper is required to switch the systemd release.' });
         });
-        return sendJson(response, 202, { ok: true, activation: 'pending', project: publicProject(store.snapshot().projects.find((item) => item.slug === slug)) });
+        return markJobSucceeded(jobId, 'Candidate is healthy and awaits reviewed host activation.');
       }
       await recordPhase('host_activation', 'started', 'Activating the verified candidate on the host.');
-      await activateOnHost(helperSocket, slug, release.id);
+      await activateOnHost(helperSocket, job.projectSlug, release.id);
       await store.update((state) => {
-        const target = findProject(state, slug);
+        const target = findProject(state, job.projectSlug);
         target.deployment = activateRelease(target.deployment, release.id);
         target.deployment = appendReleaseEvent(target.deployment, release.id, 'host_activation', 'passed', 'Host service and domain activation completed.');
         if (target.domains?.hosts?.length) target.domains.syncedAt = new Date().toISOString();
-        appendAudit(state, { action: 'project.deploy', outcome: 'success', actor: 'owner', target: slug, detail: `Activated release ${release.id}` });
+        appendAudit(state, { action: 'project.deploy', outcome: 'success', actor: 'owner', target: job.projectSlug, detail: `Activated release ${release.id}` });
       });
-      return sendJson(response, 200, { ok: true, activation: 'complete', project: publicProject(store.snapshot().projects.find((item) => item.slug === slug)) });
+      return markJobSucceeded(jobId, 'Deployment completed and the new release is active.');
     } catch (error) {
       const failure = safeDeploymentFailure(error);
       await store.update((state) => {
-        const target = findProject(state, slug);
+        const target = findProject(state, job.projectSlug);
         target.deployment = failRelease(target.deployment, release.id, failure);
-        appendAudit(state, { action: 'project.deploy', outcome: 'failure', actor: 'owner', target: slug, detail: `${failure} Active release was left unchanged.` });
+        appendAudit(state, { action: 'project.deploy', outcome: 'failure', actor: 'owner', target: job.projectSlug, detail: `${failure} Active release was left unchanged.` });
       });
-      return sendJson(response, 422, { ok: false, error: `Deployment failed: ${failure} The active release was left unchanged.`, project: publicProject(store.snapshot().projects.find((item) => item.slug === slug)) });
+      return markJobFailed(jobId, failure);
     }
+  }
+
+  async function handleJobStatus(request, response, jobId) {
+    if (!requireSession(request, response)) return;
+    const job = store.snapshot().jobs.find((item) => item.id === jobId);
+    if (!job) throw new NotFoundError('Deployment job was not found.');
+    return sendJson(response, 200, { job: publicJob(job) });
+  }
+
+  function scheduleDeploymentQueue() {
+    if (deploymentQueueDraining) return;
+    deploymentQueueDraining = true;
+    void drainDeploymentQueue().finally(() => {
+      deploymentQueueDraining = false;
+      if (store.snapshot().jobs.some((item) => item.status === 'queued')) scheduleDeploymentQueue();
+    });
+  }
+
+  async function drainDeploymentQueue() {
+    while (true) {
+      const next = store.snapshot().jobs.find((item) => item.status === 'queued');
+      if (!next) return;
+      await runDeploymentJob(next.id);
+    }
+  }
+
+  async function updateJob(jobId, mutate) {
+    await store.update((state) => mutate(findJob(state, jobId)));
+  }
+
+  async function markJobSucceeded(jobId, message) {
+    await updateJob(jobId, (job) => {
+      job.status = 'succeeded';
+      job.finishedAt = new Date().toISOString();
+      appendJobEvent(job, 'passed', message);
+    });
+  }
+
+  async function markJobFailed(jobId, message) {
+    await updateJob(jobId, (job) => {
+      job.status = 'failed';
+      job.finishedAt = new Date().toISOString();
+      job.failure = message.slice(0, 240);
+      appendJobEvent(job, 'failed', job.failure);
+    });
+  }
+
+  async function recoverDeploymentQueue() {
+    await store.update((state) => {
+      for (const job of state.jobs.filter((item) => item.status === 'running')) {
+        job.status = 'interrupted';
+        job.finishedAt = new Date().toISOString();
+        job.failure = 'Portal restarted while this deployment was running. The active release was left unchanged.';
+        appendJobEvent(job, 'failed', job.failure);
+        const project = state.projects.find((item) => item.slug === job.projectSlug);
+        const release = project?.deployment?.releases?.find((item) => item.id === job.releaseId);
+        if (project && release && ['candidate', 'healthy'].includes(release.status)) project.deployment = failRelease(project.deployment, release.id, job.failure);
+      }
+    });
+    scheduleDeploymentQueue();
   }
 
   async function handleProjectRollback(request, response, slug) {
@@ -468,6 +554,7 @@ export async function createApplication(options = {}) {
     return { version: result.version ?? 'Installed', detail: `Installed through allowlisted helper: ${tool}` };
   }
 
+  await recoverDeploymentQueue();
   return { server, store, close: () => new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve())) };
 }
 
@@ -785,6 +872,29 @@ function publicProject(project) {
   const safe = structuredClone(project);
   if (safe.environment) delete safe.environment.encryptedContent;
   return safe;
+}
+
+function publicJob(job) {
+  const safe = structuredClone(job);
+  safe.events = (safe.events ?? []).map((event) => ({
+    at: event.at,
+    phase: event.phase ?? null,
+    status: event.status,
+    message: typeof event.message === 'string' ? event.message.slice(0, 240) : 'Deployment event recorded.'
+  }));
+  return safe;
+}
+
+function findJob(state, jobId) {
+  const job = state.jobs.find((item) => item.id === jobId);
+  if (!job) throw new NotFoundError('Deployment job was not found.');
+  return job;
+}
+
+function appendJobEvent(job, status, message, phase = null) {
+  job.events ??= [];
+  job.events.push({ at: new Date().toISOString(), ...(phase ? { phase } : {}), status, message: String(message ?? 'Deployment event recorded.').slice(0, 240) });
+  if (job.events.length > 80) job.events.splice(0, job.events.length - 80);
 }
 
 async function doctorReport(state, mode, toolProbe = probeHostTools) {

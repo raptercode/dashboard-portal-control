@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { InputError, StateStore, validateDomain, validateProject, validateProjectSync, validateTool } from '../src/core.mjs';
@@ -27,12 +27,13 @@ test('project sync accepts an explicit no-build configuration but rejects shell 
   assert.throws(() => validateProjectSync({ ...project, buildScript: 'build && id' }), InputError);
 });
 
-test('state store writes atomically and preserves a tool update', async () => {
+test('SQLite state store writes transactionally and preserves a tool update', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'hostmgr-core-'));
-  const path = join(directory, 'state.json');
+  const path = join(directory, 'state.sqlite');
   const store = new StateStore(path);
   await store.load();
   await store.update((state) => { state.tools.nginx.status = 'Installed'; });
-  const written = JSON.parse(await readFile(path, 'utf8'));
-  assert.equal(written.tools.nginx.status, 'Installed');
+  const reopened = new StateStore(path);
+  await reopened.load();
+  assert.equal(reopened.snapshot().tools.nginx.status, 'Installed');
 });
