@@ -1,2 +1,4 @@
 *.sh text eol=lf
 *.mjs text eol=lf
+dist/ export-ignore
+release-out/ export-ignore

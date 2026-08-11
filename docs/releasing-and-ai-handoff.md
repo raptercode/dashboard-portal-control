@@ -136,9 +136,10 @@ npm run release:prepare -- --out=C:\\Users\\boyas\\.dashboard-portal\\releases\\
 ```
 
 This creates the archive, its SHA-256 checksum, and a signed `stable.json`.
-The archive is built with `git archive HEAD`, so it contains only the tagged
-Git content and keeps LF shell-script bytes intact even when prepared on
-Windows. Check the output and checksum before upload:
+The archive is built with `git archive HEAD`, so it contains the intended
+tagged source (excluding prior release-output folders) and keeps LF shell-script
+bytes intact even when prepared on Windows. Check the output and checksum before
+upload:
 
 ```powershell
 Get-ChildItem C:\\Users\\boyas\\.dashboard-portal\\releases\\v0.2.5
