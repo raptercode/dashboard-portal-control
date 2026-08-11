@@ -299,6 +299,34 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: .8rem;
 }
+
+.health-check-config {
+  display: grid;
+  gap: .75rem;
+}
+.health-check-config .radio-card { margin: 0; }
+#health-check-path-row.is-disabled { opacity: .5; }
+.boot-card { align-items: center; text-align: center; }
+.deployment-log-events {
+  display: grid;
+  gap: .65rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.deployment-log-event {
+  padding: .75rem .85rem;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--muted);
+  border-radius: 10px;
+  background: #0d1711;
+}
+.deployment-log-event.passed { border-left-color: var(--mint); }
+.deployment-log-event.failed { border-left-color: #df6c6c; }
+.deployment-log-event.skipped { border-left-color: #d6ad56; }
+.deployment-log-event strong { display: block; text-transform: capitalize; }
+.deployment-log-event p { margin: .35rem 0; color: var(--muted); }
+.deployment-log-event time { color: var(--faint); font-size: .75rem; }
 #domain-check-summary {
   margin: 0;
   color: var(--text);

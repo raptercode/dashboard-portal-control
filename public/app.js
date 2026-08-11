@@ -7,12 +7,14 @@ const wizardPhases = [
   { title: 'ตรวจสอบก่อน Sync', next: 'พร้อมบันทึกและ Sync source' },
 ];
 const $ = (selector) => document.querySelector(selector);
+const bootView = $('#boot-view');
 const loginView = $('#login-view');
 const dashboardView = $('#dashboard-view');
 const loginError = $('#login-error');
 const confirmDialog = $('#confirm-dialog');
 const projectDialog = $('#project-dialog');
 const deployDialog = $('#deploy-dialog');
+const deploymentLogDialog = $('#deployment-log-dialog');
 const domainDialog = $('#domain-dialog');
 
 removePasswordFromUrl();
@@ -48,6 +50,8 @@ projectDialog.querySelector('.modal-close').addEventListener('click', () => proj
 projectDialog.addEventListener('close', () => { state.editingProject = null; });
 $('#fetch-branches').addEventListener('click', () => fetchBranches().catch(showError));
 $('#deploy-close').addEventListener('click', () => deployDialog.close());
+$('#deployment-log-close').addEventListener('click', () => deploymentLogDialog.close());
+$('#deployment-log-dismiss').addEventListener('click', () => deploymentLogDialog.close());
 $('#deploy-cancel').addEventListener('click', () => deployDialog.close());
 $('#domain-close').addEventListener('click', () => closeDomainDialog());
 $('#domain-cancel').addEventListener('click', () => closeDomainDialog());
@@ -80,6 +84,7 @@ $('#project-name').addEventListener('input', () => {
 $('#project-slug').addEventListener('input', () => { state.slugManual = true; updateWizardPreview(); });
 $('#project-form').addEventListener('input', updateWizardPreview);
 $('#project-form').addEventListener('change', updateWizardPreview);
+$('#health-check-enabled').addEventListener('change', () => { toggleHealthCheckFields(); updateWizardPreview(); });
 document.querySelectorAll('input[name="protocol"]').forEach((input) => input.addEventListener('change', () => { toggleCredentialReference(); updateWizardPreview(); if (state.wizardStep === 3) renderProjectReview(); }));
 document.querySelectorAll('[data-page-target]').forEach((button) => button.addEventListener('click', (event) => {
   event.preventDefault();
@@ -98,10 +103,11 @@ async function api(path, options = {}) {
 }
 
 async function showDashboard() {
-  loginView.hidden = true;
-  dashboardView.hidden = false;
   await refresh();
   navigate(pageForPathname(window.location.pathname), { updateUrl: false, scroll: false });
+  bootView.hidden = true;
+  loginView.hidden = true;
+  dashboardView.hidden = false;
 }
 
 async function refresh() {
@@ -272,6 +278,13 @@ function projectCard(project) {
   deploy.title = deploy.disabled ? 'ต้อง sync source สำเร็จก่อน' : 'ตั้งค่า secrets แล้วสร้าง candidate release';
   deploy.addEventListener('click', () => openDeployDialog(project));
   actions.append(deploy);
+  const latestRelease = deployment.releases?.[0];
+  if (latestRelease) {
+    const logs = element('button', 'secondary', 'Logs');
+    logs.type = 'button';
+    logs.addEventListener('click', () => openDeploymentLog(project, latestRelease));
+    actions.append(logs);
+  }
   const domain = element('button', 'secondary', 'Domains');
   domain.type = 'button';
   domain.addEventListener('click', () => openDomainDialog(project));
@@ -372,8 +385,7 @@ async function saveCredential(event) {
 
 async function syncProject(event) {
   event.preventDefault();
-  const form = event.currentTarget;
-  const data = Object.fromEntries(new FormData(form));
+  const data = wizardFormData();
   const result = await api('/api/projects/sync', { method: 'POST', body: data });
   projectDialog.close();
   toast(result.project.sync.detail);
@@ -630,6 +642,24 @@ function openDeployDialog(project) {
   $('#deploy-environment').focus();
 }
 
+function openDeploymentLog(project, release) {
+  const health = release.health || {};
+  $('#deployment-log-title').textContent = `${project.name} · ${release.status || 'release'}`;
+  const healthText = health.enabled === false ? 'Health check skipped' : `Health ${health.status || 'pending'}${health.path ? ` (${health.path})` : ''}`;
+  $('#deployment-log-summary').textContent = `${release.id} · ${healthText}`;
+  const events = release.events?.length ? release.events : [{ at: release.createdAt, phase: 'deployment', status: release.status || 'pending', message: release.failure || 'No step-level log was recorded for this historical release.' }];
+  $('#deployment-log-events').replaceChildren(...events.map((event) => {
+    const item = element('li', `deployment-log-event ${event.status || 'pending'}`);
+    const title = element('strong', '', `${event.phase.replaceAll('_', ' ')} · ${event.status || 'pending'}`);
+    const detail = element('p', '', event.message || 'No additional detail.');
+    const time = element('time', '', event.at ? new Date(event.at).toLocaleString() : '—');
+    item.append(title, detail, time);
+    return item;
+  }));
+  deploymentLogDialog.showModal();
+  $('#deployment-log-dismiss').focus();
+}
+
 async function submitDeploy(event) {
   event.preventDefault();
   const project = state.deployProject;
@@ -691,11 +721,14 @@ function openProjectWizard(project = null) {
     const protocol = form.querySelector(`input[name="protocol"][value="${project.protocol}"]`);
     if (protocol) protocol.checked = true;
     $('#credential-id').value = project.credentialId || '';
+    $('#health-check-enabled').checked = project.healthCheckEnabled !== false;
+    $('#health-check-path').value = project.healthCheckPath || '/';
   }
   $('#project-port').value = '3000';
   if (project) $('#project-port').value = String(project.port);
   setWizardStep(1);
   toggleCredentialReference();
+  toggleHealthCheckFields();
   updateWizardPreview();
   projectDialog.showModal();
   focusWizardPanel();
@@ -768,7 +801,14 @@ function focusWizardPanel() {
 function wizardFormData() {
   const data = Object.fromEntries(new FormData($('#project-form')));
   data.protocol = document.querySelector('input[name="protocol"]:checked')?.value || 'https';
+  data.healthCheckEnabled = $('#health-check-enabled').checked;
   return data;
+}
+
+function toggleHealthCheckFields() {
+  const enabled = $('#health-check-enabled').checked;
+  $('#health-check-path').disabled = !enabled;
+  $('#health-check-path-row').classList.toggle('is-disabled', !enabled);
 }
 
 function connectionLabel(data) {
@@ -793,6 +833,7 @@ function updateWizardPreview() {
     { term: 'Directory', value: data.directory || '/', step: 2 },
     { term: 'Branch', value: data.branch || 'main', step: 2 },
     { term: 'Port', value: data.port || '3000', step: 2 },
+    { term: 'Health', value: data.healthCheckEnabled ? (data.healthCheckPath || '/') : 'Skipped', step: 2 },
     { term: 'Connection', value: connectionLabel(data), step: 2 },
   ];
   const list = $('#wizard-preview-list');
@@ -816,6 +857,7 @@ function renderProjectReview() {
     ['Branch', data.branch || '—'],
     ['Connection', connectionLabel(data)],
     ['Internal port', data.port || '—'],
+    ['Health check', data.healthCheckEnabled ? (data.healthCheckPath || '/') : 'Skipped'],
   ];
   const list = $('#project-review');
   list.replaceChildren(...pairs.flatMap(([term, description]) => [element('dt', '', term), element('dd', '', description)]));
@@ -859,7 +901,15 @@ function showError(error) { toast(error.message, true); }
 
 async function bootstrap() {
   const session = await api('/api/session');
-  if (session.authenticated) { state.csrfToken = session.csrfToken; state.mode = session.mode; await showDashboard(); }
+  if (session.authenticated) {
+    state.csrfToken = session.csrfToken;
+    state.mode = session.mode;
+    await showDashboard();
+    return;
+  }
+  bootView.hidden = true;
+  loginView.hidden = false;
+  $('#password').focus();
 }
 
 function removePasswordFromUrl() {

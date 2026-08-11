@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { InputError } from '../src/core.mjs';
-import { activateRelease, beginDeployment, beginRollback, createRelease, initialDeployment, markReleaseHealthy, markReleasePendingActivation, projectIdentity, renderEnvironmentFile, renderSystemdUnit, validateNativeProject, validatePackageScripts } from '../src/native-project.mjs';
+import { activateRelease, appendReleaseEvent, beginDeployment, beginRollback, createRelease, initialDeployment, markReleaseHealthy, markReleasePendingActivation, projectIdentity, renderEnvironmentFile, renderSystemdUnit, validateNativeProject, validatePackageScripts } from '../src/native-project.mjs';
 
 const project = { name: 'Demo', slug: 'demo-app', repository: 'https://github.com/example/demo.git', branch: 'main', port: 3100, healthCheckPath: '/ready', buildScript: 'build', startScript: 'start', environment: { API_KEY: 'not logged', NODE_ENV: 'production' } };
 
@@ -58,4 +58,17 @@ test('native project can explicitly skip a build step without relaxing the start
   assert.equal(validateNativeProject(runtimeOnly).buildScript, null);
   assert.equal(validatePackageScripts({ scripts: { start: 'node app.js' } }, runtimeOnly).startScript, 'start');
   assert.match(renderSystemdUnit(runtimeOnly), /ExecStart=\/usr\/local\/bin\/npm run start/);
+});
+
+test('release records safe deployment phases and supports an explicit health-check skip', () => {
+  const release = createRelease({ ...project, healthCheckEnabled: false });
+  assert.equal(release.health.enabled, false);
+  assert.equal(release.health.status, 'skipped');
+  let deployment = beginDeployment(initialDeployment(), release);
+  deployment = appendReleaseEvent(deployment, release.id, 'dependencies', 'passed', 'Locked dependencies installed.');
+  deployment = markReleaseHealthy(deployment, release.id);
+  const current = deployment.releases[0];
+  assert.equal(current.status, 'healthy');
+  assert.equal(current.health.status, 'skipped');
+  assert.equal(current.events.at(-1).phase, 'dependencies');
 });

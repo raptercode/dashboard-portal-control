@@ -77,14 +77,24 @@ async function activateProject(slug, releaseId) {
   validateReleaseId(releaseId);
   const release = project.deployment?.releases?.find((item) => item.id === releaseId);
   if (!release || !['candidate', 'healthy'].includes(release.status)) throw new HelperError('The requested release is not eligible for activation.');
-  const transaction = await prepareProjectRelease(project, releaseId);
+  let transaction;
+  try {
+    transaction = await prepareProjectRelease(project, releaseId);
+  } catch (error) {
+    throw helperFailure(error, 'Host preparation failed before the project service could be activated.');
+  }
   try {
     await startAndCheckProject(project, transaction);
+  } catch (error) {
+    await transaction.rollback();
+    throw helperFailure(error, 'The project service could not be started or did not pass its host health check.');
+  }
+  try {
     await applyDomains(project);
     return { releaseId, domains: project.domains.hosts };
   } catch (error) {
     await transaction.rollback();
-    throw error;
+    throw helperFailure(error, 'Domain or TLS activation failed; the previous active release was restored.');
   }
 }
 
@@ -129,7 +139,7 @@ function validateProject(project) {
   validateSlug(project.slug);
   if (!Number.isInteger(project.port) || project.port < 1024 || project.port > 65535) throw new HelperError('Project port is invalid.');
   if (typeof project.startScript !== 'string' || !/^[a-zA-Z0-9:_-]{1,64}$/.test(project.startScript)) throw new HelperError('Project start script is invalid.');
-  if (!/^\/(?!\/)[^\s]*$/.test(project.healthCheckPath ?? '/')) throw new HelperError('Project health-check path is invalid.');
+  if (project.healthCheckEnabled !== false && !/^\/(?!\/)[^\s]*$/.test(project.healthCheckPath ?? '/')) throw new HelperError('Project health-check path is invalid.');
   if (!Array.isArray(project.domains?.hosts) || project.domains.hosts.length < 1 || project.domains.hosts.length > 10) throw new HelperError('Project has no valid domain configuration.');
   project.domains.hosts = [...new Set(project.domains.hosts.map(validateDomain))];
 }
@@ -183,7 +193,8 @@ async function prepareProjectRelease(project, releaseId) {
 
 async function startAndCheckProject(project, transaction) {
   await run('/usr/bin/systemctl', ['daemon-reload']);
-  await run('/usr/bin/systemctl', ['enable', '--now', transaction.identity.service]);
+  await run('/usr/bin/systemctl', ['enable', '--now', transaction.identity.service], { failure: 'The project systemd service could not be enabled or started.' });
+  if (project.healthCheckEnabled === false) return;
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
     if (await healthCheck(project.port, project.healthCheckPath ?? '/')) return;
@@ -299,7 +310,7 @@ function projectIdentity(slug) {
 
 async function ensureProjectUser(identity) {
   const exists = await run('/usr/bin/id', ['-u', identity.user]).then(() => true).catch(() => false);
-  if (!exists) await run('/usr/sbin/useradd', ['--system', '--create-home', '--home-dir', identity.root, '--shell', '/usr/sbin/nologin', identity.user]);
+  if (!exists) await run('/usr/sbin/useradd', ['--system', '--create-home', '--home-dir', identity.root, '--shell', '/usr/sbin/nologin', identity.user], { failure: 'The project service account could not be created.' });
   identity.gid = await lookupUserGroupId(identity.user);
   await mkdir(identity.root, { recursive: true, mode: 0o750 });
   await run('/usr/bin/chown', ['-R', '--no-dereference', `${identity.user}:${identity.user}`, identity.root]);
@@ -341,12 +352,18 @@ async function healthCheck(port, path) { try { const response = await fetch(`htt
 
 function run(command, args, options = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { shell: false, stdio: ['ignore', 'pipe', 'pipe'], timeout: 120_000, ...options });
+    const { failure = 'A required host operation failed.', ...spawnOptions } = options;
+    const child = spawn(command, args, { shell: false, stdio: ['ignore', 'pipe', 'pipe'], timeout: 120_000, ...spawnOptions });
     let stdout = '';
     child.stdout.on('data', (chunk) => { stdout += chunk; });
+    child.stderr.resume();
     child.once('error', () => reject(new HelperError('A required host operation could not start.')));
-    child.once('close', (code) => code === 0 ? resolve(stdout.trim()) : reject(new HelperError('A required host operation failed.')));
+    child.once('close', (code) => code === 0 ? resolve(stdout.trim()) : reject(new HelperError(failure)));
   });
+}
+
+function helperFailure(error, fallback) {
+  return error instanceof HelperError ? error : new HelperError(fallback);
 }
 
 function parseArgs(values) {

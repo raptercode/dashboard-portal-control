@@ -6,7 +6,8 @@ import { join } from 'node:path';
 import { InputError, StateStore, validateDomain, validateProject, validateProjectSync, validateTool } from '../src/core.mjs';
 
 test('validators accept a safe project and DNS hostname', () => {
-  assert.deepEqual(validateProject({ name: 'Demo', slug: 'demo-app', repository: 'https://github.com/example/demo.git', port: 3000, healthCheckPath: '/ready' }), { name: 'Demo', organization: 'Default', slug: 'demo-app', repository: 'https://github.com/example/demo.git', branch: 'main', directory: '/', port: 3000, healthCheckPath: '/ready' });
+  assert.deepEqual(validateProject({ name: 'Demo', slug: 'demo-app', repository: 'https://github.com/example/demo.git', port: 3000, healthCheckPath: '/ready' }), { name: 'Demo', organization: 'Default', slug: 'demo-app', repository: 'https://github.com/example/demo.git', branch: 'main', directory: '/', port: 3000, healthCheckEnabled: true, healthCheckPath: '/ready' });
+  assert.equal(validateProject({ name: 'Demo', slug: 'demo-app', repository: 'https://github.com/example/demo.git', port: 3000, healthCheckEnabled: false }).healthCheckEnabled, false);
   assert.equal(validateDomain({ hostname: 'Demo.Test' }), 'demo.test');
   assert.equal(validateTool('nginx'), 'nginx');
 });

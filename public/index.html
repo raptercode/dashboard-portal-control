@@ -11,7 +11,10 @@
   </head>
   <body>
     <main class="app-shell">
-      <section id="login-view" class="login-screen" aria-labelledby="login-title">
+      <section id="boot-view" class="login-screen" aria-live="polite">
+        <div class="login-card boot-card"><div class="brand-mark" aria-hidden="true">DP</div><p class="eyebrow">DASHBOARD PORTAL</p><p>Checking your secure session…</p></div>
+      </section>
+      <section id="login-view" class="login-screen" aria-labelledby="login-title" hidden>
         <div class="login-card">
           <div class="brand-mark" aria-hidden="true">DP</div>
           <p class="eyebrow">DASHBOARD PORTAL</p>
@@ -127,6 +130,11 @@
                 <label for="build-script">Build script <small class="field-hint">เว้นว่างได้สำหรับ Express/Node ที่ไม่มีขั้น build</small><input id="build-script" name="buildScript" value="build" maxlength="64" pattern="[A-Za-z0-9:_-]*" placeholder="build"></label>
                 <label for="start-script">Start script<input id="start-script" name="startScript" value="start" maxlength="64" pattern="[A-Za-z0-9:_-]+" placeholder="start" required></label>
               </div>
+              <fieldset class="health-check-config">
+                <legend>Health check</legend>
+                <label class="radio-card"><input id="health-check-enabled" name="healthCheckEnabled" type="checkbox" checked><span><b>Verify candidate before activation</b><small>Disable only when the project cannot expose an HTTP health endpoint.</small></span></label>
+                <label id="health-check-path-row" for="health-check-path">Health check path <small class="field-hint">Examples: /health, /healthz, or /</small><input id="health-check-path" name="healthCheckPath" value="/" maxlength="200" placeholder="/healthz" required></label>
+              </fieldset>
               <fieldset>
                 <legend>วิธีเชื่อมต่อ</legend>
                 <label class="radio-card"><input name="protocol" value="https" type="radio" checked><span><b>HTTPS</b><small>ใช้ token จาก credential vault</small></span></label>
@@ -183,6 +191,11 @@
           <button id="deploy-submit" type="submit">บันทึกและสร้าง release</button>
         </footer>
       </form>
+    </dialog>
+    <dialog id="deployment-log-dialog" class="modal deploy-modal" aria-labelledby="deployment-log-title">
+      <header class="modal-header"><div><p class="eyebrow">DEPLOYMENT LOG</p><h2 id="deployment-log-title">Release details</h2><p id="deployment-log-summary" class="wizard-phase-label">—</p></div><button id="deployment-log-close" class="modal-close" type="button" aria-label="Close">×</button></header>
+      <div class="deploy-body"><ol id="deployment-log-events" class="deployment-log-events"></ol></div>
+      <footer class="modal-footer"><span class="modal-spacer"></span><button id="deployment-log-dismiss" type="button">Close</button></footer>
     </dialog>
     <dialog id="domain-dialog" class="modal deploy-modal domain-modal" aria-labelledby="domain-dialog-title">
       <form id="domain-form" class="deploy-form">

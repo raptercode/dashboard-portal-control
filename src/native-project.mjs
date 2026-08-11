@@ -56,12 +56,14 @@ export function createRelease(projectInput, revision = null) {
     buildScript: project.buildScript,
     startScript: project.startScript,
     health: {
-      path: project.healthCheckPath,
+      enabled: project.healthCheckEnabled,
+      path: project.healthCheckEnabled ? project.healthCheckPath : null,
       port: project.candidatePort,
       timeoutMs: project.healthCheckTimeoutMs,
-      checkedAt: null,
-      status: 'pending'
-    }
+      checkedAt: project.healthCheckEnabled ? null : now,
+      status: project.healthCheckEnabled ? 'pending' : 'skipped'
+    },
+    events: [{ at: now, phase: 'candidate', status: 'started', message: 'Candidate release created.' }]
   };
 }
 
@@ -84,8 +86,10 @@ export function markReleaseHealthy(deploymentInput, releaseId) {
   const release = releaseById(deployment, releaseId);
   if (deployment.state !== 'deploying' || release.status !== 'candidate') throw new InputError('Only the current candidate release can pass health checks.');
   release.status = 'healthy';
-  release.health.status = 'passed';
-  release.health.checkedAt = new Date().toISOString();
+  if (release.health.enabled !== false) {
+    release.health.status = 'passed';
+    release.health.checkedAt = new Date().toISOString();
+  }
   deployment.updatedAt = new Date().toISOString();
   return deployment;
 }
@@ -126,6 +130,7 @@ export function failRelease(deploymentInput, releaseId, reason = 'Deployment fai
   release.failure = safeFailure(reason);
   release.health.status = release.health.status === 'pending' ? 'failed' : release.health.status;
   release.health.checkedAt ??= new Date().toISOString();
+  appendEvent(release, 'deployment', 'failed', release.failure);
   deployment.state = deployment.activeReleaseId ? 'active' : 'failed';
   deployment.updatedAt = new Date().toISOString();
   return deployment;
@@ -152,8 +157,21 @@ export function normalizeDeployment(input) {
   deployment.activeReleaseId ??= null;
   deployment.previousReleaseId ??= null;
   deployment.releases ??= [];
+  for (const release of deployment.releases) {
+    release.health ??= { enabled: true, path: '/', port: null, timeoutMs: null, checkedAt: null, status: 'pending' };
+    release.health.enabled ??= true;
+    release.events ??= [];
+  }
   deployment.pendingActivation ??= null;
   deployment.updatedAt ??= new Date().toISOString();
+  return deployment;
+}
+
+export function appendReleaseEvent(deploymentInput, releaseId, phase, status, message) {
+  const deployment = normalizeDeployment(deploymentInput);
+  const release = releaseById(deployment, releaseId);
+  appendEvent(release, phase, status, message);
+  deployment.updatedAt = new Date().toISOString();
   return deployment;
 }
 
@@ -185,6 +203,15 @@ function releaseById(deployment, releaseId) {
 
 function safeFailure(reason) {
   return typeof reason === 'string' && reason.trim() ? reason.trim().slice(0, 240) : 'Deployment failed.';
+}
+
+function appendEvent(release, phase, status, message) {
+  const validPhase = typeof phase === 'string' && /^[a-z0-9_-]{1,48}$/i.test(phase) ? phase : 'deployment';
+  const validStatus = ['started', 'passed', 'failed', 'skipped', 'pending'].includes(status) ? status : 'pending';
+  const safeMessage = typeof message === 'string' && message.trim() ? message.trim().slice(0, 240) : 'Deployment event recorded.';
+  release.events ??= [];
+  release.events.push({ at: new Date().toISOString(), phase: validPhase, status: validStatus, message: safeMessage });
+  if (release.events.length > 60) release.events.splice(0, release.events.length - 60);
 }
 
 function validateEnvironment(value) {

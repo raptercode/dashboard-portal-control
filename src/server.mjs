@@ -7,7 +7,7 @@ import os from 'node:os';
 import { spawn } from 'node:child_process';
 import { StateStore, TOOLS, SUPPORTED_NODE_MAJOR, SecretVault, appendAudit, validateDomain, validateEnvironmentContent, validateGitBranchRequest, validateGitIdentity, validateHttpsCredential, validateProjectDomains, validateProjectSync, validateTool, InputError } from './core.mjs';
 import { checkDomainDns } from './dns-check.mjs';
-import { activateRelease, beginDeployment, beginRollback, createRelease, failRelease, initialDeployment, markReleaseHealthy, markReleasePendingActivation, validateNativeProject, validatePackageScripts } from './native-project.mjs';
+import { activateRelease, appendReleaseEvent, beginDeployment, beginRollback, createRelease, failRelease, initialDeployment, markReleaseHealthy, markReleasePendingActivation, validateNativeProject, validatePackageScripts } from './native-project.mjs';
 import { callHostHelper } from './helper-client.mjs';
 import { softwareUpdateStatus, updateConfiguration } from '../scripts/software-update.mjs';
 
@@ -291,11 +291,18 @@ export async function createApplication(options = {}) {
       target.deployment = beginDeployment(target.deployment, release);
       appendAudit(state, { action: 'project.deploy', outcome: 'started', actor: 'owner', target: slug, detail: `Prepared candidate release ${release.id}` });
     });
+    const recordPhase = async (phase, status, detail) => {
+      await store.update((state) => {
+        const target = findProject(state, slug);
+        target.deployment = appendReleaseEvent(target.deployment, release.id, phase, status, detail);
+      });
+    };
     try {
-      await prepareNativeRelease(nativeProject, release, project, vault, projectRoot);
+      await prepareNativeRelease(nativeProject, release, project, vault, projectRoot, recordPhase);
       await store.update((state) => {
         const target = findProject(state, slug);
         target.deployment = markReleaseHealthy(target.deployment, release.id);
+        target.deployment = appendReleaseEvent(target.deployment, release.id, 'candidate_health', nativeProject.healthCheckEnabled ? 'passed' : 'skipped', nativeProject.healthCheckEnabled ? 'Candidate health check passed.' : 'Candidate health check was skipped by project configuration.');
       });
       const helperSocket = process.env.HOSTMGR_DEPLOY_HELPER_SOCKET;
       if (!helperSocket) {
@@ -306,10 +313,12 @@ export async function createApplication(options = {}) {
         });
         return sendJson(response, 202, { ok: true, activation: 'pending', project: publicProject(store.snapshot().projects.find((item) => item.slug === slug)) });
       }
+      await recordPhase('host_activation', 'started', 'Activating the verified candidate on the host.');
       await activateOnHost(helperSocket, slug, release.id);
       await store.update((state) => {
         const target = findProject(state, slug);
         target.deployment = activateRelease(target.deployment, release.id);
+        target.deployment = appendReleaseEvent(target.deployment, release.id, 'host_activation', 'passed', 'Host service and domain activation completed.');
         if (target.domains?.hosts?.length) target.domains.syncedAt = new Date().toISOString();
         appendAudit(state, { action: 'project.deploy', outcome: 'success', actor: 'owner', target: slug, detail: `Activated release ${release.id}` });
       });
@@ -561,7 +570,7 @@ function normalizeBranches(branches) {
   return [...new Set(branches.filter((branch) => typeof branch === 'string' && /^[A-Za-z0-9._/-]{1,100}$/.test(branch) && !branch.startsWith('-')))].sort((left, right) => left.localeCompare(right));
 }
 
-async function prepareNativeRelease(project, release, storedProject, vault, projectRoot) {
+async function prepareNativeRelease(project, release, storedProject, vault, projectRoot, reportPhase = async () => {}) {
   const source = repositoryDirectory(project, projectRoot);
   const destination = join(projectRoot, project.slug, 'releases', release.id);
   const packagePath = join(source, 'package.json');
@@ -572,19 +581,27 @@ async function prepareNativeRelease(project, release, storedProject, vault, proj
   validatePackageScripts(packageJson, project);
   const hasLockfile = await stat(join(source, 'package-lock.json')).then((item) => item.isFile()).catch(() => false);
   if (!hasLockfile) throw new InputError('Native Node deployments require package-lock.json for reproducible npm ci builds.');
-  await mkdir(join(projectRoot, project.slug, 'releases'), { recursive: true, mode: 0o750 });
-  await copyCandidateSource(source, destination);
   try {
+    await reportPhase('source_copy', 'started', 'Copying the synced repository into an isolated candidate release.');
+    await mkdir(join(projectRoot, project.slug, 'releases'), { recursive: true, mode: 0o750 });
+    await copyCandidateSource(source, destination);
+    await reportPhase('source_copy', 'passed', 'Candidate source was prepared.');
     if (storedProject.environment?.encryptedContent) {
       if (!vault) throw new InputError('Credential vault is not configured.');
       await writeFile(join(destination, '.env'), vault.decrypt(storedProject.environment.encryptedContent), { mode: 0o600 });
     }
     await runCandidateNpm(['--version'], {}, 'The host Node runtime is missing npm. Re-run the Dashboard Portal installer.');
+    await reportPhase('dependencies', 'started', 'Installing locked npm dependencies with npm ci.');
     await runCandidateNpm(['ci'], { cwd: destination, timeout: 300_000 }, 'Candidate dependency installation failed. Check package-lock.json and package dependencies.');
+    await reportPhase('dependencies', 'passed', 'Locked npm dependencies installed.');
     if (project.buildScript) {
+      await reportPhase('build', 'started', `Running npm script "${project.buildScript}".`);
       await runCandidateNpm(['run', project.buildScript], { cwd: destination, timeout: 300_000 }, `Candidate build script "${project.buildScript}" failed.`);
+      await reportPhase('build', 'passed', `Build script "${project.buildScript}" passed.`);
+    } else {
+      await reportPhase('build', 'skipped', 'No build script is configured for this project.');
     }
-    await healthCheckCandidate(destination, project, storedProject, vault);
+    await healthCheckCandidate(destination, project, storedProject, vault, reportPhase);
   } catch (error) {
     await rm(destination, { recursive: true, force: true });
     throw error;
@@ -600,10 +617,15 @@ export async function copyCandidateSource(source, destination) {
   });
 }
 
-async function healthCheckCandidate(cwd, project, storedProject, vault) {
+async function healthCheckCandidate(cwd, project, storedProject, vault, reportPhase = async () => {}) {
+  if (!project.healthCheckEnabled) {
+    await reportPhase('candidate_health', 'skipped', 'Candidate health check is disabled for this project.');
+    return;
+  }
+  await reportPhase('candidate_health', 'started', `Starting the candidate and checking ${project.healthCheckPath}.`);
   const environment = { ...process.env, PORT: String(project.candidatePort), HOST: '127.0.0.1', HOSTMGR_CANDIDATE: 'true' };
   if (storedProject.environment?.encryptedContent) Object.assign(environment, parseEnvironment(vault?.decrypt(storedProject.environment.encryptedContent) ?? ''));
-  const candidate = spawn(npmExecutable(), ['run', project.startScript], { cwd, env: environment, shell: false, stdio: ['ignore', 'ignore', 'ignore'] });
+  const candidate = spawn(npmExecutable(), ['run', project.startScript], { cwd, env: environment, shell: false, detached: process.platform !== 'win32', stdio: ['ignore', 'ignore', 'ignore'] });
   let exited = false;
   let startupError = false;
   candidate.once('error', () => { startupError = true; exited = true; });
@@ -618,11 +640,18 @@ async function healthCheckCandidate(cwd, project, storedProject, vault) {
     if (exited) throw new DeploymentFailure(`Candidate start script "${project.startScript}" exited before the health check passed.`);
     throw new DeploymentFailure('Candidate health check did not pass before its timeout.');
   } finally {
-    if (!exited) candidate.kill('SIGTERM');
+    if (!exited) stopCandidate(candidate, 'SIGTERM');
     // Do not leave a candidate listening on its temporary port if a project
     // ignores SIGTERM during a failed health check.
-    setTimeout(() => { if (!exited) candidate.kill('SIGKILL'); }, 2_000).unref();
+    setTimeout(() => { if (!exited) stopCandidate(candidate, 'SIGKILL'); }, 2_000).unref();
   }
+}
+
+function stopCandidate(candidate, signal) {
+  try {
+    if (process.platform !== 'win32' && candidate.pid) process.kill(-candidate.pid, signal);
+    else candidate.kill(signal);
+  } catch {}
 }
 
 async function runCandidateNpm(args, options, failure) {
@@ -673,7 +702,7 @@ function repositoryDirectory(project, projectRoot) {
 
 async function activateOnHost(socketPath, slug, releaseId) {
   const result = await callHostHelper(socketPath, { operation: 'activate-project', slug, releaseId });
-  if (!result.ok) throw new Error('Deployment helper rejected the activation.');
+  if (!result.ok) throw new DeploymentFailure(result.error || 'Deployment helper rejected the activation.');
 }
 
 async function syncDomainsOnHost(socketPath, slug) {

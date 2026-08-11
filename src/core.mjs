@@ -88,6 +88,9 @@ export function validateProject(input) {
     branch: optionalText(input.branch, 100) || 'main',
     directory: validateRepositoryDirectory(input.directory),
     port: Number(input.port),
+    // Existing projects predate this option, so an omitted value must keep the
+    // safe historical behavior of requiring a candidate and host health check.
+    healthCheckEnabled: input.healthCheckEnabled === undefined ? true : input.healthCheckEnabled === true,
     healthCheckPath: optionalText(input.healthCheckPath, 200) || '/'
   };
   if (!/^[a-z][a-z0-9-]{0,62}$/.test(project.slug)) throw new InputError('Project slug must use lowercase letters, digits, and hyphens.');
