@@ -34,3 +34,10 @@ protection altogether.
 If activation fails, begin with the release log in the UI, then inspect the
 helper using `journalctl -u hostmgr-deploy-helper -n 100 --no-pager`. Do not
 copy raw journal output containing project or environment data into the UI.
+
+## Update verification
+
+An update must restart the helper and dashboard services after `daemon-reload`.
+`systemctl enable --now` starts an inactive unit but leaves an active Node
+process running its old modules. Verify the new PID/start timestamp and
+`/api/health` after every update before diagnosing a deployment result.

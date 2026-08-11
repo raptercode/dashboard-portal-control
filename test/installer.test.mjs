@@ -33,3 +33,9 @@ test('privileged helper declares the writable host paths required for project ac
   assert.match(script, /ProtectSystem=full[\s\S]*?ReadWritePaths=\/etc \/var\/lib\/hostmgr \/srv\/hostmgr\/projects/);
   assert.match(script, /install -d -m 0750 -o root -g root \/etc\/hostmgr \/etc\/hostmgr\/projects \/var\/lib\/hostmgr \/var\/lib\/hostmgr\/acme \/srv\/hostmgr \/srv\/hostmgr\/projects/);
 });
+
+test('installer restarts active services so an update cannot retain old Node modules', async () => {
+  const script = await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8');
+  assert.match(script, /systemctl enable hostmgr-deploy-helper\.service\r?\nsystemctl restart hostmgr-deploy-helper\.service\r?\nsystemctl enable dashboard-portal\.service\r?\nsystemctl restart dashboard-portal\.service/);
+  assert.doesNotMatch(script, /systemctl enable --now dashboard-portal\.service/);
+});

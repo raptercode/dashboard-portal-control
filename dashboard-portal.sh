@@ -324,8 +324,13 @@ chmod 0644 "$NGINX_SITE"
 ln -sfn "$NGINX_SITE" "$NGINX_ENABLED"
 nginx -t
 systemctl daemon-reload
-systemctl enable --now hostmgr-deploy-helper.service
-systemctl enable --now dashboard-portal.service
+# `enable --now` leaves an already-active service on its old Node modules.
+# Enable for boot, then explicitly restart so a successful in-place update is
+# actually running the staged release before the updater reports success.
+systemctl enable hostmgr-deploy-helper.service
+systemctl restart hostmgr-deploy-helper.service
+systemctl enable dashboard-portal.service
+systemctl restart dashboard-portal.service
 for _ in {1..10}; do
   curl --fail --silent --show-error "http://127.0.0.1:${PORT}/api/health" >/dev/null && break
   sleep 1
