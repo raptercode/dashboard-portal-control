@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import os from 'node:os';
 import { spawn } from 'node:child_process';
-import { StateStore, TOOLS, SUPPORTED_NODE_MAJOR, SecretVault, appendAudit, validateDomain, validateEnvironmentContent, validateGitIdentity, validateHttpsCredential, validateProjectDomains, validateProjectSync, validateTool, InputError } from './core.mjs';
+import { StateStore, TOOLS, SUPPORTED_NODE_MAJOR, SecretVault, appendAudit, validateDomain, validateEnvironmentContent, validateGitBranchRequest, validateGitIdentity, validateHttpsCredential, validateProjectDomains, validateProjectSync, validateTool, InputError } from './core.mjs';
 import { checkDomainDns } from './dns-check.mjs';
 import { activateRelease, beginDeployment, beginRollback, createRelease, failRelease, initialDeployment, markReleaseHealthy, markReleasePendingActivation, validateNativeProject, validatePackageScripts } from './native-project.mjs';
 import { callHostHelper } from './helper-client.mjs';
@@ -36,6 +36,7 @@ export async function createApplication(options = {}) {
   const softwareUpdateFetcher = options.updateFetcher ?? fetch;
   const softwareVersion = options.softwareVersion ?? await installedSoftwareVersion();
   const domainDnsCheck = options.domainDnsCheck ?? checkDomainDns;
+  const branchFetcher = options.branchFetcher ?? listRemoteBranches;
   const store = new StateStore(options.dataPath ?? process.env.HOSTMGR_DATA_PATH ?? join(here, '..', 'data', 'state.json'));
   if (!password || password.length < 12) throw new Error('HOSTMGR_ADMIN_PASSWORD must be at least 12 characters.');
   if (!['demo', 'host'].includes(mode)) throw new Error('HOSTMGR_MODE must be demo or host.');
@@ -126,7 +127,10 @@ export async function createApplication(options = {}) {
         if (!requireSession(request, response)) return;
         return sendJson(response, 200, { projects: store.snapshot().projects.map(publicProject) });
       }
+      if (request.method === 'POST' && url.pathname === '/api/git/branches') return await handleGitBranches(request, response);
       if (request.method === 'POST' && url.pathname === '/api/projects/sync') return await handleProjectSync(request, response);
+      const deleteMatch = url.pathname.match(/^\/api\/projects\/([a-z][a-z0-9-]{0,62})$/);
+      if (request.method === 'DELETE' && deleteMatch) return await handleProjectDelete(request, response, deleteMatch[1]);
       const deployMatch = url.pathname.match(/^\/api\/projects\/([a-z][a-z0-9-]{0,62})\/deploy$/);
       if (request.method === 'POST' && deployMatch) return await handleProjectDeploy(request, response, deployMatch[1]);
       const rollbackMatch = url.pathname.match(/^\/api\/projects\/([a-z][a-z0-9-]{0,62})\/rollback$/);
@@ -199,7 +203,8 @@ export async function createApplication(options = {}) {
 
   async function handleProjectSync(request, response) {
     if (!requireSession(request, response, true)) return;
-    const project = validateProjectSync(await readJson(request));
+    const body = await readJson(request);
+    const project = validateProjectSync(body);
     const state = store.snapshot();
     const gitTool = mode === 'host' ? (await toolProbe([state.tools.git]))[0] : state.tools.git;
     if (gitTool.status !== 'Installed') throw new InputError('Install Git before syncing a project.');
@@ -212,16 +217,52 @@ export async function createApplication(options = {}) {
     const syncFailed = sync.status === 'failed';
     await store.update((next) => {
       const index = next.projects.findIndex((item) => item.slug === project.slug);
-      const existing = index >= 0 ? next.projects[index] : null;
+      const stored = index >= 0 ? next.projects[index] : null;
       // Sync configuration changes must not erase a release history or the
       // encrypted environment already associated with this project.
-      const record = { ...existing, ...project, sync, deployment: existing?.deployment ?? initialDeployment() };
+      const record = syncFailed && stored
+        ? { ...stored, sync }
+        : { ...stored, ...project, sync, deployment: stored?.deployment ?? initialDeployment() };
       if (index >= 0) next.projects[index] = record;
       else next.projects.push(record);
       appendAudit(next, { action: 'project.sync_configure', outcome: syncFailed ? 'failure' : 'success', actor: 'owner', target: project.slug, detail: syncFailed ? 'Repository sync failed without changing an active release' : `${project.protocol.toUpperCase()} project sync configured` });
     });
     const saved = publicProject(store.snapshot().projects.find((item) => item.slug === project.slug));
     return sendJson(response, syncFailed ? 422 : 200, { ok: !syncFailed, project: saved, error: syncFailed ? sync.detail : undefined });
+  }
+
+  async function handleGitBranches(request, response) {
+    if (!requireSession(request, response, true)) return;
+    const query = validateGitBranchRequest(await readJson(request));
+    const state = store.snapshot();
+    const gitTool = mode === 'host' ? (await toolProbe([state.tools.git]))[0] : state.tools.git;
+    if (gitTool.status !== 'Installed') throw new InputError('Install Git before fetching branches.');
+    if (query.credentialId && !state.credentials.some((credential) => credential.id === query.credentialId)) throw new InputError('Selected credential was not found.');
+    const credential = query.credentialId ? state.credentials.find((item) => item.id === query.credentialId) : null;
+    try {
+      const branches = await branchFetcher({ repository: query.repository, credential, vault, scratchRoot: projectRoot });
+      return sendJson(response, 200, { branches: normalizeBranches(branches) });
+    } catch (error) {
+      throw new InputError(`Could not fetch branches: ${safeGitBranchFailure(error)}`);
+    }
+  }
+
+  async function handleProjectDelete(request, response, slug) {
+    if (!requireSession(request, response, true)) return;
+    const project = findProject(store.snapshot(), slug);
+    if (mode === 'host') {
+      const socketPath = process.env.HOSTMGR_DEPLOY_HELPER_SOCKET;
+      if (!socketPath) throw new InputError('Host project cleanup is not configured. Re-run the Dashboard Portal installer.');
+      const result = await callHostHelper(socketPath, { operation: 'delete-project', slug });
+      if (!result.ok) throw new InputError('Host project cleanup was rejected. The project was not deleted.');
+    }
+    await rm(projectWorkspace(project, projectRoot), { recursive: true, force: true });
+    await store.update((state) => {
+      findProject(state, slug);
+      state.projects = state.projects.filter((item) => item.slug !== slug);
+      appendAudit(state, { action: 'project.delete', outcome: 'success', actor: 'owner', target: slug, detail: 'Removed project configuration and its managed workspace.' });
+    });
+    return sendJson(response, 200, { ok: true });
   }
 
   async function handleProjectDeploy(request, response, slug) {
@@ -243,7 +284,7 @@ export async function createApplication(options = {}) {
       });
       return sendJson(response, 200, { ok: true, activation: 'complete', project: publicProject(store.snapshot().projects.find((item) => item.slug === slug)) });
     }
-    const release = createRelease(nativeProject, await projectRevision(projectRoot, slug));
+    const release = createRelease(nativeProject, await projectRevision(project, projectRoot));
     await store.update((state) => {
       const target = findProject(state, slug);
       target.deployment = beginDeployment(target.deployment, release);
@@ -428,14 +469,15 @@ async function installedSoftwareVersion() {
 
 async function cloneInSandbox(project, credential, vault, projectRoot) {
   if (project.protocol === 'ssh') return { status: 'needs_ssh_key', at: new Date().toISOString(), detail: 'Create and register the project deploy key before cloning with SSH.' };
-  const target = join(projectRoot, project.slug, 'repository');
-  await mkdir(join(projectRoot, project.slug), { recursive: true, mode: 0o750 });
+  const workspace = projectWorkspace(project, projectRoot);
+  const target = repositoryRoot(project, projectRoot);
+  await mkdir(workspace, { recursive: true, mode: 0o750 });
   const env = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
   let cleanup = async () => {};
   if (credential) {
     if (!vault) throw new InputError('Credential vault is not configured.');
-    const tokenFile = join(projectRoot, project.slug, `.git-token-${randomUUID()}`);
-    const askPass = join(projectRoot, project.slug, `.git-askpass-${randomUUID()}`);
+    const tokenFile = join(workspace, `.git-token-${randomUUID()}`);
+    const askPass = join(workspace, `.git-askpass-${randomUUID()}`);
     await writeFile(tokenFile, vault.decrypt(credential.encryptedToken), { mode: 0o600 });
     await writeFile(askPass, '#!/bin/sh\ncase "$1" in *Username*) printf %s x-access-token ;; *) cat "$HOSTMGR_GIT_TOKEN_FILE" ;; esac\n', { mode: 0o700 });
     await chmod(askPass, 0o700);
@@ -477,8 +519,49 @@ export function safeGitSyncFailure(error) {
   return 'Git exited without a classified error.';
 }
 
+async function listRemoteBranches({ repository, credential, vault, scratchRoot }) {
+  const directory = join(scratchRoot, `.git-branches-${randomUUID()}`);
+  await mkdir(directory, { recursive: true, mode: 0o700 });
+  const env = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
+  let cleanup = async () => {};
+  if (credential) {
+    if (!vault) throw new InputError('Credential vault is not configured.');
+    const tokenFile = join(directory, 'token');
+    const askPass = join(directory, 'askpass');
+    await writeFile(tokenFile, vault.decrypt(credential.encryptedToken), { mode: 0o600 });
+    await writeFile(askPass, '#!/bin/sh\ncase "$1" in *Username*) printf %s x-access-token ;; *) cat "$HOSTMGR_GIT_TOKEN_FILE" ;; esac\n', { mode: 0o700 });
+    await chmod(askPass, 0o700);
+    env.GIT_ASKPASS = askPass;
+    env.GIT_ASKPASS_REQUIRE = 'force';
+    env.HOSTMGR_GIT_TOKEN_FILE = tokenFile;
+    cleanup = async () => Promise.all([rm(tokenFile, { force: true }), rm(askPass, { force: true })]);
+  }
+  try {
+    const output = await run('git', ['ls-remote', '--heads', repository], { env, timeout: 30_000 });
+    return output.split('\n').map((line) => line.split('\t')[1]?.replace(/^refs\/heads\//, '')).filter(Boolean);
+  } finally {
+    await cleanup();
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
+function safeGitBranchFailure(error) {
+  const message = String(error?.message ?? '');
+  if (/could not resolve host|network is unreachable|connection timed out|failed to connect/i.test(message)) return 'network connection to the repository failed.';
+  if (/authentication failed|could not read username|terminal prompts disabled/i.test(message)) return 'repository authentication was rejected.';
+  if (/permission denied|eacces/i.test(message)) return 'repository access was denied.';
+  if (/enoent|spawn git/i.test(message)) return 'the Git executable is unavailable to the service.';
+  if (/timed out/i.test(message)) return 'the Git operation timed out.';
+  return 'Git could not read the remote branch list.';
+}
+
+function normalizeBranches(branches) {
+  if (!Array.isArray(branches)) throw new InputError('Git returned an invalid branch list.');
+  return [...new Set(branches.filter((branch) => typeof branch === 'string' && /^[A-Za-z0-9._/-]{1,100}$/.test(branch) && !branch.startsWith('-')))].sort((left, right) => left.localeCompare(right));
+}
+
 async function prepareNativeRelease(project, release, storedProject, vault, projectRoot) {
-  const source = join(projectRoot, project.slug, 'repository');
+  const source = repositoryDirectory(project, projectRoot);
   const destination = join(projectRoot, project.slug, 'releases', release.id);
   const packagePath = join(source, 'package.json');
   const sourceExists = await stat(source).then((item) => item.isDirectory()).catch(() => false);
@@ -565,9 +648,21 @@ function parseEnvironment(content) {
   return environment;
 }
 
-async function projectRevision(projectRoot, slug) {
-  try { return await run('git', ['-C', join(projectRoot, slug, 'repository'), 'rev-parse', 'HEAD']); }
+async function projectRevision(project, projectRoot) {
+  try { return await run('git', ['-C', repositoryRoot(project, projectRoot), 'rev-parse', 'HEAD']); }
   catch { return null; }
+}
+
+function projectWorkspace(project, projectRoot) {
+  return join(projectRoot, project.slug);
+}
+
+function repositoryRoot(project, projectRoot) {
+  return join(projectWorkspace(project, projectRoot), 'repository');
+}
+
+function repositoryDirectory(project, projectRoot) {
+  return join(repositoryRoot(project, projectRoot), ...(project.directory ?? '/').split('/').filter(Boolean));
 }
 
 async function activateOnHost(socketPath, slug, releaseId) {

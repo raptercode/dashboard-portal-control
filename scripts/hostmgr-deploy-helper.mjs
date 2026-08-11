@@ -60,6 +60,7 @@ async function dispatch(request) {
   if (request.operation === 'install-tool') return installTool(request.tool);
   if (request.operation === 'activate-project') return activateProject(request.slug, request.releaseId);
   if (request.operation === 'sync-project-domains') return syncProjectDomains(request.slug);
+  if (request.operation === 'delete-project') return deleteProject(request.slug);
   throw new HelperError('Unsupported helper operation.');
 }
 
@@ -94,6 +95,19 @@ async function syncProjectDomains(slug) {
   return { domains: project.domains.hosts };
 }
 
+async function deleteProject(slug) {
+  await loadProjectForDeletion(slug);
+  const identity = projectIdentity(slug);
+  await run('/usr/bin/systemctl', ['disable', '--now', identity.service]).catch(() => {});
+  await rm(identity.unitFile, { force: true });
+  await run('/usr/bin/systemctl', ['daemon-reload']);
+  await removeManagedNginx(slug);
+  await rm(identity.environmentFile, { force: true });
+  await rm(identity.root, { recursive: true, force: true });
+  await run('/usr/sbin/userdel', [identity.user]).catch(() => {});
+  return { slug };
+}
+
 async function loadProject(slug) {
   validateSlug(slug);
   let state;
@@ -102,6 +116,13 @@ async function loadProject(slug) {
   if (!project) throw new HelperError('Project was not found.');
   validateProject(project);
   return project;
+}
+
+async function loadProjectForDeletion(slug) {
+  validateSlug(slug);
+  let state;
+  try { state = JSON.parse(await readFile(STATE_PATH, 'utf8')); } catch { throw new HelperError('Dashboard state could not be read.'); }
+  if (!state.projects?.some((item) => item?.slug === slug)) throw new HelperError('Project was not found.');
 }
 
 function validateProject(project) {
@@ -236,6 +257,20 @@ async function writeNginx(site, enabled, content) {
   await rename(temp, site);
   await rm(enabled, { force: true });
   await symlink(site, enabled);
+}
+
+async function removeManagedNginx(slug) {
+  const site = join(NGINX_AVAILABLE, `hostmgr-${slug}.conf`);
+  const enabled = join(NGINX_ENABLED, `hostmgr-${slug}.conf`);
+  const snapshot = await snapshotNginx(site, enabled);
+  try {
+    await rm(enabled, { force: true });
+    await rm(site, { force: true });
+    await testAndReloadNginx();
+  } catch (error) {
+    await restoreNginx(site, enabled, snapshot);
+    throw error;
+  }
 }
 
 async function snapshotNginx(site, enabled) {

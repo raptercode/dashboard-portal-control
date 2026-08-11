@@ -29,6 +29,9 @@
 .project-side { display: grid; justify-items: end; gap: .55rem; }
 .project-actions { display: flex; gap: .45rem; justify-content: end; }
 .project-actions button { padding: .45rem .7rem; font-size: .76rem; }
+.project-actions .danger { border-color: #8d4842; color: var(--danger); }
+.branch-picker { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .45rem; align-items: center; }
+.branch-picker button { padding: .58rem .7rem; font-size: .76rem; white-space: nowrap; }
 
 .project-modal { width: min(920px, calc(100% - 2rem)); overflow: hidden; }
 .project-modal .modal-header { padding-bottom: .85rem; }
@@ -182,6 +185,7 @@
 @media (max-width: 760px) {
   .project-side { justify-items: start; }
   .project-actions { justify-content: start; flex-wrap: wrap; }
+  .branch-picker { grid-template-columns: 1fr; }
   .wizard-layout { grid-template-columns: 1fr; min-height: 0; }
   .wizard-preview { border-left: 0; border-top: 1px solid var(--line); order: -1; }
   .project-modal .wizard-steps { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .35rem; padding: .75rem 1rem; }

@@ -7,12 +7,24 @@ const noLookup = async () => {
   throw Object.assign(new Error('ENOTFOUND'), { code: 'ENOTFOUND' });
 };
 
-test('hostExpectedAddresses merges env and non-internal NIC addresses', () => {
+test('hostExpectedAddresses uses configured public addresses instead of NIC inventory', () => {
   const addresses = hostExpectedAddresses(
     { HOSTMGR_PUBLIC_IP: '157.245.1.2, 2001:db8::1' },
     () => ({ eth0: [{ address: '10.0.0.5', internal: true }, { address: '203.0.113.9', internal: false }], lo: [{ address: '127.0.0.1', internal: true }] }),
   );
-  assert.deepEqual(addresses, ['157.245.1.2', '2001:db8::1', '203.0.113.9']);
+  assert.deepEqual(addresses, ['157.245.1.2', '2001:db8::1']);
+});
+
+test('hostExpectedAddresses falls back to public NIC addresses only', () => {
+  const addresses = hostExpectedAddresses(
+    {},
+    () => ({
+      eth0: [{ address: '203.0.113.9', internal: false }, { address: '10.0.0.5', internal: false }],
+      docker0: [{ address: '172.20.0.1', internal: false }, { address: 'fe80::1', internal: false }],
+      lo: [{ address: '127.0.0.1', internal: true }],
+    }),
+  );
+  assert.deepEqual(addresses, ['203.0.113.9']);
 });
 
 test('hostExpectedAddresses survives uv_interface_addresses system errors', () => {

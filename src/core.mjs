@@ -86,6 +86,7 @@ export function validateProject(input) {
     slug: requiredText(input.slug, 'Project slug', 63),
     repository: requiredText(input.repository, 'Repository URL', 500),
     branch: optionalText(input.branch, 100) || 'main',
+    directory: validateRepositoryDirectory(input.directory),
     port: Number(input.port),
     healthCheckPath: optionalText(input.healthCheckPath, 200) || '/'
   };
@@ -124,6 +125,26 @@ export function validateProjectSync(input) {
     ...(startScript !== undefined ? { startScript } : {}),
     ...(domains !== undefined ? { domains: { hosts: domains, updatedAt: new Date().toISOString(), syncedAt: null } } : {})
   };
+}
+
+export function validateGitBranchRequest(input) {
+  const repository = requiredText(input.repository, 'Repository URL', 500);
+  const protocol = input.protocol;
+  if (!['https', 'ssh'].includes(protocol)) throw new InputError('Select HTTPS or SSH.');
+  if (protocol === 'https' && !repository.startsWith('https://')) throw new InputError('HTTPS projects require an HTTPS repository URL.');
+  if (protocol === 'ssh' && !repository.startsWith('git@')) throw new InputError('SSH projects require Git SSH URL syntax.');
+  if (!isRepositoryUrl(repository)) throw new InputError('Repository URL must be HTTPS or SSH Git syntax.');
+  const credentialId = optionalText(input.credentialId, 64);
+  if (protocol === 'https' && credentialId && !/^[a-f0-9-]{36}$/i.test(credentialId)) throw new InputError('Credential selection is invalid.');
+  return { repository, protocol, credentialId: protocol === 'https' ? credentialId || null : null };
+}
+
+export function validateRepositoryDirectory(value) {
+  const directory = optionalText(value, 240) || '/';
+  if (!directory.startsWith('/') || directory.includes('\\') || directory.includes('//')) throw new InputError('Directory must be an absolute path inside the repository.');
+  const parts = directory.split('/').filter(Boolean);
+  if (parts.some((part) => part === '.' || part === '..' || !/^[A-Za-z0-9._-]+$/.test(part))) throw new InputError('Directory must stay inside the repository.');
+  return parts.length ? `/${parts.join('/')}` : '/';
 }
 
 export function validateProjectDomains(value) {
@@ -216,6 +237,7 @@ function migrateState(state) {
   state.credentials ??= [];
   state.projects ??= [];
   for (const project of state.projects) {
+    project.directory ??= '/';
     project.deployment ??= { state: 'idle', activeReleaseId: null, previousReleaseId: null, releases: [], updatedAt: new Date().toISOString() };
   }
   state.audit ??= [];

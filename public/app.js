@@ -1,4 +1,4 @@
-const state = { csrfToken: null, mode: null, doctor: null, git: null, projects: [], credentials: [], audit: [], softwareUpdate: null, wizardStep: 1, slugManual: false, deployProject: null, domainProject: null, domainDraftHosts: [], domainStatuses: {}, domainView: 'list', domainStep: 1, domainCheck: null };
+const state = { csrfToken: null, mode: null, doctor: null, git: null, projects: [], credentials: [], audit: [], softwareUpdate: null, wizardStep: 1, slugManual: false, editingProject: null, deployProject: null, domainProject: null, domainDraftHosts: [], domainStatuses: {}, domainView: 'list', domainStep: 1, domainCheck: null };
 const wizardPhases = [
   { title: 'ตั้งชื่อและจัดกลุ่ม', next: 'ขั้นถัดไป: เชื่อมต่อ repository' },
   { title: 'เชื่อมต่อ repository', next: 'ขั้นถัดไป: ตรวจสอบก่อน Sync' },
@@ -43,11 +43,14 @@ $('#deploy-form').addEventListener('submit', (event) => submitDeploy(event).catc
 $('#domain-form').addEventListener('submit', (event) => confirmAddDomain(event).catch(showError));
 $('#create-project').addEventListener('click', openProjectWizard);
 projectDialog.querySelector('.modal-close').addEventListener('click', () => projectDialog.close());
+projectDialog.addEventListener('close', () => { state.editingProject = null; });
+$('#fetch-branches').addEventListener('click', () => fetchBranches().catch(showError));
 $('#deploy-close').addEventListener('click', () => deployDialog.close());
 $('#deploy-cancel').addEventListener('click', () => deployDialog.close());
 $('#domain-close').addEventListener('click', () => closeDomainDialog());
 $('#domain-cancel').addEventListener('click', () => closeDomainDialog());
 $('#domain-add-start').addEventListener('click', () => setDomainView('add'));
+$('#domain-recheck').addEventListener('click', () => checkDomainInput().catch(showError));
 $('#domain-back').addEventListener('click', () => {
   if (state.domainView === 'add' && state.domainStep === 2) setDomainStep(1);
   else setDomainView('list');
@@ -249,8 +252,9 @@ function projectCard(project) {
   const repository = element('p', 'project-meta', project.repository);
   if (project.environment?.keys?.length) repository.append(document.createTextNode(` · .env ${project.environment.keys.length} keys`));
   const scripts = element('p', 'project-meta', `npm: ${project.buildScript === null ? 'no build step' : `build=${project.buildScript || 'build'}`} · start=${project.startScript || 'start'}`);
+  const directory = element('p', 'project-meta', `directory: ${project.directory || '/'}`);
   const domains = element('p', 'project-meta', project.domains?.hosts?.length ? `domains: ${project.domains.hosts.join(', ')}` : 'domains: not configured');
-  copy.append(title, meta, repository, scripts, domains);
+  copy.append(title, meta, repository, directory, scripts, domains);
   const badges = element('div', 'project-badges');
   const normalized = sync.status === 'synced' ? 'ready' : (sync.status === 'failed' || sync.status === 'needs_ssh_key' ? 'needs' : 'muted');
   const label = sync.status === 'synced' ? 'source synced' : sync.status === 'needs_ssh_key' ? 'ต้องมี SSH key' : sync.status === 'failed' ? 'sync ล้มเหลว' : 'ยังไม่ sync';
@@ -268,6 +272,14 @@ function projectCard(project) {
   domain.type = 'button';
   domain.addEventListener('click', () => openDomainDialog(project));
   actions.append(domain);
+  const edit = element('button', 'secondary', 'แก้ไข');
+  edit.type = 'button';
+  edit.addEventListener('click', () => openProjectWizard(project));
+  actions.append(edit);
+  const remove = element('button', 'secondary danger', 'ลบ');
+  remove.type = 'button';
+  remove.addEventListener('click', () => deleteProject(project, remove));
+  actions.append(remove);
   if (deployment.previousReleaseId) {
     const rollback = element('button', 'secondary', 'Rollback');
     rollback.type = 'button';
@@ -364,6 +376,17 @@ async function syncProject(event) {
   await refresh();
 }
 
+async function deleteProject(project, button) {
+  const confirmed = await confirmDeployment('ลบโปรเจค?', `จะหยุด service, ลบ managed runtime และลบ source workspace ของ ${project.name} การดำเนินการนี้ย้อนกลับไม่ได้`, 'ลบโปรเจค');
+  if (!confirmed) return;
+  button.disabled = true;
+  try {
+    await api(`/api/projects/${encodeURIComponent(project.slug)}`, { method: 'DELETE', body: {} });
+    toast(`ลบ ${project.name} แล้ว`);
+    await refresh();
+  } catch (error) { toast(error.message, true); button.disabled = false; }
+}
+
 function openDomainDialog(project) {
   state.domainProject = project;
   state.domainDraftHosts = [...(project.domains?.hosts || [])];
@@ -418,6 +441,7 @@ function setDomainStep(step) {
     dot.classList.toggle('done', index < step);
   });
   $('#domain-check').hidden = step !== 1;
+  $('#domain-recheck').hidden = step !== 2;
   $('#domain-submit').hidden = step !== 2;
   $('#domain-submit').disabled = false;
 }
@@ -486,7 +510,7 @@ async function checkDomainInput() {
     return;
   }
   input.setCustomValidity('');
-  const check = $('#domain-check');
+  const check = state.domainStep === 2 ? $('#domain-recheck') : $('#domain-check');
   check.disabled = true;
   try {
     const result = await api(`/api/projects/${encodeURIComponent(project.slug)}/domains/check`, { method: 'POST', body: { hostname } });
@@ -508,10 +532,11 @@ function renderDomainCheck(result) {
   else summary.textContent = `${result.hostname} ยังไม่ resolve ใน DNS`;
   const detail = $('#domain-check-detail');
   detail.replaceChildren();
-  appendDomainDetail(detail, 'Resolved', result.resolved?.length ? result.resolved.join(', ') : '—');
-  appendDomainDetail(detail, 'Expected', result.expected?.length ? result.expected.join(', ') : '—');
+  appendDomainDetail(detail, 'พบ DNS', result.resolved?.length ? result.resolved.join(', ') : '—');
+  appendDomainDetail(detail, 'ตั้ง DNS ไปที่', result.expected?.length ? result.expected.join(', ') : '—');
   appendDomainDetail(detail, 'สถานะ', domainStatusLabel(result.status));
   if (result.status === 'error' && result.detail) appendDomainDetail(detail, 'รายละเอียด', result.detail);
+  $('#domain-submit').textContent = ['mismatch', 'unresolved', 'error'].includes(result.status) ? 'บันทึกโดเมนไว้ก่อน' : 'เพิ่มโดเมน';
 }
 
 function appendDomainDetail(root, label, value) {
@@ -643,16 +668,54 @@ function confirmDeployment(title, message, acceptLabel) {
   });
 }
 
-function openProjectWizard() {
+function openProjectWizard(project = null) {
+  state.editingProject = project;
   state.slugManual = false;
-  $('#project-form').reset();
-  $('#branch').value = 'main';
+  const form = $('#project-form');
+  form.reset();
+  $('#project-dialog-eyebrow').textContent = project ? 'EDIT PROJECT' : 'NEW PROJECT';
+  $('#project-dialog-title').textContent = project ? `แก้ไข ${project.name}` : 'สร้างโปรเจคใหม่';
+  $('#wizard-submit').textContent = project ? 'บันทึกการแก้ไขและ Sync source' : 'บันทึกและ Sync source';
+  $('#project-slug').readOnly = Boolean(project);
+  setBranchOptions([project?.branch || 'main'], project?.branch || 'main');
+  if (project) {
+    for (const [key, value] of Object.entries(project)) {
+      const field = form.elements.namedItem(key);
+      if (field && typeof value === 'string') field.value = value;
+    }
+    $('#project-directory').value = project.directory || '/';
+    const protocol = form.querySelector(`input[name="protocol"][value="${project.protocol}"]`);
+    if (protocol) protocol.checked = true;
+    $('#credential-id').value = project.credentialId || '';
+  }
   $('#project-port').value = '3000';
+  if (project) $('#project-port').value = String(project.port);
   setWizardStep(1);
   toggleCredentialReference();
   updateWizardPreview();
   projectDialog.showModal();
   focusWizardPanel();
+}
+
+async function fetchBranches() {
+  const repository = $('#repository');
+  if (!repository.reportValidity()) return;
+  const button = $('#fetch-branches');
+  const protocol = document.querySelector('input[name="protocol"]:checked')?.value || 'https';
+  button.disabled = true;
+  try {
+    const result = await api('/api/git/branches', { method: 'POST', body: { repository: repository.value, protocol, credentialId: $('#credential-id').value } });
+    if (!result.branches.length) throw new Error('ไม่พบ branch ที่เลือกได้ใน repository นี้');
+    const previous = $('#branch').value;
+    setBranchOptions(result.branches, result.branches.includes(previous) ? previous : (result.branches.includes('main') ? 'main' : result.branches[0]));
+    toast(`พบ ${result.branches.length} branches แล้ว`);
+  } finally { button.disabled = false; }
+}
+
+function setBranchOptions(branches, selected) {
+  const branch = $('#branch');
+  branch.replaceChildren(...branches.map((name) => new Option(name, name)));
+  branch.value = branches.includes(selected) ? selected : branches[0] || '';
 }
 
 function nextWizardStep() {
@@ -723,6 +786,7 @@ function updateWizardPreview() {
     { term: 'Organization', value: data.organization, step: 1 },
     { term: 'Slug', value: data.slug, step: 1 },
     { term: 'Repository', value: data.repository, step: 2 },
+    { term: 'Directory', value: data.directory || '/', step: 2 },
     { term: 'Branch', value: data.branch || 'main', step: 2 },
     { term: 'Port', value: data.port || '3000', step: 2 },
     { term: 'Connection', value: connectionLabel(data), step: 2 },
@@ -744,6 +808,7 @@ function renderProjectReview() {
     ['Project', data.name || '—'],
     ['Slug', data.slug || '—'],
     ['Repository', data.repository || '—'],
+    ['Directory', data.directory || '/'],
     ['Branch', data.branch || '—'],
     ['Connection', connectionLabel(data)],
     ['Internal port', data.port || '—'],

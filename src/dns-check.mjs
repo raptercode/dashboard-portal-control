@@ -9,16 +9,34 @@ export function hostExpectedAddresses(env = process.env, networkInterfaces = os.
     .split(',')
     .map((value) => value.trim())
     .filter(Boolean);
+  // A configured public address is authoritative. Falling back to every NIC
+  // exposed Docker bridges and link-local IPv6 addresses in the UI, none of
+  // which is a DNS target an owner can use.
+  if (fromEnv.length) return [...new Set(fromEnv)];
   const fromNics = [];
   try {
     for (const entries of Object.values(typeof networkInterfaces === 'function' ? networkInterfaces() || {} : {})) {
       for (const entry of entries || []) {
-        if (!entry || entry.internal || typeof entry.address !== 'string' || !entry.address) continue;
+        if (!entry || entry.internal || typeof entry.address !== 'string' || !isPublicDnsTarget(entry.address)) continue;
         fromNics.push(entry.address);
       }
     }
   } catch {}
   return [...new Set([...fromEnv, ...fromNics])];
+}
+
+function isPublicDnsTarget(address) {
+  const ipv4 = address.split('.').map(Number);
+  if (ipv4.length === 4 && ipv4.every((part) => Number.isInteger(part) && part >= 0 && part <= 255)) {
+    const [first, second] = ipv4;
+    return first !== 10
+      && !(first === 100 && second >= 64 && second <= 127)
+      && !(first === 169 && second === 254)
+      && !(first === 172 && second >= 16 && second <= 31)
+      && !(first === 192 && second === 168);
+  }
+  const ipv6 = address.toLowerCase();
+  return !ipv6.startsWith('fe80:') && !ipv6.startsWith('fc') && !ipv6.startsWith('fd');
 }
 
 function asAddressList(value) {

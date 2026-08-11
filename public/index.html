@@ -91,7 +91,7 @@
       <form id="project-form" class="wizard-form">
         <header class="modal-header">
           <div>
-            <p class="eyebrow">NEW PROJECT</p>
+            <p class="eyebrow" id="project-dialog-eyebrow">NEW PROJECT</p>
             <h2 id="project-dialog-title">สร้างโปรเจคใหม่</h2>
             <p id="wizard-phase-label" class="wizard-phase-label">ขั้นที่ 1 จาก 3 · ตั้งชื่อและจัดกลุ่ม</p>
           </div>
@@ -116,8 +116,12 @@
               <p>Sync คือ clone หรือ pull source เท่านั้น ยังไม่ใช่การ deploy</p>
               <label for="repository">Repository URL<input id="repository" name="repository" maxlength="500" placeholder="https://github.com/org/repo.git" required></label>
               <div class="two-fields">
-                <label for="branch">Branch<input id="branch" name="branch" value="main" maxlength="100" required></label>
+                <label for="project-directory">Directory <small class="field-hint">โฟลเดอร์ของแอปภายใน repository เช่น /examples</small><input id="project-directory" name="directory" list="directory-suggestions" value="/" maxlength="240" placeholder="/examples" required><datalist id="directory-suggestions"><option value="/"></option><option value="/apps"></option><option value="/examples"></option><option value="/packages"></option></datalist></label>
+                <label for="branch">Branch <small class="field-hint">ดึงรายการจาก Git ก่อนเลือก</small><span class="branch-picker"><select id="branch" name="branch" required><option value="main">main</option></select><button id="fetch-branches" class="secondary" type="button">Fetch branches</button></span></label>
+              </div>
+              <div class="two-fields">
                 <label for="project-port">Internal port<input id="project-port" name="port" type="number" min="1024" max="65535" value="3000" required></label>
+                <span aria-hidden="true"></span>
               </div>
               <div class="two-fields">
                 <label for="build-script">Build script <small class="field-hint">เว้นว่างได้สำหรับ Express/Node ที่ไม่มีขั้น build</small><input id="build-script" name="buildScript" value="build" maxlength="64" pattern="[A-Za-z0-9:_-]*" placeholder="build"></label>
@@ -219,6 +223,7 @@
         <footer class="modal-footer">
           <button class="secondary" id="domain-cancel" type="button">ปิด</button>
           <button class="secondary" id="domain-back" type="button" hidden>← ย้อนกลับ</button>
+          <button class="secondary" id="domain-recheck" type="button" hidden>ตรวจอีกครั้ง</button>
           <span class="modal-spacer"></span>
           <button id="domain-add-start" type="button">เพิ่มโดเมน</button>
           <button id="domain-check" type="button" hidden>ตรวจสอบ</button>

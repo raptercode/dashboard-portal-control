@@ -200,3 +200,30 @@ test('a failed repository sync is recorded as failure and never overwrites an ac
   const audit = await fetch(`${base}/api/audit`, { headers: { cookie } });
   assert.ok((await audit.json()).events.some((event) => event.action === 'project.sync_configure' && event.outcome === 'failure'));
 });
+
+test('projects support a repository subdirectory, fetched branch choices, editing, and deletion', async (t) => {
+  const { app, base } = await start({ branchFetcher: async () => ['release/2026', 'main', 'feature/example'] });
+  t.after(() => app.close());
+  const login = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: 'correct-horse-battery-staple' }) });
+  const session = await login.json();
+  const cookie = login.headers.get('set-cookie').split(';')[0];
+  const headers = { cookie, 'content-type': 'application/json', 'x-csrf-token': session.csrfToken };
+  await fetch(`${base}/api/tools/git/install`, { method: 'POST', headers, body: JSON.stringify({ confirm: true }) });
+  await fetch(`${base}/api/git-config`, { method: 'POST', headers, body: JSON.stringify({ name: 'Demo Owner', email: 'owner@example.test' }) });
+  const branches = await fetch(`${base}/api/git/branches`, { method: 'POST', headers, body: JSON.stringify({ repository: 'https://github.com/example/monorepo.git', protocol: 'https' }) });
+  assert.deepEqual((await branches.json()).branches, ['feature/example', 'main', 'release/2026']);
+  const sync = await fetch(`${base}/api/projects/sync`, { method: 'POST', headers, body: JSON.stringify({ name: 'Examples app', slug: 'examples-app', repository: 'https://github.com/example/monorepo.git', directory: '/examples', branch: 'release/2026', port: 3100, protocol: 'https', buildScript: 'build', startScript: 'start' }) });
+  assert.equal(sync.status, 200);
+  assert.equal((await sync.json()).project.directory, '/examples');
+  const edit = await fetch(`${base}/api/projects/sync`, { method: 'POST', headers, body: JSON.stringify({ name: 'Examples app renamed', slug: 'examples-app', repository: 'https://github.com/example/monorepo.git', directory: '/apps/web', branch: 'main', port: 3200, protocol: 'https', buildScript: '', startScript: 'start' }) });
+  assert.equal(edit.status, 200);
+  const edited = (await edit.json()).project;
+  assert.equal(edited.name, 'Examples app renamed');
+  assert.equal(edited.directory, '/apps/web');
+  assert.equal(edited.port, 3200);
+  const removed = await fetch(`${base}/api/projects/examples-app`, { method: 'DELETE', headers, body: '{}' });
+  assert.equal(removed.status, 200);
+  assert.deepEqual((await (await fetch(`${base}/api/projects`, { headers: { cookie } })).json()).projects, []);
+  const audit = await fetch(`${base}/api/audit`, { headers: { cookie } });
+  assert.ok((await audit.json()).events.some((event) => event.action === 'project.delete'));
+});
