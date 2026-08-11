@@ -14,6 +14,7 @@ import { softwareUpdateStatus, updateConfiguration } from '../scripts/software-u
 const here = fileURLToPath(new URL('.', import.meta.url));
 const publicDir = join(here, '..', 'public');
 const contentTypes = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.json': 'application/json; charset=utf-8' };
+const dashboardPagePaths = new Set(['/', '/setup', '/projects', '/credentials', '/activity', '/settings']);
 const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
 const HOST_TOOL_COMMANDS = {
   nginx: [['/usr/sbin/nginx', ['-v']]],
@@ -572,11 +573,7 @@ async function prepareNativeRelease(project, release, storedProject, vault, proj
   const hasLockfile = await stat(join(source, 'package-lock.json')).then((item) => item.isFile()).catch(() => false);
   if (!hasLockfile) throw new InputError('Native Node deployments require package-lock.json for reproducible npm ci builds.');
   await mkdir(join(projectRoot, project.slug, 'releases'), { recursive: true, mode: 0o750 });
-  await cp(source, destination, {
-    recursive: true,
-    mode: 'preserve',
-    filter: (path) => !['.git', 'node_modules'].includes(basename(path))
-  });
+  await copyCandidateSource(source, destination);
   try {
     if (storedProject.environment?.encryptedContent) {
       if (!vault) throw new InputError('Credential vault is not configured.');
@@ -592,6 +589,15 @@ async function prepareNativeRelease(project, release, storedProject, vault, proj
     await rm(destination, { recursive: true, force: true });
     throw error;
   }
+}
+
+// fs.cp() accepts numeric copy-file flags for `mode`; passing the string
+// "preserve" fails on Node.js 24 before a candidate can be built.
+export async function copyCandidateSource(source, destination) {
+  await cp(source, destination, {
+    recursive: true,
+    filter: (path) => !['.git', 'node_modules'].includes(basename(path))
+  });
 }
 
 async function healthCheckCandidate(cwd, project, storedProject, vault) {
@@ -834,7 +840,7 @@ async function readJson(request) {
 }
 
 async function serveStatic(pathname, response) {
-  const filename = pathname === '/' ? 'index.html' : basename(normalize(pathname));
+  const filename = dashboardPagePaths.has(pathname) ? 'index.html' : basename(normalize(pathname));
   if (!filename || filename !== basename(filename)) return sendJson(response, 404, { error: 'Not found.' });
   try {
     const body = await readFile(join(publicDir, filename));

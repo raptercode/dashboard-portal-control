@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createApplication } from '../src/server.mjs';
+import { copyCandidateSource, createApplication } from '../src/server.mjs';
 
 async function start(options = {}) {
   const dir = await mkdtemp(join(tmpdir(), 'hostmgr-server-'));
@@ -12,6 +12,36 @@ async function start(options = {}) {
   const address = app.server.address();
   return { app, base: `http://127.0.0.1:${address.port}` };
 }
+
+test('candidate source copy works on Node 24 and excludes repository internals', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hostmgr-candidate-copy-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const source = join(dir, 'source');
+  const destination = join(dir, 'candidate');
+  await mkdir(join(source, 'node_modules'), { recursive: true });
+  await mkdir(join(source, '.git'), { recursive: true });
+  await writeFile(join(source, 'package.json'), '{"name":"candidate"}');
+  await writeFile(join(source, 'node_modules', 'ignored.js'), 'ignored');
+  await writeFile(join(source, '.git', 'HEAD'), 'ref: refs/heads/main');
+
+  await copyCandidateSource(source, destination);
+
+  assert.equal((await readFile(join(destination, 'package.json'), 'utf8')).includes('candidate'), true);
+  await assert.rejects(access(join(destination, 'node_modules')));
+  await assert.rejects(access(join(destination, '.git')));
+});
+
+test('dashboard URLs reload their matching application shell', async (t) => {
+  const { app, base } = await start();
+  t.after(() => app.close());
+  for (const path of ['/', '/setup', '/projects', '/credentials', '/activity', '/settings']) {
+    const response = await fetch(`${base}${path}`);
+    assert.equal(response.status, 200, path);
+    assert.match(response.headers.get('content-type'), /text\/html/);
+    assert.match(await response.text(), /data-page="projects"/);
+  }
+  assert.equal((await fetch(`${base}/not-a-dashboard-page`)).status, 404);
+});
 
 test('dashboard API authenticates, protects CSRF, and audits a sandbox install', async (t) => {
   const { app, base } = await start();

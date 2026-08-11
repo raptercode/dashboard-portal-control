@@ -1,3 +1,5 @@
+import { pageForPathname, pathnameForPage } from '/router.js';
+
 const state = { csrfToken: null, mode: null, doctor: null, git: null, projects: [], credentials: [], audit: [], softwareUpdate: null, wizardStep: 1, slugManual: false, editingProject: null, deployProject: null, domainProject: null, domainDraftHosts: [], domainStatuses: {}, domainView: 'list', domainStep: 1, domainCheck: null };
 const wizardPhases = [
   { title: 'ตั้งชื่อและจัดกลุ่ม', next: 'ขั้นถัดไป: เชื่อมต่อ repository' },
@@ -83,6 +85,7 @@ document.querySelectorAll('[data-page-target]').forEach((button) => button.addEv
   event.preventDefault();
   navigate(button.dataset.pageTarget);
 }));
+window.addEventListener('popstate', () => navigate(pageForPathname(window.location.pathname), { updateUrl: false }));
 
 async function api(path, options = {}) {
   const headers = { Accept: 'application/json' };
@@ -98,6 +101,7 @@ async function showDashboard() {
   loginView.hidden = true;
   dashboardView.hidden = false;
   await refresh();
+  navigate(pageForPathname(window.location.pathname), { updateUrl: false, scroll: false });
 }
 
 async function refresh() {
@@ -836,12 +840,14 @@ function toggleCredentialReference() {
   $('#credential-id').disabled = selected !== 'https';
 }
 
-function navigate(page) {
+function navigate(page, { updateUrl = true, scroll = true } = {}) {
+  const target = pathnameForPage(page);
   document.querySelectorAll('[data-page]').forEach((section) => { section.hidden = section.dataset.page !== page; });
   document.querySelectorAll('[data-page-target]').forEach((button) => button.classList.toggle('active', button.dataset.pageTarget === page));
   document.title = `${page === 'overview' ? 'Dashboard' : page[0].toUpperCase() + page.slice(1)} · Dashboard Portal`;
   closeMobileMenu();
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+  if (updateUrl && window.location.pathname !== target) history.pushState({ page }, '', target);
+  if (scroll) window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 function toggleMobileMenu() { $('.sidebar').classList.toggle('open'); $('#mobile-menu').setAttribute('aria-expanded', $('.sidebar').classList.contains('open')); }
