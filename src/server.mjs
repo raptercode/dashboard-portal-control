@@ -806,7 +806,7 @@ async function installedSoftwareVersion() {
   return packageInfo.version;
 }
 
-async function cloneInSandbox(project, credential, vault, projectRoot) {
+export async function cloneInSandbox(project, credential, vault, projectRoot) {
   if (project.protocol === 'ssh') return { status: 'needs_ssh_key', at: new Date().toISOString(), detail: 'Create and register the project deploy key before cloning with SSH.' };
   const workspace = projectWorkspace(project, projectRoot);
   const target = repositoryRoot(project, projectRoot);
@@ -836,6 +836,10 @@ async function cloneInSandbox(project, credential, vault, projectRoot) {
       await run('git', ['clone', '--branch', project.branch, '--single-branch', project.repository, target], { env });
     }
     else {
+      // The project's repository URL can change after the first sync (an
+      // edit). Without repointing origin first, fetch/reset would silently
+      // keep pulling the previously configured repository.
+      await run('git', ['-C', target, 'remote', 'set-url', 'origin', project.repository], { env });
       await run('git', ['-C', target, 'fetch', '--prune', 'origin', project.branch], { env });
       await run('git', ['-C', target, 'checkout', '--force', project.branch], { env });
       await run('git', ['-C', target, 'reset', '--hard', `origin/${project.branch}`], { env });
