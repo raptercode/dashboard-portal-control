@@ -61,7 +61,7 @@ test('software update API needs an owner session and never exposes signing mater
   t.after(() => app.close());
   const base = `http://127.0.0.1:${app.server.address().port}`;
   assert.equal((await fetch(`${base}/api/software-update`)).status, 401);
-  const login = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: 'correct-horse-battery-staple' }) });
+  const login = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'owner@local.test', password: 'correct-horse-battery-staple' }) });
   const cookie = login.headers.get('set-cookie').split(';')[0];
   const response = await fetch(`${base}/api/software-update`, { headers: { cookie } });
   const body = await response.json();

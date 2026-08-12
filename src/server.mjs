@@ -1,21 +1,41 @@
 import { createServer } from 'node:http';
 import { chmod, cp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
-import { basename, join, normalize } from 'node:path';
+import { basename, extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import os from 'node:os';
 import { spawn } from 'node:child_process';
 import { StateStore, TOOLS, SUPPORTED_NODE_MAJOR, SecretVault, appendAudit, validateDomain, validateEnvironmentContent, validateGitBranchRequest, validateGitIdentity, validateHttpsCredential, validatePasswordChange, validateProjectDomains, validateProjectSync, validateTool, InputError } from './core.mjs';
 import { checkDomainDns } from './dns-check.mjs';
-import { activateRelease, appendReleaseEvent, beginDeployment, beginRollback, createRelease, failRelease, initialDeployment, markReleaseHealthy, markReleasePendingActivation, validateNativeProject, validatePackageScripts } from './native-project.mjs';
+import { activateRelease, appendReleaseEvent, beginDeployment, beginRollback, createRelease, failRelease, initialDeployment, markReleaseHealthy, markReleasePendingActivation, projectIdentity, validateNativeProject, validatePackageScripts } from './native-project.mjs';
 import { callHostHelper } from './helper-client.mjs';
 import { softwareUpdateStatus, updateConfiguration } from '../scripts/software-update.mjs';
 import { passwordFromEnvironment } from '../scripts/password-config.mjs';
+import { createRenderer } from './render.mjs';
+import { matchUiRoute } from './ui-routes.mjs';
+import { METRIC_INTERVAL_MS, METRIC_RANGE_DAYS, METRIC_RETENTION_DAYS, collectHostMetrics, publicCurrentMetrics, publicMetricSample, validateMetricRangeDays } from './metrics.mjs';
+import { hashPassword, publicOwner, validateOwnerBootstrap, validateOwnerLogin, verifyPassword } from './auth.mjs';
+import { DATABASE_PROVIDERS, probeDatabaseConnection, publicDatabaseConnection, validateDatabaseConnectionInput } from './db-connectors.mjs';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const publicDir = join(here, '..', 'public');
+const uiDir = join(publicDir, 'ui');
+const viewsDir = join(here, '..', 'views');
+const renderView = createRenderer(viewsDir);
 const contentTypes = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.json': 'application/json; charset=utf-8' };
-const dashboardPagePaths = new Set(['/', '/setup', '/projects', '/credentials', '/activity', '/settings']);
+const pageTitles = {
+  overview: 'ภาพรวม',
+  setup: 'การตั้งค่า',
+  projects: 'โปรเจค',
+  credentials: 'Credentials',
+  databases: 'Databases',
+  activity: 'กิจกรรม',
+  settings: 'การตั้งค่าระบบ',
+  'projects-new': 'สร้างโปรเจค',
+  'projects-new-repository': 'สร้างโปรเจค',
+  'projects-new-review': 'สร้างโปรเจค',
+  'project-logs': 'Logs'
+};
 const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
 const HOST_TOOL_COMMANDS = {
   nginx: [['/usr/sbin/nginx', ['-v']]],
@@ -26,7 +46,9 @@ const HOST_TOOL_COMMANDS = {
 
 export async function createApplication(options = {}) {
   const mode = options.mode ?? process.env.HOSTMGR_MODE ?? 'demo';
-  let password = options.password ?? passwordFromEnvironment(process.env);
+  const explicitPassword = options.password;
+  let legacyPassword = explicitPassword ?? passwordFromEnvironment(process.env) ?? null;
+  if (legacyPassword != null && legacyPassword.length < 12) throw new Error('HOSTMGR_ADMIN_PASSWORD must be at least 12 characters.');
   const secureCookie = options.secureCookie ?? process.env.HOSTMGR_SECURE_COOKIE === 'true';
   const vaultKey = options.secretKey ?? process.env.HOSTMGR_SECRET_KEY;
   const vault = vaultKey ? new SecretVault(vaultKey) : null;
@@ -40,14 +62,39 @@ export async function createApplication(options = {}) {
   const domainDnsCheck = options.domainDnsCheck ?? checkDomainDns;
   const branchFetcher = options.branchFetcher ?? listRemoteBranches;
   const store = new StateStore(options.dataPath ?? process.env.HOSTMGR_DATABASE_PATH ?? process.env.HOSTMGR_DATA_PATH ?? join(here, '..', 'data', 'state.sqlite'));
-  if (!password || password.length < 12) throw new Error('HOSTMGR_ADMIN_PASSWORD must be at least 12 characters.');
   if (!['demo', 'host'].includes(mode)) throw new Error('HOSTMGR_MODE must be demo or host.');
   await store.load();
+  if (!store.snapshot().owner && explicitPassword) {
+    const seeded = hashPassword(explicitPassword);
+    await store.update((state) => {
+      state.owner = {
+        email: options.ownerEmail ?? 'owner@local.test',
+        password: seeded,
+        createdAt: new Date().toISOString()
+      };
+    });
+  }
   const sessions = new Map((store.snapshot().sessions ?? [])
     .filter((session) => validStoredSession(session))
     .map((session) => [session.idHash, { csrf: session.csrf, expiresAt: session.expiresAt }]));
   const loginAttempts = new Map();
   let deploymentQueueDraining = false;
+  const metricsIntervalMs = options.metricsIntervalMs ?? METRIC_INTERVAL_MS;
+  const metricsEnabled = options.metricsEnabled !== false;
+  let metricsTimer = null;
+
+  async function captureMetricSample() {
+    const sample = await collectHostMetrics();
+    store.recordMetricSample(sample);
+    store.pruneMetricSamples(Date.now() - METRIC_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+    return sample;
+  }
+
+  if (metricsEnabled) {
+    captureMetricSample().catch(() => {});
+    metricsTimer = setInterval(() => { captureMetricSample().catch(() => {}); }, metricsIntervalMs);
+    if (typeof metricsTimer.unref === 'function') metricsTimer.unref();
+  }
 
   async function newSession() {
     const id = randomBytes(32).toString('base64url');
@@ -98,8 +145,17 @@ export async function createApplication(options = {}) {
       if (request.method === 'GET' && url.pathname === '/api/health') return sendJson(response, 200, { status: 'ok', mode, node: process.version });
       if (request.method === 'GET' && url.pathname === '/api/session') {
         const session = getSession(request);
-        return sendJson(response, 200, { authenticated: Boolean(session), csrfToken: session?.csrf ?? null, mode });
+        const owner = store.snapshot().owner;
+        return sendJson(response, 200, {
+          authenticated: Boolean(session),
+          csrfToken: session?.csrf ?? null,
+          mode,
+          bootstrapRequired: !owner,
+          bootstrapRequiresInstallerPassword: !owner && Boolean(legacyPassword),
+          owner: publicOwner(owner)
+        });
       }
+      if (request.method === 'POST' && url.pathname === '/api/bootstrap') return await handleBootstrap(request, response);
       if (request.method === 'POST' && url.pathname === '/api/login') return await handleLogin(request, response);
       if (request.method === 'POST' && url.pathname === '/api/settings/password') return await handlePasswordChange(request, response);
       if (request.method === 'POST' && url.pathname === '/api/logout') {
@@ -113,6 +169,10 @@ export async function createApplication(options = {}) {
       if (request.method === 'GET' && url.pathname === '/api/doctor') {
         if (!requireSession(request, response)) return;
         return sendJson(response, 200, await doctorReport(store.snapshot(), mode, toolProbe));
+      }
+      if (request.method === 'GET' && url.pathname === '/api/metrics') {
+        if (!requireSession(request, response)) return;
+        return await handleMetrics(request, response, url);
       }
       if (request.method === 'GET' && url.pathname === '/api/audit') {
         if (!requireSession(request, response)) return;
@@ -147,11 +207,26 @@ export async function createApplication(options = {}) {
       if (request.method === 'POST' && domainsCheckMatch) return await handleProjectDomainCheck(request, response, domainsCheckMatch[1]);
       const domainsMatch = url.pathname.match(/^\/api\/projects\/([a-z][a-z0-9-]{0,62})\/domains$/);
       if (request.method === 'POST' && domainsMatch) return await handleProjectDomains(request, response, domainsMatch[1]);
+      const logsMatch = url.pathname.match(/^\/api\/projects\/([a-z][a-z0-9-]{0,62})\/logs$/);
+      if (request.method === 'GET' && logsMatch) return await handleProjectLogs(request, response, logsMatch[1]);
       if (request.method === 'GET' && url.pathname === '/api/credentials') {
         if (!requireSession(request, response)) return;
         return sendJson(response, 200, { credentials: store.snapshot().credentials.map(publicCredential), vaultReady: Boolean(vault) });
       }
       if (request.method === 'POST' && url.pathname === '/api/credentials') return await handleCredential(request, response);
+      if (request.method === 'GET' && url.pathname === '/api/databases') {
+        if (!requireSession(request, response)) return;
+        return sendJson(response, 200, {
+          providers: Object.values(DATABASE_PROVIDERS),
+          connections: store.snapshot().databaseConnections.map(publicDatabaseConnection),
+          vaultReady: Boolean(vault)
+        });
+      }
+      if (request.method === 'POST' && url.pathname === '/api/databases') return await handleDatabaseCreate(request, response);
+      const databaseCheckMatch = url.pathname.match(/^\/api\/databases\/([a-f0-9-]{36})\/check$/i);
+      if (request.method === 'POST' && databaseCheckMatch) return await handleDatabaseCheck(request, response, databaseCheckMatch[1]);
+      const databaseDeleteMatch = url.pathname.match(/^\/api\/databases\/([a-f0-9-]{36})$/i);
+      if (request.method === 'DELETE' && databaseDeleteMatch) return await handleDatabaseDelete(request, response, databaseDeleteMatch[1]);
       const toolMatch = url.pathname.match(/^\/api\/tools\/(nginx|certbot|git|docker)\/install$/);
       if (request.method === 'POST' && toolMatch) return await handleInstall(request, response, toolMatch[1]);
       if (url.pathname.startsWith('/api/')) return sendJson(response, 404, { error: 'API endpoint not found.' });
@@ -161,13 +236,60 @@ export async function createApplication(options = {}) {
     }
   });
 
+  async function handleMetrics(request, response, url) {
+    const rangeDays = validateMetricRangeDays(url.searchParams.get('range') ?? '1');
+    const current = await collectHostMetrics();
+    const since = Date.now() - rangeDays * 24 * 60 * 60 * 1000;
+    const samples = store.listMetricSamples(since).map(publicMetricSample);
+    const currentPublic = publicMetricSample(current);
+    const lastAt = samples.length ? Date.parse(samples[samples.length - 1].at) : 0;
+    if (!samples.length || Date.now() - lastAt > 10_000) samples.push(currentPublic);
+    return sendJson(response, 200, {
+      rangeDays,
+      ranges: METRIC_RANGE_DAYS,
+      intervalMinutes: Math.round(METRIC_INTERVAL_MS / 60000),
+      retentionDays: METRIC_RETENTION_DAYS,
+      updatedAt: new Date().toISOString(),
+      current: publicCurrentMetrics(current),
+      samples
+    });
+  }
+
+  async function handleBootstrap(request, response) {
+    if (store.snapshot().owner) throw new InputError('Owner account already exists.');
+    const requireCurrentPassword = Boolean(legacyPassword);
+    const bootstrap = validateOwnerBootstrap(await readJson(request), { requireCurrentPassword });
+    if (requireCurrentPassword && !constantEqual(bootstrap.currentPassword, legacyPassword)) {
+      await store.update((state) => appendAudit(state, { action: 'auth.bootstrap_failed', outcome: 'denied', actor: 'anonymous', detail: 'Invalid installer password' }));
+      return sendJson(response, 401, { error: 'Invalid installer password.' });
+    }
+    const password = hashPassword(bootstrap.password);
+    await store.update((state) => {
+      state.owner = { email: bootstrap.email, password, createdAt: new Date().toISOString() };
+      appendAudit(state, { action: 'auth.bootstrap', outcome: 'success', actor: 'owner', target: bootstrap.email, detail: 'Owner account created' });
+    });
+    legacyPassword = bootstrap.password;
+    if (mode === 'host') {
+      const socketPath = process.env.HOSTMGR_DEPLOY_HELPER_SOCKET;
+      if (socketPath) {
+        const result = await callHostHelper(socketPath, { operation: 'set-admin-password', password: bootstrap.password });
+        if (!result.ok) throw new InputError('Owner was created, but the host password file could not be updated.');
+      }
+    }
+    const session = await newSession();
+    response.setHeader('Set-Cookie', sessionCookie(session.id, secureCookie));
+    return sendJson(response, 200, { ok: true, csrfToken: session.csrf, mode, owner: publicOwner(store.snapshot().owner) });
+  }
+
   async function handleLogin(request, response) {
     const ip = request.socket.remoteAddress ?? 'unknown';
     const attempt = loginAttempts.get(ip) ?? { count: 0, resetAt: Date.now() + 15 * 60 * 1000 };
     if (attempt.resetAt < Date.now()) loginAttempts.delete(ip);
     if (attempt.count >= 5 && attempt.resetAt >= Date.now()) return sendJson(response, 429, { error: 'Too many login attempts. Try again later.' });
-    const body = await readJson(request);
-    if (!constantEqual(body.password, password)) {
+    if (!store.snapshot().owner) return sendJson(response, 409, { error: 'Owner bootstrap is required.', bootstrapRequired: true });
+    const body = validateOwnerLogin(await readJson(request));
+    const owner = store.snapshot().owner;
+    if (body.email !== owner.email || !verifyPassword(body.password, owner.password)) {
       loginAttempts.set(ip, { count: attempt.count + 1, resetAt: attempt.resetAt });
       await store.update((state) => appendAudit(state, { action: 'auth.login_failed', outcome: 'denied', actor: 'anonymous', detail: 'Invalid credentials' }));
       return sendJson(response, 401, { error: 'Invalid credentials.' });
@@ -175,29 +297,97 @@ export async function createApplication(options = {}) {
     loginAttempts.delete(ip);
     const session = await newSession();
     response.setHeader('Set-Cookie', sessionCookie(session.id, secureCookie));
-    await store.update((state) => appendAudit(state, { action: 'auth.login', outcome: 'success', actor: 'owner', detail: 'Owner session created' }));
-    return sendJson(response, 200, { ok: true, csrfToken: session.csrf, mode });
+    await store.update((state) => appendAudit(state, { action: 'auth.login', outcome: 'success', actor: 'owner', target: owner.email, detail: 'Owner session created' }));
+    return sendJson(response, 200, { ok: true, csrfToken: session.csrf, mode, owner: publicOwner(owner) });
   }
 
   async function handlePasswordChange(request, response) {
     if (!requireSession(request, response, true)) return;
+    const owner = store.snapshot().owner;
+    if (!owner) throw new InputError('Owner account is not configured.');
     const change = validatePasswordChange(await readJson(request));
-    if (!constantEqual(change.currentPassword, password)) throw new InputError('Current password is incorrect.');
+    if (!verifyPassword(change.currentPassword, owner.password)) throw new InputError('Current password is incorrect.');
     if (mode === 'host') {
       const socketPath = process.env.HOSTMGR_DEPLOY_HELPER_SOCKET;
       if (!socketPath) throw new InputError('Password management is not configured. Re-run the Dashboard Portal installer.');
       const result = await callHostHelper(socketPath, { operation: 'set-admin-password', password: change.newPassword });
       if (!result.ok) throw new InputError('Password could not be updated.');
     }
-    password = change.newPassword;
+    const password = hashPassword(change.newPassword);
+    legacyPassword = change.newPassword;
     sessions.clear();
     await store.update((state) => {
+      state.owner = { ...state.owner, password, updatedAt: new Date().toISOString() };
       state.sessions = [];
       appendAudit(state, { action: 'auth.password_changed', outcome: 'success', actor: 'owner', detail: 'Owner password changed; existing sessions were invalidated' });
     });
     const renewed = await newSession();
     response.setHeader('Set-Cookie', sessionCookie(renewed.id, secureCookie));
     return sendJson(response, 200, { ok: true, csrfToken: renewed.csrf });
+  }
+
+  async function handleDatabaseCreate(request, response) {
+    if (!requireSession(request, response, true)) return;
+    if (!vault) throw new InputError('Credential vault is not configured. Set HOSTMGR_SECRET_KEY before saving database connectors.');
+    const input = validateDatabaseConnectionInput(await readJson(request));
+    const created = {
+      id: randomUUID(),
+      name: input.name,
+      provider: input.provider,
+      host: input.host,
+      port: input.port,
+      database: input.database,
+      username: input.username,
+      tls: input.tls,
+      encryptedSecret: input.password ? vault.encrypt(input.password) : null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      lastCheckedAt: null,
+      lastStatus: null
+    };
+    await store.update((state) => {
+      if (state.databaseConnections.some((item) => item.name === created.name)) throw new InputError('A database connection with this name already exists.');
+      state.databaseConnections.push(created);
+      appendAudit(state, { action: 'database.create', outcome: 'success', actor: 'owner', target: created.name, detail: `${created.provider} connector saved` });
+    });
+    return sendJson(response, 201, { ok: true, connection: publicDatabaseConnection(created) });
+  }
+
+  async function handleDatabaseCheck(request, response, id) {
+    if (!requireSession(request, response, true)) return;
+    const connection = store.snapshot().databaseConnections.find((item) => item.id === id);
+    if (!connection) throw new NotFoundError('Database connection was not found.');
+    const secret = connection.encryptedSecret && vault ? vault.decrypt(connection.encryptedSecret) : '';
+    try {
+      const result = await probeDatabaseConnection(connection, secret);
+      await store.update((state) => {
+        const target = state.databaseConnections.find((item) => item.id === id);
+        if (!target) return;
+        target.lastCheckedAt = new Date().toISOString();
+        target.lastStatus = 'reachable';
+      });
+      return sendJson(response, 200, { ok: true, result });
+    } catch (error) {
+      await store.update((state) => {
+        const target = state.databaseConnections.find((item) => item.id === id);
+        if (!target) return;
+        target.lastCheckedAt = new Date().toISOString();
+        target.lastStatus = 'unreachable';
+      });
+      if (error instanceof InputError) throw error;
+      throw new InputError(error.message || 'Database probe failed.');
+    }
+  }
+
+  async function handleDatabaseDelete(request, response, id) {
+    if (!requireSession(request, response, true)) return;
+    await store.update((state) => {
+      const target = state.databaseConnections.find((item) => item.id === id);
+      if (!target) throw new NotFoundError('Database connection was not found.');
+      state.databaseConnections = state.databaseConnections.filter((item) => item.id !== id);
+      appendAudit(state, { action: 'database.delete', outcome: 'success', actor: 'owner', target: target.name, detail: 'Database connector removed' });
+    });
+    return sendJson(response, 200, { ok: true });
   }
 
   async function handleInstall(request, response, tool) {
@@ -569,6 +759,25 @@ export async function createApplication(options = {}) {
     return sendJson(response, 200, { ok: true, project: publicProject(store.snapshot().projects.find((item) => item.slug === slug)) });
   }
 
+  async function handleProjectLogs(request, response, slug) {
+    if (!requireSession(request, response)) return;
+    const project = findProject(store.snapshot(), slug);
+    const identity = projectIdentity(project.slug);
+    if (mode !== 'host') {
+      return sendJson(response, 200, { unit: identity.service, lines: demoProjectLogLines(project, identity), available: true, simulated: true });
+    }
+    const socketPath = process.env.HOSTMGR_DEPLOY_HELPER_SOCKET;
+    if (!socketPath) {
+      return sendJson(response, 200, { unit: identity.service, lines: [], available: false, notice: 'ยังไม่ได้เชื่อมต่อ deployment helper — อ่าน runtime log ไม่ได้', simulated: false });
+    }
+    try {
+      const result = await callHostHelper(socketPath, { operation: 'read-project-log', slug: project.slug, lines: 150 });
+      return sendJson(response, 200, { unit: identity.service, lines: Array.isArray(result.lines) ? result.lines : [], available: true, simulated: false });
+    } catch {
+      return sendJson(response, 200, { unit: identity.service, lines: [], available: false, notice: 'อ่าน runtime log จาก host ไม่สำเร็จ', simulated: false });
+    }
+  }
+
   async function hostInstall(tool) {
     const socketPath = process.env.HOSTMGR_DEPLOY_HELPER_SOCKET;
     if (!socketPath) throw new InputError('Host installer is not configured. Re-run the Dashboard Portal installer.');
@@ -578,7 +787,17 @@ export async function createApplication(options = {}) {
   }
 
   await recoverDeploymentQueue();
-  return { server, store, close: () => new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve())) };
+  return {
+    server,
+    store,
+    close: () => new Promise((resolve, reject) => {
+      if (metricsTimer) {
+        clearInterval(metricsTimer);
+        metricsTimer = null;
+      }
+      server.close((error) => error ? reject(error) : resolve());
+    })
+  };
 }
 
 async function installedSoftwareVersion() {
@@ -922,11 +1141,23 @@ function appendJobEvent(job, status, message, phase = null) {
 
 async function doctorReport(state, mode, toolProbe = probeHostTools) {
   const tools = mode === 'host' ? await toolProbe(Object.values(state.tools)) : Object.values(state.tools);
+  const resources = await collectHostMetrics();
   return {
     generatedAt: new Date().toISOString(),
     mode,
     supportedNodeMajor: SUPPORTED_NODE_MAJOR,
-    host: { hostname: os.hostname(), platform: os.platform(), release: os.release(), arch: os.arch(), memoryBytes: os.totalmem(), uptimeSeconds: Math.floor(os.uptime()) },
+    host: {
+      hostname: os.hostname(),
+      platform: os.platform(),
+      release: os.release(),
+      arch: os.arch(),
+      memoryBytes: resources.memoryTotalBytes,
+      memoryUsedBytes: resources.memoryUsedBytes,
+      diskUsedBytes: resources.diskUsedBytes,
+      diskTotalBytes: resources.diskTotalBytes,
+      cpuPercent: resources.cpuPercent,
+      uptimeSeconds: resources.uptimeSeconds
+    },
     tools,
     warning: mode === 'demo' ? 'Sandbox mode: installer operations are simulated and do not change the Docker host.' : null
   };
@@ -980,6 +1211,13 @@ function demoInstall(tool) {
   return { version: 'sandbox-simulated', detail: `Validated allowlisted install request for ${TOOLS[tool].package}; no host package was changed.` };
 }
 
+function demoProjectLogLines(project, identity) {
+  return [
+    `# Sandbox mode: "${project.name}" ไม่ได้รันเป็น systemd service บนเครื่องนี้`,
+    `# บนเครื่อง host จริง ส่วนนี้จะแสดงผลลัพธ์ล่าสุดของ: journalctl -u ${identity.service}`
+  ];
+}
+
 function run(command, args, options = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { shell: false, stdio: ['ignore', 'pipe', 'pipe'], timeout: 120000, ...options });
@@ -1002,11 +1240,25 @@ async function readJson(request) {
 }
 
 async function serveStatic(pathname, response) {
-  const filename = dashboardPagePaths.has(pathname) ? 'index.html' : basename(normalize(pathname));
-  if (!filename || filename !== basename(filename)) return sendJson(response, 404, { error: 'Not found.' });
+  const route = matchUiRoute(pathname);
+  if (route) {
+    const html = await renderView.render(route.view, {
+      page: route.page,
+      view: route.view,
+      title: pageTitles[route.view] || pageTitles[route.page] || 'Dashboard Portal',
+      flowMode: route.params.mode || '',
+      editSlug: route.params.slug || ''
+    });
+    response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store' });
+    return response.end(html);
+  }
+  if (!pathname.startsWith('/ui/')) return sendJson(response, 404, { error: 'Not found.' });
+  const filename = basename(normalize(pathname));
+  if (!filename || filename !== basename(filename) || filename.includes('..')) return sendJson(response, 404, { error: 'Not found.' });
   try {
-    const body = await readFile(join(publicDir, filename));
-    response.writeHead(200, { 'Content-Type': contentTypes[filename.slice(filename.lastIndexOf('.'))] ?? 'application/octet-stream', 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store' });
+    const body = await readFile(join(uiDir, filename));
+    const type = contentTypes[extname(filename)] ?? 'application/octet-stream';
+    response.writeHead(200, { 'Content-Type': type, 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store' });
     response.end(body);
   } catch (error) {
     if (error.code === 'ENOENT') return sendJson(response, 404, { error: 'Not found.' });

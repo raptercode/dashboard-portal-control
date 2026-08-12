@@ -1,6 +1,8 @@
 import net from 'node:net';
 
-const MAX_RESPONSE_BYTES = 16 * 1024;
+// 64 KiB leaves headroom for the read-project-log operation's line buffer
+// while remaining a fixed, non-attacker-reachable bound (loopback Unix socket).
+const MAX_RESPONSE_BYTES = 64 * 1024;
 
 /**
  * Send one bounded JSON request to the root-owned helper over its Unix socket.

@@ -64,7 +64,15 @@ async function dispatch(request) {
   if (request.operation === 'sync-project-domains') return syncProjectDomains(request.slug);
   if (request.operation === 'delete-project') return deleteProject(request.slug);
   if (request.operation === 'set-admin-password') return setAdminPassword(request.password);
+  if (request.operation === 'read-project-log') return readProjectLog(request.slug, request.lines);
   throw new HelperError('Unsupported helper operation.');
+}
+
+async function readProjectLog(slug, lines) {
+  const identity = projectIdentity(slug);
+  const count = Number.isInteger(lines) && lines > 0 && lines <= 200 ? lines : 150;
+  const output = await run('/usr/bin/journalctl', ['-u', identity.service, '-n', String(count), '--no-pager', '-o', 'short-iso'], { failure: 'Could not read the project log.' }).catch(() => '');
+  return { lines: output.split('\n').filter(Boolean).slice(-count).map((line) => line.slice(0, 1000)) };
 }
 
 async function setAdminPassword(password) {

@@ -7,7 +7,7 @@ import { copyCandidateSource, createApplication } from '../src/server.mjs';
 
 async function start(options = {}) {
   const dir = await mkdtemp(join(tmpdir(), 'hostmgr-server-'));
-  const app = await createApplication({ dataPath: join(dir, 'state.json'), password: 'correct-horse-battery-staple', secretKey: Buffer.alloc(32, 7).toString('base64'), mode: 'demo', sandboxClone: false, ...options });
+  const app = await createApplication({ dataPath: join(dir, 'state.json'), password: 'correct-horse-battery-staple', secretKey: Buffer.alloc(32, 7).toString('base64'), mode: 'demo', sandboxClone: false, metricsEnabled: false, ...options });
   await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
   const address = app.server.address();
   return { app, base: `http://127.0.0.1:${address.port}` };
@@ -34,20 +34,38 @@ test('candidate source copy works on Node 24 and excludes repository internals',
 test('dashboard URLs reload their matching application shell', async (t) => {
   const { app, base } = await start();
   t.after(() => app.close());
-  for (const path of ['/', '/setup', '/projects', '/credentials', '/activity', '/settings']) {
+  const pages = {
+    '/': 'overview',
+    '/setup': 'setup',
+    '/projects': 'projects',
+    '/credentials': 'credentials',
+    '/databases': 'databases',
+    '/activity': 'activity',
+    '/settings': 'settings'
+  };
+  for (const [path, page] of Object.entries(pages)) {
     const response = await fetch(`${base}${path}`);
     assert.equal(response.status, 200, path);
     assert.match(response.headers.get('content-type'), /text\/html/);
+    const html = await response.text();
+    assert.match(html, new RegExp(`data-page="${page}"`));
+    assert.match(html, /\/ui\/app\.js/);
+  }
+  for (const path of ['/projects/new', '/projects/new/repository', '/projects/new/review']) {
+    const response = await fetch(`${base}${path}`);
+    assert.equal(response.status, 200, path);
     assert.match(await response.text(), /data-page="projects"/);
   }
   assert.equal((await fetch(`${base}/not-a-dashboard-page`)).status, 404);
+  assert.equal((await fetch(`${base}/index.html`)).status, 404);
+  assert.equal((await fetch(`${base}/app.js`)).status, 404);
 });
 
 test('dashboard API authenticates, protects CSRF, and audits a sandbox install', async (t) => {
   const { app, base } = await start();
   t.after(() => app.close());
   assert.equal((await fetch(`${base}/api/doctor`)).status, 401);
-  const login = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: 'correct-horse-battery-staple' }) });
+  const login = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'owner@local.test', password: 'correct-horse-battery-staple' }) });
   assert.equal(login.status, 200);
   const session = await login.json();
   const cookie = login.headers.get('set-cookie').split(';')[0];
@@ -66,33 +84,33 @@ test('dashboard API authenticates, protects CSRF, and audits a sandbox install',
 test('owner can change the password, which invalidates every existing session', async (t) => {
   const { app, base } = await start();
   t.after(() => app.close());
-  const login = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: 'correct-horse-battery-staple' }) });
+  const login = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'owner@local.test', password: 'correct-horse-battery-staple' }) });
   const session = await login.json();
   const oldCookie = login.headers.get('set-cookie').split(';')[0];
   const change = await fetch(`${base}/api/settings/password`, {
     method: 'POST',
     headers: { cookie: oldCookie, 'content-type': 'application/json', 'x-csrf-token': session.csrfToken },
-    body: JSON.stringify({ currentPassword: 'correct-horse-battery-staple', newPassword: 'new-correct-horse-battery' })
+    body: JSON.stringify({ currentPassword: 'correct-horse-battery-staple', newPassword: 'New-correct-horse1!' })
   });
   assert.equal(change.status, 200);
   const changed = await change.json();
   const renewedCookie = change.headers.get('set-cookie').split(';')[0];
   assert.notEqual(renewedCookie, oldCookie);
   assert.equal((await fetch(`${base}/api/doctor`, { headers: { cookie: oldCookie } })).status, 401);
-  assert.equal((await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: 'correct-horse-battery-staple' }) })).status, 401);
-  const nextLogin = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: 'new-correct-horse-battery' }) });
+  assert.equal((await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'owner@local.test', password: 'correct-horse-battery-staple' }) })).status, 401);
+  const nextLogin = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'owner@local.test', password: 'New-correct-horse1!' }) });
   assert.equal(nextLogin.status, 200);
   assert.equal(changed.csrfToken.length, 43);
   const audit = await fetch(`${base}/api/audit`, { headers: { cookie: renewedCookie } });
   const auditText = JSON.stringify(await audit.json());
   assert.match(auditText, /auth.password_changed/);
-  assert.equal(auditText.includes('new-correct-horse-battery'), false);
+  assert.equal(auditText.includes('New-correct-horse1!'), false);
 });
 
 test('Git identity, encrypted credential, and HTTPS project sync never return a token value', async (t) => {
   const { app, base } = await start();
   t.after(() => app.close());
-  const login = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: 'correct-horse-battery-staple' }) });
+  const login = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'owner@local.test', password: 'correct-horse-battery-staple' }) });
   const session = await login.json();
   const cookie = login.headers.get('set-cookie').split(';')[0];
   const headers = { cookie, 'content-type': 'application/json', 'x-csrf-token': session.csrfToken };
@@ -116,7 +134,7 @@ test('Git identity, encrypted credential, and HTTPS project sync never return a 
 test('invalid request data returns a client error without crashing the backend', async (t) => {
   const { app, base } = await start();
   t.after(() => app.close());
-  const login = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: 'correct-horse-battery-staple' }) });
+  const login = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'owner@local.test', password: 'correct-horse-battery-staple' }) });
   const session = await login.json();
   const cookie = login.headers.get('set-cookie').split(';')[0];
   const headers = { cookie, 'content-type': 'application/json', 'x-csrf-token': session.csrfToken };
@@ -132,7 +150,7 @@ test('host project sync checks the live Git probe instead of stale persisted too
   const toolProbe = async (tools) => tools.map((tool) => ({ ...tool, status: 'Installed', version: 'git version test', simulated: false }));
   const { app, base } = await start({ mode: 'host', toolProbe });
   t.after(() => app.close());
-  const login = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: 'correct-horse-battery-staple' }) });
+  const login = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'owner@local.test', password: 'correct-horse-battery-staple' }) });
   const session = await login.json();
   const cookie = login.headers.get('set-cookie').split(';')[0];
   const response = await fetch(`${base}/api/projects/sync`, {
@@ -148,7 +166,7 @@ test('session cookie persists for seven days and survives an application restart
   const dir = await mkdtemp(join(tmpdir(), 'hostmgr-session-'));
   const dataPath = join(dir, 'state.json');
   const first = await start({ dataPath, secureCookie: true });
-  const login = await fetch(`${first.base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: 'correct-horse-battery-staple' }) });
+  const login = await fetch(`${first.base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'owner@local.test', password: 'correct-horse-battery-staple' }) });
   const setCookie = login.headers.get('set-cookie');
   const cookie = setCookie.split(';')[0];
   assert.match(setCookie, /Max-Age=604800/);
@@ -159,13 +177,18 @@ test('session cookie persists for seven days and survives an application restart
   const second = await start({ dataPath, secureCookie: true });
   t.after(() => second.app.close());
   const session = await fetch(`${second.base}/api/session`, { headers: { cookie } });
-  assert.deepEqual(await session.json(), { authenticated: true, csrfToken: (await login.clone().json()).csrfToken, mode: 'demo' });
+  const body = await session.json();
+  assert.equal(body.authenticated, true);
+  assert.equal(body.mode, 'demo');
+  assert.equal(body.bootstrapRequired, false);
+  assert.equal(body.owner.email, 'owner@local.test');
+  assert.equal(body.csrfToken, (await login.clone().json()).csrfToken);
 });
 
 test('local UI demo simulates sync and activates a release without cloning', async (t) => {
   const { app, base } = await start();
   t.after(() => app.close());
-  const login = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: 'correct-horse-battery-staple' }) });
+  const login = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'owner@local.test', password: 'correct-horse-battery-staple' }) });
   const session = await login.json();
   const cookie = login.headers.get('set-cookie').split(';')[0];
   const headers = { cookie, 'content-type': 'application/json', 'x-csrf-token': session.csrfToken };
@@ -188,7 +211,7 @@ test('local UI demo simulates sync and activates a release without cloning', asy
 test('host deployment returns immediately with a durable queued job instead of holding the HTTP request', async (t) => {
   const { app, base } = await start({ mode: 'host', sandboxClone: false });
   t.after(() => app.close());
-  const login = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: 'correct-horse-battery-staple' }) });
+  const login = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'owner@local.test', password: 'correct-horse-battery-staple' }) });
   const session = await login.json();
   const cookie = login.headers.get('set-cookie').split(';')[0];
   const headers = { cookie, 'content-type': 'application/json', 'x-csrf-token': session.csrfToken };
@@ -212,10 +235,63 @@ test('host deployment returns immediately with a durable queued job instead of h
   assert.ok(['queued', 'running', 'failed'].includes((await status.json()).job.status));
 });
 
+test('project logs require a session, simulate output in demo mode, and degrade cleanly without a host helper', async (t) => {
+  const { app, base } = await start();
+  t.after(() => app.close());
+  await app.store.update((state) => {
+    state.projects.push({
+      name: 'Logs app', organization: 'Tests', slug: 'logs-app', repository: 'https://github.com/example/logs.git', branch: 'main', directory: '/', port: 3220,
+      healthCheckEnabled: true, healthCheckPath: '/', protocol: 'https', credentialId: null, sshKeyId: null, buildScript: null, startScript: 'start',
+      sync: { status: 'synced', at: new Date().toISOString(), detail: 'Seeded for log test.' },
+      environment: { keys: ['NODE_ENV'], encryptedContent: { algorithm: 'aes-256-gcm', iv: 'AAAAAAAAAAAAAAAA', tag: 'AAAAAAAAAAAAAAAAAAAAAA==', ciphertext: 'AA==' } },
+      domains: { hosts: [], updatedAt: new Date().toISOString(), syncedAt: null },
+      deployment: { state: 'idle', activeReleaseId: null, previousReleaseId: null, releases: [], updatedAt: new Date().toISOString() }
+    });
+  });
+  const unauthenticated = await fetch(`${base}/api/projects/logs-app/logs`);
+  assert.equal(unauthenticated.status, 401);
+  const login = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'owner@local.test', password: 'correct-horse-battery-staple' }) });
+  const cookie = login.headers.get('set-cookie').split(';')[0];
+  const missing = await fetch(`${base}/api/projects/no-such-app/logs`, { headers: { cookie } });
+  assert.equal(missing.status, 404);
+  const demo = await fetch(`${base}/api/projects/logs-app/logs`, { headers: { cookie } });
+  assert.equal(demo.status, 200);
+  const demoBody = await demo.json();
+  assert.equal(demoBody.unit, 'hostmgr-project-logs-app.service');
+  assert.equal(demoBody.simulated, true);
+  assert.equal(demoBody.available, true);
+  assert.ok(demoBody.lines.length > 0);
+});
+
+test('project logs report a clear notice on a host without a configured deployment helper', async (t) => {
+  const { app, base } = await start({ mode: 'host' });
+  t.after(() => app.close());
+  await app.store.update((state) => {
+    state.projects.push({
+      name: 'Host logs app', organization: 'Tests', slug: 'host-logs-app', repository: 'https://github.com/example/host-logs.git', branch: 'main', directory: '/', port: 3221,
+      healthCheckEnabled: true, healthCheckPath: '/', protocol: 'https', credentialId: null, sshKeyId: null, buildScript: null, startScript: 'start',
+      sync: { status: 'synced', at: new Date().toISOString(), detail: 'Seeded for host log test.' },
+      environment: { keys: ['NODE_ENV'], encryptedContent: { algorithm: 'aes-256-gcm', iv: 'AAAAAAAAAAAAAAAA', tag: 'AAAAAAAAAAAAAAAAAAAAAA==', ciphertext: 'AA==' } },
+      domains: { hosts: [], updatedAt: new Date().toISOString(), syncedAt: null },
+      deployment: { state: 'idle', activeReleaseId: null, previousReleaseId: null, releases: [], updatedAt: new Date().toISOString() }
+    });
+  });
+  const login = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'owner@local.test', password: 'correct-horse-battery-staple' }) });
+  const cookie = login.headers.get('set-cookie').split(';')[0];
+  const response = await fetch(`${base}/api/projects/host-logs-app/logs`, { headers: { cookie } });
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.unit, 'hostmgr-project-host-logs-app.service');
+  assert.equal(body.simulated, false);
+  assert.equal(body.available, false);
+  assert.match(body.notice, /helper/);
+  assert.deepEqual(body.lines, []);
+});
+
 test('project domains are validated, persisted, and do not expose deployment secrets', async (t) => {
   const { app, base } = await start();
   t.after(() => app.close());
-  const login = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: 'correct-horse-battery-staple' }) });
+  const login = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'owner@local.test', password: 'correct-horse-battery-staple' }) });
   const session = await login.json();
   const cookie = login.headers.get('set-cookie').split(';')[0];
   const headers = { cookie, 'content-type': 'application/json', 'x-csrf-token': session.csrfToken };
@@ -238,7 +314,7 @@ test('domain DNS check returns structured soft-check status and rejects invalid 
     },
   });
   t.after(() => app.close());
-  const login = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: 'correct-horse-battery-staple' }) });
+  const login = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'owner@local.test', password: 'correct-horse-battery-staple' }) });
   const session = await login.json();
   const cookie = login.headers.get('set-cookie').split(';')[0];
   const headers = { cookie, 'content-type': 'application/json', 'x-csrf-token': session.csrfToken };
@@ -268,7 +344,7 @@ test('domain DNS check returns structured soft-check status and rejects invalid 
 test('a failed repository sync is recorded as failure and never overwrites an active release', async (t) => {
   const { app, base } = await start({ sandboxClone: true });
   t.after(() => app.close());
-  const login = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: 'correct-horse-battery-staple' }) });
+  const login = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'owner@local.test', password: 'correct-horse-battery-staple' }) });
   const session = await login.json();
   const cookie = login.headers.get('set-cookie').split(';')[0];
   const headers = { cookie, 'content-type': 'application/json', 'x-csrf-token': session.csrfToken };
@@ -287,7 +363,7 @@ test('a failed repository sync is recorded as failure and never overwrites an ac
 test('projects support a repository subdirectory, fetched branch choices, editing, and deletion', async (t) => {
   const { app, base } = await start({ branchFetcher: async () => ['release/2026', 'main', 'feature/example'] });
   t.after(() => app.close());
-  const login = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: 'correct-horse-battery-staple' }) });
+  const login = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'owner@local.test', password: 'correct-horse-battery-staple' }) });
   const session = await login.json();
   const cookie = login.headers.get('set-cookie').split(';')[0];
   const headers = { cookie, 'content-type': 'application/json', 'x-csrf-token': session.csrfToken };

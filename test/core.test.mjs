@@ -21,10 +21,11 @@ test('validators reject dangerous free-form inputs', () => {
 });
 
 test('password changes require a distinct, newline-free password of sufficient length', () => {
-  assert.deepEqual(validatePasswordChange({ currentPassword: 'correct-horse-battery-staple', newPassword: 'new-correct-horse-battery' }), { currentPassword: 'correct-horse-battery-staple', newPassword: 'new-correct-horse-battery' });
+  assert.deepEqual(validatePasswordChange({ currentPassword: 'correct-horse-battery-staple', newPassword: 'New-correct-horse1!' }), { currentPassword: 'correct-horse-battery-staple', newPassword: 'New-correct-horse1!' });
   assert.throws(() => validatePasswordChange({ currentPassword: 'same-password', newPassword: 'same-password' }), InputError);
   assert.throws(() => validatePasswordChange({ currentPassword: 'correct-horse-battery-staple', newPassword: 'short' }), InputError);
   assert.throws(() => validatePasswordChange({ currentPassword: 'correct-horse-battery-staple', newPassword: 'new-password\nwith-break' }), InputError);
+  assert.throws(() => validatePasswordChange({ currentPassword: 'correct-horse-battery-staple', newPassword: 'alllowercase1!' }), InputError);
 });
 
 test('project sync accepts an explicit no-build configuration but rejects shell commands', () => {

@@ -28,7 +28,9 @@ export function createInitialState() {
     credentials: [],
     projects: [],
     audit: [],
-    jobs: []
+    jobs: [],
+    owner: null,
+    databaseConnections: []
   };
 }
 
@@ -57,6 +59,15 @@ export class StateStore {
       CREATE TABLE IF NOT EXISTS audit_events (id TEXT PRIMARY KEY, occurred_at TEXT NOT NULL, payload TEXT NOT NULL) STRICT;
       CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, project_slug TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL, started_at TEXT, finished_at TEXT, payload TEXT NOT NULL) STRICT;
       CREATE INDEX IF NOT EXISTS jobs_by_status ON jobs(status, created_at);
+      CREATE TABLE IF NOT EXISTS metric_samples (
+        at INTEGER PRIMARY KEY,
+        cpu REAL NOT NULL,
+        memory_used INTEGER NOT NULL,
+        memory_total INTEGER NOT NULL,
+        disk_used INTEGER NOT NULL,
+        disk_total INTEGER NOT NULL
+      ) STRICT;
+      CREATE TABLE IF NOT EXISTS database_connections (id TEXT PRIMARY KEY, payload TEXT NOT NULL) STRICT;
     `);
     const initialized = this.#database.prepare('SELECT value FROM portal_meta WHERE key = ?').get('initialized');
     if (!initialized) this.#persist(createInitialState());
@@ -80,6 +91,28 @@ export class StateStore {
     return this.#queue;
   }
 
+  recordMetricSample(sample) {
+    const at = Math.trunc(sample.at);
+    this.#database.prepare(`
+      INSERT OR REPLACE INTO metric_samples (at, cpu, memory_used, memory_total, disk_used, disk_total)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(at, sample.cpuPercent, sample.memoryUsedBytes, sample.memoryTotalBytes, sample.diskUsedBytes, sample.diskTotalBytes);
+  }
+
+  pruneMetricSamples(beforeMs) {
+    this.#database.prepare('DELETE FROM metric_samples WHERE at < ?').run(Math.trunc(beforeMs));
+  }
+
+  listMetricSamples(sinceMs) {
+    return this.#database.prepare(`
+      SELECT at, cpu AS cpuPercent, memory_used AS memoryUsedBytes, memory_total AS memoryTotalBytes,
+             disk_used AS diskUsedBytes, disk_total AS diskTotalBytes
+      FROM metric_samples
+      WHERE at >= ?
+      ORDER BY at ASC
+    `).all(Math.trunc(sinceMs));
+  }
+
   async #persist(state) {
     const database = this.#database;
     database.exec('BEGIN IMMEDIATE');
@@ -90,23 +123,27 @@ export class StateStore {
       database.prepare('DELETE FROM projects').run();
       database.prepare('DELETE FROM audit_events').run();
       database.prepare('DELETE FROM jobs').run();
+      database.prepare('DELETE FROM database_connections').run();
       const insertTool = database.prepare('INSERT INTO tools (id, payload) VALUES (?, ?)');
       const insertSession = database.prepare('INSERT INTO sessions (id_hash, payload) VALUES (?, ?)');
       const insertCredential = database.prepare('INSERT INTO credentials (id, payload) VALUES (?, ?)');
       const insertProject = database.prepare('INSERT INTO projects (slug, payload) VALUES (?, ?)');
       const insertAudit = database.prepare('INSERT INTO audit_events (id, occurred_at, payload) VALUES (?, ?, ?)');
       const insertJob = database.prepare('INSERT INTO jobs (id, project_slug, status, created_at, started_at, finished_at, payload) VALUES (?, ?, ?, ?, ?, ?, ?)');
+      const insertDatabaseConnection = database.prepare('INSERT INTO database_connections (id, payload) VALUES (?, ?)');
       for (const [id, tool] of Object.entries(state.tools)) insertTool.run(id, JSON.stringify(tool));
       for (const session of state.sessions) insertSession.run(session.idHash, JSON.stringify(session));
       for (const credential of state.credentials) insertCredential.run(credential.id, JSON.stringify(credential));
       for (const project of state.projects) insertProject.run(project.slug, JSON.stringify(project));
       for (const event of state.audit) insertAudit.run(event.id, event.at, JSON.stringify(event));
       for (const job of state.jobs ?? []) insertJob.run(job.id, job.projectSlug, job.status, job.createdAt, job.startedAt ?? null, job.finishedAt ?? null, JSON.stringify(job));
+      for (const connection of state.databaseConnections ?? []) insertDatabaseConnection.run(connection.id, JSON.stringify(connection));
       const setMeta = database.prepare('INSERT OR REPLACE INTO portal_meta (key, value) VALUES (?, ?)');
       setMeta.run('initialized', 'true');
       setMeta.run('schema_version', String(state.schemaVersion ?? 2));
       setMeta.run('created_at', state.createdAt ?? new Date().toISOString());
       setMeta.run('git', JSON.stringify(state.git ?? { identity: null }));
+      setMeta.run('owner', JSON.stringify(state.owner ?? null));
       database.exec('COMMIT');
     } catch (error) {
       database.exec('ROLLBACK');
@@ -127,7 +164,9 @@ export class StateStore {
       credentials: readPayloads('SELECT payload FROM credentials'),
       projects: readPayloads('SELECT payload FROM projects'),
       audit: readPayloads('SELECT payload FROM audit_events ORDER BY occurred_at DESC'),
-      jobs: readPayloads('SELECT payload FROM jobs ORDER BY created_at ASC')
+      jobs: readPayloads('SELECT payload FROM jobs ORDER BY created_at ASC'),
+      owner: JSON.parse(meta('owner', 'null')),
+      databaseConnections: readPayloads('SELECT payload FROM database_connections')
     };
   }
 }
@@ -225,9 +264,12 @@ export function validateHttpsCredential(input) {
 
 export function validatePasswordChange(input) {
   const currentPassword = input?.currentPassword;
-  const newPassword = input?.newPassword;
   if (typeof currentPassword !== 'string' || !currentPassword || currentPassword.length > 128 || /[\r\n\0]/.test(currentPassword)) throw new InputError('Current password is invalid.');
-  if (typeof newPassword !== 'string' || newPassword.length < 12 || newPassword.length > 128 || /[\r\n\0]/.test(newPassword)) throw new InputError('New password must be between 12 and 128 characters and must not contain a line break.');
+  const newPassword = input?.newPassword;
+  if (typeof newPassword !== 'string' || newPassword.length < 12 || newPassword.length > 128 || /[\r\n\0\s]/.test(newPassword)) throw new InputError('New password must be between 12 and 128 characters and must not contain whitespace.');
+  if (!/[a-z]/.test(newPassword) || !/[A-Z]/.test(newPassword) || !/[0-9]/.test(newPassword) || !/[^A-Za-z0-9]/.test(newPassword)) {
+    throw new InputError('New password must include upper and lower case letters, a number, and a symbol.');
+  }
   if (currentPassword === newPassword) throw new InputError('Choose a different new password.');
   return { currentPassword, newPassword };
 }
@@ -313,5 +355,7 @@ function migrateState(state) {
   }
   state.audit ??= [];
   state.jobs ??= [];
+  state.owner ??= null;
+  state.databaseConnections ??= [];
   return state;
 }
