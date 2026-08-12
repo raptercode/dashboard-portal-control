@@ -1,4 +1,4 @@
-# ADR 0016: Project sources may use a repository subdirectory
+# ADR 0018: Project sources may use a repository subdirectory
 
 - Status: Accepted
 - Date: 2026-08-11

@@ -67,7 +67,12 @@ command through SSH. The command downloads an immutable HTTPS archive, verifies
 its Ed25519 manifest signature and SHA-256 digest, then hands the staged release
 to the normal installer and its rollback path.
 
-## Implemented v0.1 foundation
+## v0.1 foundation (historical)
+
+This was the feature set at the end of the first phase; it predates native
+project activation, domain/TLS sync, and the SQLite store described above,
+which are now implemented on top of it. For the current, maintained feature
+status see [scope-and-roadmap.md](scope-and-roadmap.md).
 
 - Dashboard single-owner login with HttpOnly, SameSite cookies and login rate limiting
 - CSRF tokens for every write request
@@ -77,5 +82,3 @@ to the normal installer and its rollback path.
 - Native project contract that creates a project user, release paths, systemd hardening, and environment file, accepting only npm script names
 - Git onboarding: author identity, HTTPS credential identifier or SSH deploy-key identifier, project sync configuration, and audit events
 - Encrypted credential vault for HTTPS tokens and encrypted per-project `.env`; API returns only metadata/key names
-
-Native project provision/release on a host, TLS, and Docker-project orchestration are not yet considered implemented; the Nginx renderer and native systemd contract have unit tests but are not yet wired to the privileged helper.

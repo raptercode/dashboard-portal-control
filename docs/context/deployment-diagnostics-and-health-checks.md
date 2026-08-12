@@ -36,9 +36,22 @@ If activation fails, begin with the release log in the UI, then inspect the
 helper using `journalctl -u hostmgr-deploy-helper -n 100 --no-pager`. Do not
 copy raw journal output containing project or environment data into the UI.
 
+## Runtime log viewer
+
+Each project's page has a **Logs** link to `/projects/:slug/logs`, which shows
+its systemd unit's recent journal output (auto-refreshing) next to its
+deployment/build event history. In host mode this reads through the
+root-owned helper's `read-project-log` operation, scoped to that project's own
+unit only (see [ADR 0019](../adr/0019-runtime-project-logs-are-read-through-the-root-owned-helper.md)).
+In demo/sandbox mode it shows an explicit placeholder instead of fabricated
+output. Use this before reaching for `journalctl` directly on the host.
+
 ## Update verification
 
 An update must restart the helper and dashboard services after `daemon-reload`.
 `systemctl enable --now` starts an inactive unit but leaves an active Node
-process running its old modules. Verify the new PID/start timestamp and
-`/api/health` after every update before diagnosing a deployment result.
+process running its old modules. Verify the new PID/start timestamp,
+`/api/health`, **and a static page** (e.g. `curl -fsSI https://YOUR-DOMAIN/`)
+after every update — a permission regression on the application root can
+leave the API healthy while static file serving returns `500`. See
+`docs/production-install.md`'s Software Update section for the exact check.

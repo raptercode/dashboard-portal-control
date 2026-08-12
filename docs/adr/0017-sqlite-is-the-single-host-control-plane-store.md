@@ -1,8 +1,7 @@
 # ADR 0017: SQLite is the single-host control-plane store
 
-## Status
-
-Accepted
+- Status: Accepted
+- Date: 2026-08-12
 
 ## Context
 

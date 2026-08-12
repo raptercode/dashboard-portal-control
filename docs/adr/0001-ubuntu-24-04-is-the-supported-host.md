@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-08-03
+- Note: the host-version restriction below is superseded by [ADR 0012](0012-ubuntu-25-04-is-an-operationally-supported-host.md), which adds Ubuntu 25.04 as an operationally supported host. The reasoning and consequences here otherwise still apply.
 
 ## Context
 

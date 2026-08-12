@@ -1,5 +1,8 @@
 # ADR 0016: Dashboard software updates are SSH-initiated
 
+- Status: Accepted
+- Date: 2026-08-08
+
 ## Context
 
 Dashboard Portal is itself part of the host control plane and ships a root-owned

@@ -187,6 +187,14 @@ The first check should report the new version as available; after the update, it
 sudo journalctl -u dashboard-portal -u hostmgr-deploy-helper --since "30 minutes ago" --no-pager
 ```
 
+Verify a static page too, not only `/api/health` — a permission regression on
+the application root can leave the API healthy while static file serving
+returns `500`:
+
+```bash
+curl -fsSI https://YOUR-DOMAIN/
+```
+
 For a fresh host, configure the update feed once after installation, using a temporary copy of the **public** key only:
 
 ```bash

@@ -7,13 +7,20 @@ This is the direct, production installation path. Docker is for development and 
 - Use an Ubuntu Server **24.04 or 25.04 amd64** host for the first acceptance run. Do not make a first run on the only production server when a disposable host is available.
 - Create an A or AAAA record for the chosen fully qualified domain name and wait until `getent ahosts portal.example.com` resolves from the target host.
 - Permit inbound TCP 80 and 443 to the target host. Certbot uses the HTTP-01 challenge; a DNS record alone is insufficient.
-- Start from an extracted release archive, not a Git working copy. Verify the archive before extracting it:
+- Start from an extracted release archive, not a Git working copy. Download the latest signed release from GitHub, verify it, and extract it into its own directory — the archive has no top-level folder of its own, so extracting without one scatters files into the current directory:
 
 ```bash
-sha256sum --check dashboard-portal-*.tar.gz.sha256
-tar --extract --gzip --file dashboard-portal-*.tar.gz
-cd dashboard-portal-*
+REPO=raptercode/dashboard-portal-control
+TAG=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" | grep -m1 '"tag_name"' | cut -d '"' -f4)
+VERSION=${TAG#v}
+curl -fsSLO "https://github.com/${REPO}/releases/download/${TAG}/dashboard-portal-${VERSION}.tar.gz"
+curl -fsSLO "https://github.com/${REPO}/releases/download/${TAG}/dashboard-portal-${VERSION}.tar.gz.sha256"
+sha256sum --check "dashboard-portal-${VERSION}.tar.gz.sha256"
+mkdir "dashboard-portal-${VERSION}" && tar -C "dashboard-portal-${VERSION}" --extract --gzip --file "dashboard-portal-${VERSION}.tar.gz"
+cd "dashboard-portal-${VERSION}"
 ```
+
+To install a specific past version instead of the latest, replace the `TAG=$(curl ...)` line with `TAG=v0.3.1` (or whichever tag you need).
 
 - Ensure port 3100 is free. The service binds it to loopback only. Nginx is the sole public listener.
 - Back up any existing Nginx/site configuration independently. The installer owns only `/etc/nginx/sites-available/dashboard-portal` and its matching `sites-enabled` symlink; it does not remove the default site or edit other virtual hosts.
@@ -97,6 +104,18 @@ SSH:
 
 ```bash
 sudo dashboard-portal update --channel=stable
+```
+
+After an update, verify both the API and a static page, not only
+`/api/health` — a permission regression on the application root can leave the
+API healthy while static file serving returns `500` (this happened once; see
+the installer's `chmod 0755 "$APP_ROOT"` step, which now runs immediately
+after every staged install/update):
+
+```bash
+sudo systemctl is-active dashboard-portal hostmgr-deploy-helper nginx
+curl -fsS http://127.0.0.1:3100/api/health
+curl -fsSI https://YOUR-DOMAIN/
 ```
 
 To prepare a release artifact, generate the Ed25519 signing pair once outside
