@@ -1,0 +1,26 @@
+<section class="page" data-page="projects">
+  <header class="page-header">
+    <div>
+      <h1 id="flow-title">สร้างโปรเจค</h1>
+      <p class="subtitle">ขั้นที่ 1 จาก 3 · ชื่อและองค์กร</p>
+    </div>
+    <a class="secondary button" href="/projects">ยกเลิก</a>
+  </header>
+  <ol class="step-list flow-steps" aria-label="ขั้นตอน">
+    <li class="current"><span>1</span> ข้อมูล</li>
+    <li><span>2</span> Repository</li>
+    <li><span>3</span> ตรวจสอบ</li>
+  </ol>
+  <section class="panel narrow">
+    <form id="project-identity-form" class="form-grid">
+      <label for="project-organization">องค์กร<input id="project-organization" name="organization" maxlength="80" placeholder="Personal" required></label>
+      <label for="project-name">ชื่อโปรเจค<input id="project-name" name="name" maxlength="80" placeholder="Marketing site" required></label>
+      <label for="project-slug">Slug<small class="field-hint">สร้างอัตโนมัติจากชื่อโปรเจค แก้ได้</small><input id="project-slug" name="slug" pattern="[a-z][a-z0-9\-]{0,62}" maxlength="63" placeholder="marketing-site" required></label>
+      <div class="form-actions">
+        <a class="secondary button" href="/projects">ย้อนกลับ</a>
+        <span class="modal-spacer"></span>
+        <button type="submit">ถัดไป</button>
+      </div>
+    </form>
+  </section>
+</section>

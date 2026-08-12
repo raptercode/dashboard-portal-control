@@ -1,0 +1,98 @@
+<dialog id="deploy-dialog" class="modal" aria-labelledby="deploy-dialog-title">
+  <form id="deploy-form" class="modal-form">
+    <header class="modal-header">
+      <div>
+        <h2 id="deploy-dialog-title">เตรียมก่อน deploy</h2>
+        <p id="deploy-project-label" class="modal-sub">—</p>
+      </div>
+      <button class="modal-close" id="deploy-close" type="button" aria-label="ปิด"><svg class="icon" aria-hidden="true"><use href="#icon-close"></use></svg></button>
+    </header>
+    <div class="modal-body">
+      <h3>Project secrets</h3>
+      <p>บันทึก <code>.env</code> ของโปรเจคนี้ก่อนสร้าง release ระบบเก็บแบบเข้ารหัสและแสดงเฉพาะชื่อ key</p>
+      <div id="deploy-existing-keys" class="env-key-list" hidden></div>
+      <label for="deploy-environment">ค่า <code>.env</code>
+        <textarea id="deploy-environment" name="content" rows="8" placeholder="NODE_ENV=production&#10;DATABASE_URL=...&#10;API_KEY=..." spellcheck="false"></textarea>
+      </label>
+      <p id="deploy-env-hint" class="field-hint">ต้องมีอย่างน้อยหนึ่งตัวแปรก่อน deploy</p>
+      <aside class="notice"><svg class="icon" aria-hidden="true"><use href="#icon-info"></use></svg><p>ระบบจะ build และ health-check candidate ก่อน activate — release ปัจจุบันจะไม่ถูกเปลี่ยนหากขั้นตอนใดล้มเหลว</p></aside>
+    </div>
+    <footer class="modal-footer">
+      <button class="secondary" id="deploy-cancel" type="button">ยกเลิก</button>
+      <span class="modal-spacer"></span>
+      <button id="deploy-submit" type="submit">บันทึกและสร้าง release</button>
+    </footer>
+  </form>
+</dialog>
+
+<dialog id="deployment-log-dialog" class="modal" aria-labelledby="deployment-log-title">
+  <header class="modal-header">
+    <div>
+      <h2 id="deployment-log-title">รายละเอียด release</h2>
+      <p id="deployment-log-summary" class="modal-sub">—</p>
+    </div>
+    <button id="deployment-log-close" class="modal-close" type="button" aria-label="ปิด"><svg class="icon" aria-hidden="true"><use href="#icon-close"></use></svg></button>
+  </header>
+  <div class="modal-body"><ol id="deployment-log-events" class="deployment-log-events"></ol></div>
+  <footer class="modal-footer"><span class="modal-spacer"></span><button id="deployment-log-dismiss" type="button">ปิด</button></footer>
+</dialog>
+
+<dialog id="domain-dialog" class="modal" aria-labelledby="domain-dialog-title">
+  <form id="domain-form" class="modal-form">
+    <header class="modal-header">
+      <div>
+        <h2 id="domain-dialog-title">ตั้งค่าโดเมนโปรเจค</h2>
+        <p id="domain-project-label" class="modal-sub">—</p>
+      </div>
+      <button class="modal-close" id="domain-close" type="button" aria-label="ปิด"><svg class="icon" aria-hidden="true"><use href="#icon-close"></use></svg></button>
+    </header>
+    <div class="modal-body" data-domain-view="list">
+      <section class="domain-list-panel">
+        <h3>Public domains</h3>
+        <p>เพิ่มทีละโดเมน ระบบจะตรวจว่า A/AAAA ชี้เข้าเครื่องนี้หรือยัง แล้วยังบันทึกได้แม้ DNS ยังไม่พร้อม</p>
+        <div id="domain-list" class="domain-list" aria-live="polite"></div>
+        <p id="domain-list-empty" class="field-hint">ยังไม่มีโดเมน — กดเพิ่มโดเมนเพื่อเริ่มต้น</p>
+      </section>
+      <section class="domain-add-panel" hidden>
+        <ol class="step-list" aria-label="ขั้นตอนเพิ่มโดเมน">
+          <li class="current" data-domain-dot="1"><span>1</span> กรอกโดเมน</li>
+          <li data-domain-dot="2"><span>2</span> ตรวจ DNS</li>
+        </ol>
+        <div data-domain-step="1">
+          <h3>เพิ่มโดเมน</h3>
+          <label for="domain-hostname">Domain name<input id="domain-hostname" type="text" maxlength="253" placeholder="app.example.com" spellcheck="false" autocomplete="off"></label>
+        </div>
+        <div data-domain-step="2" hidden>
+          <h3>สถานะ DNS</h3>
+          <p id="domain-check-summary">กำลังตรวจสอบ…</p>
+          <dl id="domain-check-detail" class="detail-list"></dl>
+          <aside class="notice"><svg class="icon" aria-hidden="true"><use href="#icon-info"></use></svg><p>ยังเพิ่มโดเมนได้แม้ DNS ยังไม่ชี้ถูก — TLS sync จะสำเร็จเมื่อ record พร้อม</p></aside>
+        </div>
+      </section>
+      <aside class="notice domain-list-notice"><svg class="icon" aria-hidden="true"><use href="#icon-info"></use></svg><p>การ sync จะเปลี่ยนเฉพาะ Nginx files ที่ Dashboard Portal เป็นเจ้าของ และทดสอบ config ก่อน reload</p></aside>
+    </div>
+    <footer class="modal-footer">
+      <button class="secondary" id="domain-cancel" type="button">ปิด</button>
+      <button class="secondary" id="domain-back" type="button" hidden>ย้อนกลับ</button>
+      <button class="secondary" id="domain-recheck" type="button" hidden>ตรวจอีกครั้ง</button>
+      <span class="modal-spacer"></span>
+      <button id="domain-add-start" type="button">เพิ่มโดเมน</button>
+      <button id="domain-check" type="button" hidden>ตรวจสอบ</button>
+      <button id="domain-submit" type="submit" hidden>เพิ่มโดเมน</button>
+    </footer>
+  </form>
+</dialog>
+
+<dialog id="confirm-dialog" class="modal confirm-modal" aria-labelledby="confirm-title" aria-describedby="confirm-message">
+  <form method="dialog" class="confirm-form">
+    <div class="warning-mark" aria-hidden="true"><svg class="icon" aria-hidden="true"><use href="#icon-alert"></use></svg></div>
+    <h2 id="confirm-title">ยืนยันการติดตั้ง</h2>
+    <p id="confirm-message"></p>
+    <p class="muted">กิจกรรมนี้จะถูกบันทึกใน audit log</p>
+    <div class="modal-footer">
+      <button class="secondary" value="cancel" type="submit">ยกเลิก</button>
+      <span class="modal-spacer"></span>
+      <button id="confirm-accept" value="confirm" type="submit">ติดตั้งต่อ</button>
+    </div>
+  </form>
+</dialog>

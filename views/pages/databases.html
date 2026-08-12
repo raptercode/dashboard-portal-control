@@ -1,0 +1,40 @@
+<section class="page" data-page="databases">
+  <header class="page-header">
+    <div>
+      <h1>Databases</h1>
+      <p class="subtitle">client connectors สำหรับ MongoDB, PostgreSQL, MySQL และ Redis</p>
+    </div>
+  </header>
+  <section class="panel">
+    <header class="panel-head">
+      <h2>เพิ่ม connector</h2>
+      <p>เก็บเฉพาะ metadata และรหัสผ่านแบบเข้ารหัส</p>
+    </header>
+    <form id="database-form" class="form-grid">
+      <div class="two-fields">
+        <label for="database-name">ชื่อ<input id="database-name" name="name" pattern="[a-z][a-z0-9\-]{0,79}" maxlength="80" placeholder="app-postgres" required></label>
+        <label for="database-provider">Provider
+          <select id="database-provider" name="provider" required>
+            <option value="postgresql">PostgreSQL</option>
+            <option value="mysql">MySQL</option>
+            <option value="mongodb">MongoDB</option>
+            <option value="redis">Redis</option>
+          </select>
+        </label>
+      </div>
+      <div class="two-fields">
+        <label for="database-host">Host<input id="database-host" name="host" maxlength="253" placeholder="127.0.0.1" required></label>
+        <label for="database-port">Port<input id="database-port" name="port" type="number" min="1" max="65535" value="5432" required></label>
+      </div>
+      <div class="two-fields">
+        <label for="database-db">Database<input id="database-db" name="database" maxlength="128" placeholder="app"></label>
+        <label for="database-username">Username<input id="database-username" name="username" maxlength="128" placeholder="app"></label>
+      </div>
+      <label for="database-password">Password<input id="database-password" name="password" type="password" maxlength="4096" autocomplete="new-password"></label>
+      <label class="check-row"><input id="database-tls" name="tls" type="checkbox"><span><b>ใช้ TLS</b><small>สำหรับ provider ที่รองรับการเชื่อมต่อเข้ารหัส</small></span></label>
+      <div class="form-actions"><button type="submit">บันทึก connector</button></div>
+    </form>
+  </section>
+  <div class="section-head"><h2>ที่บันทึกไว้</h2><span id="database-count" class="count">0</span></div>
+  <section id="databases" class="credential-list" aria-live="polite"></section>
+</section>

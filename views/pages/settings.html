@@ -1,0 +1,39 @@
+<section class="page" data-page="settings">
+  <header class="page-header">
+    <div>
+      <h1>การตั้งค่าระบบ</h1>
+      <p class="subtitle">รหัสผ่าน อัปเดต และสถานะระบบ</p>
+    </div>
+  </header>
+  <section class="settings-stack">
+    <article class="setting-row">
+      <div>
+        <h2>เปลี่ยนรหัสผ่าน</h2>
+        <p>ยืนยันรหัสผ่านเดิมก่อนเปลี่ยน ระบบจะออกจาก session อื่นทั้งหมดทันที</p>
+      </div>
+      <form id="password-change-form" class="form-grid compact">
+        <label for="current-password">รหัสผ่านปัจจุบัน<input id="current-password" name="currentPassword" type="password" autocomplete="current-password" maxlength="128" required></label>
+        <label for="new-password">รหัสผ่านใหม่<small class="field-hint">อย่างน้อย 12 ตัว · ตัวพิมพ์ใหญ่/เล็ก · ตัวเลข · สัญลักษณ์</small><input id="new-password" name="newPassword" type="password" autocomplete="new-password" minlength="12" maxlength="128" required></label>
+        <label for="confirm-password">ยืนยันรหัสผ่านใหม่<input id="confirm-password" name="confirmPassword" type="password" autocomplete="new-password" minlength="12" maxlength="128" required></label>
+        <button type="submit">บันทึกรหัสผ่านใหม่</button>
+      </form>
+    </article>
+    <article class="setting-row">
+      <div id="software-update">
+        <h2>อัปเดตซอฟต์แวร์</h2>
+        <p>กำลังตรวจสอบช่องทาง release</p>
+      </div>
+      <div class="update-command">
+        <code id="update-command">sudo dashboard-portal update --channel=stable</code>
+        <button id="copy-update-command" class="secondary" type="button">คัดลอก</button>
+      </div>
+    </article>
+    <article class="setting-row">
+      <div>
+        <h2>โหมดการทำงาน</h2>
+        <p id="mode-description">—</p>
+      </div>
+      <span id="settings-mode" class="mode-badge">—</span>
+    </article>
+  </section>
+</section>

@@ -1,0 +1,23 @@
+<section class="page" data-page="projects">
+  <header class="page-header">
+    <div>
+      <h1>โปรเจค</h1>
+      <p class="subtitle">repository, sync และ release</p>
+    </div>
+    <a id="create-project" class="button" href="/projects/new">
+      <svg class="icon" aria-hidden="true"><use href="#icon-plus"></use></svg>สร้างโปรเจค
+    </a>
+  </header>
+  <div id="project-status-filter" class="filter-banner" hidden>
+    <span id="project-status-filter-label"></span>
+    <a class="secondary button" href="/projects">ล้างตัวกรอง</a>
+  </div>
+  <div class="toolbar">
+    <label class="search-field">
+      <svg class="icon icon-sm" aria-hidden="true"><use href="#icon-search"></use></svg>
+      <input id="project-search" type="search" placeholder="ค้นหาโปรเจคหรือ organization">
+    </label>
+    <span id="project-count" class="count">0 โปรเจค</span>
+  </div>
+  <section id="projects" class="project-groups" aria-live="polite"></section>
+</section>

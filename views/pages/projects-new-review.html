@@ -1,0 +1,27 @@
+<section class="page" data-page="projects">
+  <header class="page-header">
+    <div>
+      <h1 id="flow-title">สร้างโปรเจค</h1>
+      <p class="subtitle">ขั้นที่ 3 จาก 3 · ตรวจสอบก่อน sync</p>
+    </div>
+    <a class="secondary button" href="/projects">ยกเลิก</a>
+  </header>
+  <ol class="step-list flow-steps" aria-label="ขั้นตอน">
+    <li class="done"><span>1</span> ข้อมูล</li>
+    <li class="done"><span>2</span> Repository</li>
+    <li class="current"><span>3</span> ตรวจสอบ</li>
+  </ol>
+  <section class="panel narrow">
+    <h2>สรุปรายละเอียด</h2>
+    <p>ยืนยันรายละเอียดด้านล่างก่อนบันทึกและ sync source</p>
+    <dl id="project-review" class="detail-list"></dl>
+    <aside class="notice"><svg class="icon" aria-hidden="true"><use href="#icon-info"></use></svg><p>หลัง Sync สำเร็จ ให้บันทึก <code>.env</code> อย่างน้อยหนึ่งค่า แล้วจึงสร้าง candidate release ได้</p></aside>
+    <form id="project-review-form" class="form-grid">
+      <div class="form-actions">
+        <a id="flow-back" class="secondary button" href="/projects/new/repository">ย้อนกลับ</a>
+        <span class="modal-spacer"></span>
+        <button id="wizard-submit" type="submit">บันทึกและ Sync source</button>
+      </div>
+    </form>
+  </section>
+</section>

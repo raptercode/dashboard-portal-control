@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <meta name="theme-color" content="#2b3a4a">
+    <title>{{title}} · Dashboard Portal</title>
+    <link rel="stylesheet" href="/ui/admin.css">
+  </head>
+  <body data-page="{{page}}" data-view="{{view}}" data-flow-mode="{{flowMode}}" data-edit-slug="{{editSlug}}">
+    {{> partials/icons.html}}
+    <main class="app-shell">
+      <section id="boot-view" class="auth-screen" aria-live="polite">
+        <div class="auth-panel">
+          <strong class="brand-mark">DP</strong>
+          <p>กำลังตรวจสอบ session…</p>
+        </div>
+      </section>
+      <section id="login-view" class="auth-screen" hidden>
+        <div class="auth-panel">
+          <strong class="brand-mark">DP</strong>
+          <h1>เข้าสู่ระบบ</h1>
+          <p class="lede">Dashboard Portal — ควบคุมโฮสต์ของคุณ</p>
+          <form id="login-form">
+            <label for="login-email">อีเมล<input id="login-email" name="email" type="email" autocomplete="username" maxlength="254" required></label>
+            <label for="password">รหัสผ่าน<input id="password" name="password" type="password" autocomplete="current-password" minlength="12" required></label>
+            <button type="submit">เข้าสู่ระบบ</button>
+          </form>
+          <p id="login-error" class="form-error" role="alert"></p>
+        </div>
+      </section>
+      <section id="bootstrap-view" class="auth-screen" hidden>
+        <div class="auth-panel">
+          <strong class="brand-mark">DP</strong>
+          <h1>ตั้งค่าเจ้าของระบบ</h1>
+          <p class="lede">สร้างบัญชีครั้งแรกด้วยอีเมลและรหัสผ่านที่แข็งแรง</p>
+          <form id="bootstrap-form">
+            <label for="bootstrap-email">อีเมล<input id="bootstrap-email" name="email" type="email" autocomplete="username" maxlength="254" required></label>
+            <label for="bootstrap-current" id="bootstrap-current-wrap" hidden>รหัสผ่านจากตัวติดตั้ง<input id="bootstrap-current" name="currentPassword" type="password" autocomplete="current-password" maxlength="128"></label>
+            <label for="bootstrap-password">รหัสผ่านใหม่<input id="bootstrap-password" name="password" type="password" autocomplete="new-password" minlength="12" maxlength="128" required></label>
+            <label for="bootstrap-confirm">ยืนยันรหัสผ่านใหม่<input id="bootstrap-confirm" name="confirmPassword" type="password" autocomplete="new-password" minlength="12" maxlength="128" required></label>
+            <p class="field-hint">อย่างน้อย 12 ตัวอักษร และมีตัวพิมพ์ใหญ่ เล็ก ตัวเลข และสัญลักษณ์</p>
+            <button type="submit">สร้างบัญชีเจ้าของ</button>
+          </form>
+          <p id="bootstrap-error" class="form-error" role="alert"></p>
+        </div>
+      </section>
+      <section id="dashboard-view" class="dashboard" hidden>
+        {{> partials/sidebar.html}}
+        <div class="workspace">
+          <header class="mobile-bar">
+            <a class="brand" href="/"><span class="brand-mark">DP</span><span>Dashboard Portal</span></a>
+            <button id="mobile-menu" class="icon-button" type="button" aria-label="เปิดเมนู" aria-expanded="false">
+              <svg class="icon" aria-hidden="true"><use href="#icon-menu"></use></svg>
+            </button>
+          </header>
+          {{{body}}}
+        </div>
+      </section>
+    </main>
+    {{> partials/dialogs.html}}
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <script type="module" src="/ui/app.js"></script>
+  </body>
+</html>

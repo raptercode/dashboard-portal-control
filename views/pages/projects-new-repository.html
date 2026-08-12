@@ -1,0 +1,56 @@
+<section class="page" data-page="projects">
+  <header class="page-header">
+    <div>
+      <h1 id="flow-title">สร้างโปรเจค</h1>
+      <p class="subtitle">ขั้นที่ 2 จาก 3 · repository และสคริปต์</p>
+    </div>
+    <a class="secondary button" href="/projects">ยกเลิก</a>
+  </header>
+  <ol class="step-list flow-steps" aria-label="ขั้นตอน">
+    <li class="done"><span>1</span> ข้อมูล</li>
+    <li class="current"><span>2</span> Repository</li>
+    <li><span>3</span> ตรวจสอบ</li>
+  </ol>
+  <section class="panel">
+    <form id="project-repository-form" class="form-grid">
+      <label for="repository">Repository URL<input id="repository" name="repository" maxlength="500" placeholder="https://github.com/org/repo.git" required></label>
+      <div class="two-fields">
+        <label for="project-directory">Directory <small class="field-hint">โฟลเดอร์ของแอปภายใน repository</small><input id="project-directory" name="directory" list="directory-suggestions" value="/" maxlength="240" placeholder="/examples" required><datalist id="directory-suggestions"><option value="/"></option><option value="/apps"></option><option value="/examples"></option><option value="/packages"></option></datalist></label>
+        <label for="branch">Branch <small class="field-hint">ดึงรายการจาก Git ก่อนเลือก</small>
+          <span class="branch-picker">
+            <select id="branch" name="branch" required><option value="main">main</option></select>
+            <button id="fetch-branches" class="secondary" type="button">ดึง branch</button>
+          </span>
+        </label>
+      </div>
+      <div class="two-fields">
+        <label for="project-port">Port ภายในเครื่อง<input id="project-port" name="port" type="number" min="1024" max="65535" value="3000" required></label>
+        <span aria-hidden="true"></span>
+      </div>
+      <div class="two-fields">
+        <label for="build-script">Build script <small class="field-hint">เว้นว่างได้ถ้าไม่มีขั้น build</small><input id="build-script" name="buildScript" value="build" maxlength="64" pattern="[A-Za-z0-9:_-]*" placeholder="build"></label>
+        <label for="start-script">Start script<input id="start-script" name="startScript" value="start" maxlength="64" pattern="[A-Za-z0-9:_-]+" placeholder="start" required></label>
+      </div>
+      <fieldset class="fieldset">
+        <legend>Health check</legend>
+        <label class="check-row"><input id="health-check-enabled" name="healthCheckEnabled" type="checkbox" checked><span><b>ตรวจสอบ candidate ก่อน activate</b><small>ปิดเมื่อโปรเจคไม่มี HTTP endpoint</small></span></label>
+        <label id="health-check-path-row" for="health-check-path">Health check path<input id="health-check-path" name="healthCheckPath" value="/" maxlength="200" placeholder="/healthz" required></label>
+      </fieldset>
+      <fieldset class="fieldset">
+        <legend>วิธีเชื่อมต่อ</legend>
+        <label class="check-row"><input name="protocol" value="https" type="radio" checked><span><b>HTTPS</b><small>ใช้ token จาก credential vault</small></span></label>
+        <label class="check-row"><input name="protocol" value="ssh" type="radio"><span><b>SSH</b><small>ต้องมี deploy key บน host ก่อน</small></span></label>
+      </fieldset>
+      <div id="https-credential">
+        <label for="credential-id">HTTPS credential
+          <select id="credential-id" name="credentialId"><option value="">Public repository — ไม่ต้องใช้ credential</option></select>
+        </label>
+      </div>
+      <div class="form-actions">
+        <a id="flow-back" class="secondary button" href="/projects/new">ย้อนกลับ</a>
+        <span class="modal-spacer"></span>
+        <button type="submit">ถัดไป</button>
+      </div>
+    </form>
+  </section>
+</section>

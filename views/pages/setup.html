@@ -1,0 +1,26 @@
+<section class="page" data-page="setup">
+  <header class="page-header">
+    <div>
+      <h1>การตั้งค่า</h1>
+      <p class="subtitle">เครื่องมือบน host และ Git identity</p>
+    </div>
+  </header>
+  <section class="panel">
+    <header class="panel-head">
+      <h2>เครื่องมือบน host</h2>
+      <p>ติดตั้งเฉพาะเครื่องมือที่ระบบต้องใช้ผ่าน allowlisted installer</p>
+    </header>
+    <section id="tools" class="tool-list" aria-live="polite"></section>
+  </section>
+  <section class="panel narrow">
+    <header class="panel-head">
+      <h2>Git identity</h2>
+      <p>ใช้เป็นชื่อผู้สร้าง commit เท่านั้น ไม่ใช่ credential</p>
+    </header>
+    <form id="git-form" class="form-grid">
+      <label for="git-name">ชื่อที่แสดงใน Git<input id="git-name" name="name" maxlength="100" required></label>
+      <label for="git-email">อีเมล Git<input id="git-email" name="email" type="email" maxlength="254" required></label>
+      <div class="form-actions"><button type="submit">บันทึก Git identity</button></div>
+    </form>
+  </section>
+</section>

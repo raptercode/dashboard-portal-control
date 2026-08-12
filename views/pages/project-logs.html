@@ -1,0 +1,32 @@
+<section class="page" data-page="projects">
+  <header class="page-header">
+    <div>
+      <h1 id="log-page-title">Logs</h1>
+      <p class="subtitle" id="log-page-subtitle">—</p>
+    </div>
+    <a class="secondary button" href="/projects">กลับไปโปรเจค</a>
+  </header>
+  <section class="panel">
+    <div class="section-head">
+      <div>
+        <h2>Runtime log</h2>
+        <p class="muted" id="log-unit-name">—</p>
+      </div>
+      <div class="form-actions">
+        <label class="check-row" style="margin: 0;">
+          <input id="log-auto-refresh" type="checkbox" checked>
+          <span><b>Auto-refresh</b><small>ทุก 5 วินาที</small></span>
+        </label>
+        <button id="log-refresh-now" class="secondary" type="button">รีเฟรชตอนนี้</button>
+      </div>
+    </div>
+    <p id="log-runtime-notice" class="field-hint" hidden></p>
+    <pre id="log-runtime" class="log-viewer" aria-live="polite">กำลังโหลด…</pre>
+  </section>
+  <section class="panel">
+    <div class="section-head">
+      <h2>Deployment log</h2>
+    </div>
+    <div id="log-releases" class="readiness-list"></div>
+  </section>
+</section>
