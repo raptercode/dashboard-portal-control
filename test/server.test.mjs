@@ -192,6 +192,27 @@ test('Git identity, encrypted credential, and HTTPS project sync never return a 
   assert.equal(payload.projects[0].sync.status, 'synced');
 });
 
+test('credentials and notification hooks can be deleted without returning secret values', async (t) => {
+  const { app, base } = await start();
+  t.after(() => app.close());
+  const login = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'owner@local.test', password: 'correct-horse-battery-staple' }) });
+  const session = await login.json();
+  const cookie = login.headers.get('set-cookie').split(';')[0];
+  const headers = { cookie, 'content-type': 'application/json', 'x-csrf-token': session.csrfToken };
+  const credential = await fetch(`${base}/api/credentials`, { method: 'POST', headers, body: JSON.stringify({ name: 'remove-me', token: 'never-return-this-token' }) });
+  const credentialBody = await credential.json();
+  const listedCredentials = await fetch(`${base}/api/credentials`, { headers: { cookie } });
+  assert.equal(JSON.stringify(await listedCredentials.json()).includes('never-return-this-token'), false);
+  assert.equal((await fetch(`${base}/api/credentials/${credentialBody.credential.id}`, { method: 'DELETE', headers, body: '{}' })).status, 200);
+  const hook = await fetch(`${base}/api/notification-hooks`, { method: 'POST', headers, body: JSON.stringify({ name: 'production-discord', provider: 'discord', endpoint: 'https://discord.com/api/webhooks/not-a-real-secret', projectSlug: '', events: ['deployment.succeeded', 'deployment.failed'] }) });
+  assert.equal(hook.status, 201);
+  const hookBody = await hook.json();
+  const listedHooks = await fetch(`${base}/api/notification-hooks`, { headers: { cookie } });
+  const hooksPayload = await listedHooks.json();
+  assert.equal(JSON.stringify(hooksPayload).includes('not-a-real-secret'), false);
+  assert.equal((await fetch(`${base}/api/notification-hooks/${hookBody.hook.id}`, { method: 'DELETE', headers, body: '{}' })).status, 200);
+});
+
 
 test('invalid request data returns a client error without crashing the backend', async (t) => {
   const { app, base } = await start();
@@ -363,6 +384,9 @@ test('project domains are validated, persisted, and do not expose deployment sec
   const response = await fetch(`${base}/api/projects/domain-app/domains`, { method: 'POST', headers, body: JSON.stringify({ domains: ['App.Example.test', 'www.example.test'] }) });
   assert.equal(response.status, 200);
   assert.deepEqual((await response.json()).project.domains.hosts, ['app.example.test', 'www.example.test']);
+  const removed = await fetch(`${base}/api/projects/domain-app/domains`, { method: 'POST', headers, body: JSON.stringify({ domains: [] }) });
+  assert.equal(removed.status, 200);
+  assert.deepEqual((await removed.json()).project.domains.hosts, []);
   const rejected = await fetch(`${base}/api/projects/domain-app/domains`, { method: 'POST', headers, body: JSON.stringify({ domains: ['invalid host'] }) });
   assert.equal(rejected.status, 400);
 });
@@ -371,6 +395,7 @@ test('domain DNS check returns structured soft-check status and rejects invalid 
   const { app, base } = await start({
     domainDnsCheck: async (hostname) => {
       if (hostname === 'ok.example.test') return { hostname, resolved: ['203.0.113.9'], expected: ['203.0.113.9'], matched: true, status: 'ok' };
+      if (hostname === 'proxied.example.test') return { hostname, resolved: ['104.21.51.31'], expected: ['203.0.113.9'], matched: false, status: 'proxied', proxy: { detected: true, provider: 'Cloudflare' }, detail: 'DNS is routed through Cloudflare Proxy.' };
       if (hostname === 'boom.example.test') throw new Error('resolver exploded');
       return { hostname, resolved: [], expected: ['203.0.113.9'], matched: false, status: 'unresolved' };
     },
@@ -386,6 +411,9 @@ test('domain DNS check returns structured soft-check status and rejects invalid 
   const ok = await fetch(`${base}/api/projects/check-app/domains/check`, { method: 'POST', headers, body: JSON.stringify({ hostname: 'ok.example.test' }) });
   assert.equal(ok.status, 200);
   assert.deepEqual(await ok.json(), { hostname: 'ok.example.test', resolved: ['203.0.113.9'], expected: ['203.0.113.9'], matched: true, status: 'ok' });
+  const proxied = await fetch(`${base}/api/projects/check-app/domains/check`, { method: 'POST', headers, body: JSON.stringify({ hostname: 'proxied.example.test' }) });
+  assert.equal(proxied.status, 200);
+  assert.deepEqual(await proxied.json(), { hostname: 'proxied.example.test', resolved: ['104.21.51.31'], expected: ['203.0.113.9'], matched: false, status: 'proxied', detail: 'DNS is routed through Cloudflare Proxy.', proxy: { detected: true, provider: 'Cloudflare' } });
   const unresolved = await fetch(`${base}/api/projects/check-app/domains/check`, { method: 'POST', headers, body: JSON.stringify({ hostname: 'missing.example.test' }) });
   assert.equal(unresolved.status, 200);
   assert.equal((await unresolved.json()).status, 'unresolved');

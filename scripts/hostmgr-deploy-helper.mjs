@@ -16,6 +16,7 @@ const NGINX_AVAILABLE = '/etc/nginx/sites-available';
 const NGINX_ENABLED = '/etc/nginx/sites-enabled';
 const CONFIG_PATH = '/etc/dashboard-portal/dashboard-portal.env';
 const NPM = '/usr/local/bin/npm';
+const DOCKER = '/usr/bin/docker';
 
 const args = parseArgs(process.argv.slice(2));
 const socketPath = args.socket;
@@ -62,6 +63,7 @@ async function dispatch(request) {
   if (request.operation === 'install-tool') return installTool(request.tool);
   if (request.operation === 'activate-project') return activateProject(request.slug, request.releaseId);
   if (request.operation === 'sync-project-domains') return syncProjectDomains(request.slug);
+  if (request.operation === 'remove-project-domains') return removeProjectDomains(request.slug);
   if (request.operation === 'delete-project') return deleteProject(request.slug);
   if (request.operation === 'set-admin-password') return setAdminPassword(request.password);
   if (request.operation === 'read-project-log') return readProjectLog(request.slug, request.lines);
@@ -69,8 +71,15 @@ async function dispatch(request) {
 }
 
 async function readProjectLog(slug, lines) {
+  const project = await loadProject(slug);
   const identity = projectIdentity(slug);
   const count = Number.isInteger(lines) && lines > 0 && lines <= 200 ? lines : 150;
+  if (project.runtime === 'docker-compose') {
+    const current = await readlink(identity.current).catch(() => null);
+    if (!current) return { lines: [] };
+    const output = await runDockerCompose(project, current, ['logs', '--tail', String(count), '--no-color'], { failure: 'Could not read the project log.' }).catch(() => '');
+    return { lines: output.split('\n').filter(Boolean).slice(-count).map((line) => line.slice(0, 1000)) };
+  }
   const output = await run('/usr/bin/journalctl', ['-u', identity.service, '-n', String(count), '--no-pager', '-o', 'short-iso'], { failure: 'Could not read the project log.' }).catch(() => '');
   return { lines: output.split('\n').filter(Boolean).slice(-count).map((line) => line.slice(0, 1000)) };
 }
@@ -99,12 +108,15 @@ async function activateProject(slug, releaseId) {
   if (!release || !['candidate', 'healthy'].includes(release.status)) throw new HelperError('The requested release is not eligible for activation.');
   let transaction;
   try {
-    transaction = await prepareProjectRelease(project, releaseId);
+    transaction = project.runtime === 'docker-compose'
+      ? await prepareDockerProjectRelease(project, releaseId)
+      : await prepareProjectRelease(project, releaseId);
   } catch (error) {
     throw helperFailure(error, 'Host preparation failed before the project service could be activated.');
   }
   try {
-    await startAndCheckProject(project, transaction);
+    if (project.runtime === 'docker-compose') await startAndCheckDockerProject(project, transaction);
+    else await startAndCheckProject(project, transaction);
   } catch (error) {
     await transaction.rollback();
     throw helperFailure(error, 'The project service could not be started or did not pass its host health check.');
@@ -125,12 +137,23 @@ async function syncProjectDomains(slug) {
   return { domains: project.domains.hosts };
 }
 
-async function deleteProject(slug) {
+async function removeProjectDomains(slug) {
   await loadProjectForDeletion(slug);
+  await removeManagedNginx(slug);
+  return { domains: [] };
+}
+
+async function deleteProject(slug) {
+  const project = await loadProjectForDeletion(slug);
   const identity = projectIdentity(slug);
-  await run('/usr/bin/systemctl', ['disable', '--now', identity.service]).catch(() => {});
-  await rm(identity.unitFile, { force: true });
-  await run('/usr/bin/systemctl', ['daemon-reload']);
+  if (project.runtime === 'docker-compose') {
+    const current = await readlink(identity.current).catch(() => null);
+    if (current) await runDockerCompose(project, current, ['down', '--remove-orphans']).catch(() => {});
+  } else {
+    await run('/usr/bin/systemctl', ['disable', '--now', identity.service]).catch(() => {});
+    await rm(identity.unitFile, { force: true });
+    await run('/usr/bin/systemctl', ['daemon-reload']);
+  }
   await removeManagedNginx(slug);
   await rm(identity.environmentFile, { force: true });
   await rm(identity.root, { recursive: true, force: true });
@@ -149,7 +172,9 @@ async function loadProject(slug) {
 
 async function loadProjectForDeletion(slug) {
   validateSlug(slug);
-  if (!readProject(slug)) throw new HelperError('Project was not found.');
+  const project = readProject(slug);
+  if (!project) throw new HelperError('Project was not found.');
+  return project;
 }
 
 function readProject(slug) {
@@ -166,7 +191,13 @@ function readProject(slug) {
 function validateProject(project) {
   validateSlug(project.slug);
   if (!Number.isInteger(project.port) || project.port < 1024 || project.port > 65535) throw new HelperError('Project port is invalid.');
-  if (typeof project.startScript !== 'string' || !/^[a-zA-Z0-9:_-]{1,64}$/.test(project.startScript)) throw new HelperError('Project start script is invalid.');
+  project.runtime ??= 'node';
+  if (!['node', 'docker-compose'].includes(project.runtime)) throw new HelperError('Project runtime is invalid.');
+  if (project.runtime === 'node' && (typeof project.startScript !== 'string' || !/^[a-zA-Z0-9:_-]{1,64}$/.test(project.startScript))) throw new HelperError('Project start script is invalid.');
+  if (project.runtime === 'docker-compose') {
+    if (typeof project.composeFile !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._/-]{0,239}\.ya?ml$/i.test(project.composeFile) || project.composeFile.includes('..')) throw new HelperError('Docker Compose file is invalid.');
+    if (typeof project.composeService !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,79}$/.test(project.composeService)) throw new HelperError('Docker Compose service is invalid.');
+  }
   if (project.healthCheckEnabled !== false && !/^\/(?!\/)[^\s]*$/.test(project.healthCheckPath ?? '/')) throw new HelperError('Project health-check path is invalid.');
   if (!Array.isArray(project.domains?.hosts) || project.domains.hosts.length < 1 || project.domains.hosts.length > 10) throw new HelperError('Project has no valid domain configuration.');
   project.domains.hosts = [...new Set(project.domains.hosts.map(validateDomain))];
@@ -219,6 +250,43 @@ async function prepareProjectRelease(project, releaseId) {
   };
 }
 
+async function prepareDockerProjectRelease(project, releaseId) {
+  const identity = projectIdentity(project.slug);
+  await mkdir(identity.root, { recursive: true, mode: 0o750 });
+  await mkdir(identity.releases, { recursive: true, mode: 0o750 });
+  const source = join(PROJECT_ROOT, project.slug, 'releases', releaseId);
+  await assertDirectory(source, 'Candidate release is unavailable.');
+  const destination = join(identity.releases, releaseId);
+  if (!(await exists(destination))) {
+    const staging = join(identity.root, `.release-${releaseId}.staging`);
+    await rm(staging, { recursive: true, force: true });
+    await cp(source, staging, { recursive: true, dereference: false, filter: (entry) => basename(entry) !== '.git' });
+    await rename(staging, destination);
+  }
+  const composePath = join(destination, project.composeFile);
+  await assertComposeProject(project, composePath);
+  const previousTarget = await readlink(identity.current).catch(() => null);
+  const nextLink = `${identity.current}.${releaseId}.next`;
+  await rm(nextLink, { force: true });
+  await symlink(destination, nextLink);
+  await rename(nextLink, identity.current);
+  return {
+    identity,
+    previousTarget,
+    releaseRoot: destination,
+    rollback: async () => {
+      await runDockerCompose(project, destination, ['down', '--remove-orphans']).catch(() => {});
+      if (previousTarget) {
+        const revert = `${identity.current}.rollback`;
+        await rm(revert, { force: true });
+        await symlink(previousTarget, revert);
+        await rename(revert, identity.current);
+        await runDockerCompose(project, previousTarget, ['up', '--detach', '--remove-orphans']).catch(() => {});
+      } else await rm(identity.current, { force: true });
+    }
+  };
+}
+
 async function startAndCheckProject(project, transaction) {
   await run('/usr/bin/systemctl', ['daemon-reload']);
   await run('/usr/bin/systemctl', ['enable', '--now', transaction.identity.service], { failure: 'The project systemd service could not be enabled or started.' });
@@ -229,6 +297,47 @@ async function startAndCheckProject(project, transaction) {
     await delay(250);
   }
   throw new HelperError('Project did not pass its host health check.');
+}
+
+async function startAndCheckDockerProject(project, transaction) {
+  await runDockerCompose(project, transaction.releaseRoot, ['up', '--build', '--detach', '--remove-orphans'], { timeout: 600_000, failure: 'Docker Compose could not build or start the project.' });
+  if (project.healthCheckEnabled === false) return;
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline) {
+    if (await healthCheck(project.port, project.healthCheckPath ?? '/')) return;
+    await delay(250);
+  }
+  throw new HelperError('Docker Compose project did not pass its host health check.');
+}
+
+async function assertComposeProject(project, composePath) {
+  const output = await run(DOCKER, ['compose', '--project-name', dockerProjectName(project.slug), '--file', composePath, 'config', '--format', 'json'], { timeout: 120_000, failure: 'Docker Compose configuration is invalid.' });
+  let config;
+  try { config = JSON.parse(output); } catch { throw new HelperError('Docker Compose configuration is invalid.'); }
+  const service = config?.services?.[project.composeService];
+  if (!service || typeof service !== 'object') throw new HelperError('The configured Docker Compose service was not found.');
+  for (const item of Object.values(config.services ?? {})) {
+    if (!item || typeof item !== 'object') continue;
+    if (item.privileged === true || item.network_mode === 'host' || item.pid === 'host' || item.ipc === 'host') throw new HelperError('Docker Compose host/privileged isolation options are not allowed.');
+    if (Array.isArray(item.volumes) && item.volumes.some(isHostBindMount)) throw new HelperError('Docker Compose host bind mounts are not allowed. Use named volumes instead.');
+  }
+  const exposesProjectPort = Array.isArray(service.ports) && service.ports.some((port) => composePortPublishes(port, project.port));
+  if (!exposesProjectPort) throw new HelperError('Docker Compose service must publish the configured project port.');
+}
+
+function dockerProjectName(slug) { return `hostmgr-${slug}`; }
+function isHostBindMount(volume) {
+  if (typeof volume === 'string') return /^(?:\.?\.?(?:\/|\\)|\/|[A-Za-z]:[\\/])/.test(volume);
+  return volume?.type === 'bind';
+}
+function composePortPublishes(port, expected) {
+  if (typeof port === 'number') return port === expected;
+  if (typeof port === 'string') return new RegExp(`(^|:)${expected}(?:\/tcp)?$`).test(port.replace(/^\d+\.\d+\.\d+\.\d+:/, ''));
+  const published = Number(port?.published ?? port?.target);
+  return published === expected;
+}
+function runDockerCompose(project, releaseRoot, args, options = {}) {
+  return run(DOCKER, ['compose', '--project-name', dockerProjectName(project.slug), '--file', join(releaseRoot, project.composeFile), ...args], options);
 }
 
 async function applyDomains(project) {
@@ -270,7 +379,10 @@ async function issueCertificate(project) {
   }
   const args = ['certonly', '--webroot', '--webroot-path', ACME_ROOT, '--non-interactive', '--agree-tos', '--email', email, '--keep-until-expiring', '--expand', '--cert-name', certificateName(project.slug)];
   for (const host of project.domains.hosts) args.push('-d', host);
-  await run('/usr/bin/certbot', args, { timeout: 180_000 });
+  await run('/usr/bin/certbot', args, {
+    timeout: 180_000,
+    failure: 'TLS certificate request failed. Confirm the domain resolves to this host, port 80 is reachable, and any CDN proxy or HTTPS redirect is disabled during HTTP-01 validation.'
+  });
 }
 
 async function acmeEmail() {
@@ -348,9 +460,8 @@ async function ensureProjectUser(identity) {
 }
 
 async function clearPasswordLock() {
-  // shadow-utils leaves this zero-byte lock behind under the helper's narrowed
-  // systemd writable-path sandbox. It is created by the successful account
-  // operation above, so clear only after that operation has returned.
+  // Some shadow-utils versions can leave this zero-byte file after a completed
+  // account operation. Clear it only after this helper's account operation.
   await rm('/etc/.pwd.lock', { force: true });
 }
 

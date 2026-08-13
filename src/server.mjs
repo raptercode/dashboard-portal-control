@@ -5,9 +5,9 @@ import { fileURLToPath } from 'node:url';
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import os from 'node:os';
 import { spawn } from 'node:child_process';
-import { StateStore, TOOLS, SUPPORTED_NODE_MAJOR, SecretVault, appendAudit, validateDomain, validateEnvironmentContent, validateGitBranchRequest, validateGitIdentity, validateHttpsCredential, validatePasswordChange, validateProjectDomains, validateProjectSync, validateTool, InputError } from './core.mjs';
+import { StateStore, TOOLS, SUPPORTED_NODE_MAJOR, SecretVault, appendAudit, validateDomain, validateEnvironmentContent, validateGitBranchRequest, validateGitIdentity, validateHttpsCredential, validateNotificationHook, validatePasswordChange, validateProjectDomains, validateProjectSync, validateTool, InputError } from './core.mjs';
 import { checkDomainDns } from './dns-check.mjs';
-import { activateRelease, appendReleaseEvent, beginDeployment, beginRollback, createRelease, failRelease, initialDeployment, markReleaseHealthy, markReleasePendingActivation, projectIdentity, validateNativeProject, validatePackageScripts } from './native-project.mjs';
+import { activateRelease, appendReleaseEvent, beginDeployment, beginRollback, createRelease, failRelease, initialDeployment, markReleaseHealthy, markReleasePendingActivation, projectIdentity, validateDockerComposeProject, validateNativeProject, validatePackageScripts } from './native-project.mjs';
 import { callHostHelper } from './helper-client.mjs';
 import { softwareUpdateStatus, updateConfiguration } from '../scripts/software-update.mjs';
 import { passwordFromEnvironment } from '../scripts/password-config.mjs';
@@ -224,6 +224,15 @@ export async function createApplication(options = {}) {
       const monitorTokenMatch = url.pathname.match(/^\/api\/monitor-tokens\/([a-f0-9-]{36})$/i);
       if (request.method === 'DELETE' && monitorTokenMatch) return await handleMonitorTokenDelete(request, response, monitorTokenMatch[1]);
       if (request.method === 'POST' && url.pathname === '/api/credentials') return await handleCredential(request, response);
+      const credentialMatch = url.pathname.match(/^\/api\/credentials\/([a-f0-9-]{36})$/i);
+      if (request.method === 'DELETE' && credentialMatch) return await handleCredentialDelete(request, response, credentialMatch[1]);
+      if (request.method === 'GET' && url.pathname === '/api/notification-hooks') {
+        if (!requireSession(request, response)) return;
+        return sendJson(response, 200, { hooks: (store.snapshot().notificationHooks ?? []).map(publicNotificationHook), vaultReady: Boolean(vault) });
+      }
+      if (request.method === 'POST' && url.pathname === '/api/notification-hooks') return await handleNotificationHookCreate(request, response);
+      const notificationHookMatch = url.pathname.match(/^\/api\/notification-hooks\/([a-f0-9-]{36})$/i);
+      if (request.method === 'DELETE' && notificationHookMatch) return await handleNotificationHookDelete(request, response, notificationHookMatch[1]);
       if (request.method === 'GET' && url.pathname === '/api/databases') {
         if (!requireSession(request, response)) return;
         return sendJson(response, 200, {
@@ -435,6 +444,10 @@ export async function createApplication(options = {}) {
     const state = store.snapshot();
     const gitTool = mode === 'host' ? (await toolProbe([state.tools.git]))[0] : state.tools.git;
     if (gitTool.status !== 'Installed') throw new InputError('Install Git before syncing a project.');
+    if (project.runtime === 'docker-compose') {
+      const dockerTool = mode === 'host' ? (await toolProbe([state.tools.docker]))[0] : state.tools.docker;
+      if (dockerTool.status !== 'Installed') throw new InputError('Install Docker Engine + Compose before syncing a Docker Compose project.');
+    }
     if (!state.git.identity) throw new InputError('Configure Git identity before syncing a project.');
     if (project.credentialId && !state.credentials.some((credential) => credential.id === project.credentialId)) throw new InputError('Selected credential was not found.');
     const credential = project.credentialId ? state.credentials.find((item) => item.id === project.credentialId) : null;
@@ -500,9 +513,9 @@ export async function createApplication(options = {}) {
     if (project.sync?.status !== 'synced') throw new InputError('Sync the repository successfully before deploying.');
     if (!project.environment?.keys?.length) throw new InputError('Save at least one project environment variable before deploying.');
     if (!uiDemo && !project.domains?.hosts?.length) throw new InputError('Save at least one project domain before deploying.');
-    const nativeProject = validateNativeProject({ ...project, environment: {} });
+    const deployProject = validateDeployProject(project);
     if (uiDemo) {
-      const release = createRelease(nativeProject, 'demo-simulated-revision');
+      const release = createRelease(deployProject, 'demo-simulated-revision');
       await store.update((state) => {
         const target = findProject(state, slug);
         let deployment = beginDeployment(target.deployment, release);
@@ -512,7 +525,7 @@ export async function createApplication(options = {}) {
       });
       return sendJson(response, 200, { ok: true, activation: 'complete', project: publicProject(store.snapshot().projects.find((item) => item.slug === slug)) });
     }
-    const release = createRelease(nativeProject, await projectRevision(project, projectRoot));
+    const release = createRelease(deployProject, await projectRevision(project, projectRoot));
     const job = { id: randomUUID(), kind: 'deploy', projectSlug: slug, releaseId: release.id, status: 'queued', createdAt: new Date().toISOString(), startedAt: null, finishedAt: null, events: [{ at: new Date().toISOString(), status: 'queued', message: 'Deployment is queued.' }], failure: null };
     await store.update((state) => {
       const target = findProject(state, slug);
@@ -532,7 +545,7 @@ export async function createApplication(options = {}) {
     if (!project) return markJobFailed(jobId, 'Project was removed before deployment started.');
     const release = project.deployment?.releases?.find((item) => item.id === job.releaseId);
     if (!release) return markJobFailed(jobId, 'Candidate release was not found.');
-    const nativeProject = validateNativeProject({ ...project, environment: {} });
+    const deployProject = validateDeployProject(project);
     await updateJob(jobId, (current) => {
       current.status = 'running';
       current.startedAt = new Date().toISOString();
@@ -547,11 +560,15 @@ export async function createApplication(options = {}) {
       });
     };
     try {
-      await prepareNativeRelease(nativeProject, release, project, vault, projectRoot, recordPhase);
+      if (deployProject.runtime === 'docker-compose') await prepareDockerRelease(deployProject, release, project, vault, projectRoot, recordPhase);
+      else await prepareNativeRelease(deployProject, release, project, vault, projectRoot, recordPhase);
       await store.update((state) => {
         const target = findProject(state, job.projectSlug);
         target.deployment = markReleaseHealthy(target.deployment, release.id);
-        target.deployment = appendReleaseEvent(target.deployment, release.id, 'candidate_health', nativeProject.healthCheckEnabled ? 'passed' : 'skipped', nativeProject.healthCheckEnabled ? 'Candidate health check passed.' : 'Candidate health check was skipped by project configuration.');
+        const healthMessage = deployProject.runtime === 'docker-compose'
+          ? 'Docker Compose source preflight passed; host activation validates the configuration and performs the runtime health check.'
+          : (deployProject.healthCheckEnabled ? 'Candidate health check passed.' : 'Candidate health check was skipped by project configuration.');
+        target.deployment = appendReleaseEvent(target.deployment, release.id, 'candidate_health', deployProject.healthCheckEnabled ? 'passed' : 'skipped', healthMessage);
       });
       const helperSocket = process.env.HOSTMGR_DEPLOY_HELPER_SOCKET;
       if (!helperSocket) {
@@ -617,6 +634,7 @@ export async function createApplication(options = {}) {
       job.finishedAt = new Date().toISOString();
       appendJobEvent(job, 'passed', message);
     });
+    void deliverProjectNotifications('deployment.succeeded', jobId, message);
   }
 
   async function markJobFailed(jobId, message) {
@@ -626,6 +644,35 @@ export async function createApplication(options = {}) {
       job.failure = message.slice(0, 240);
       appendJobEvent(job, 'failed', job.failure);
     });
+    void deliverProjectNotifications('deployment.failed', jobId, message);
+  }
+
+  async function deliverProjectNotifications(event, jobId, detail) {
+    if (!vault) return;
+    const snapshot = store.snapshot();
+    const job = snapshot.jobs.find((item) => item.id === jobId);
+    const project = job && snapshot.projects.find((item) => item.slug === job.projectSlug);
+    if (!job || !project) return;
+    const hooks = (snapshot.notificationHooks ?? []).filter((hook) => hook.events?.includes(event) && (!hook.projectSlug || hook.projectSlug === project.slug));
+    await Promise.allSettled(hooks.map(async (hook) => {
+      let status = 'failed';
+      let httpStatus = null;
+      try {
+        const endpoint = vault.decrypt(hook.encryptedEndpoint);
+        const response = await fetch(endpoint, {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(notificationPayload(hook.provider, { event, project, job, detail })), signal: AbortSignal.timeout(8_000)
+        });
+        httpStatus = response.status;
+        status = response.ok ? 'sent' : 'failed';
+      } catch { /* External webhook failures never affect deployment state. */ }
+      await store.update((state) => {
+        const stored = (state.notificationHooks ?? []).find((item) => item.id === hook.id);
+        if (!stored) return;
+        stored.lastDelivery = { at: new Date().toISOString(), event, status, httpStatus };
+        appendAudit(state, { action: 'notification_hook.deliver', outcome: status === 'sent' ? 'success' : 'failure', actor: 'system', target: project.slug, detail: `${hook.provider} notification ${status} for ${event}.` });
+      });
+    }));
   }
 
   async function recoverDeploymentQueue() {
@@ -750,6 +797,50 @@ export async function createApplication(options = {}) {
     return sendJson(response, 201, { ok: true, credential: publicCredential(created) });
   }
 
+  async function handleCredentialDelete(request, response, id) {
+    if (!requireSession(request, response, true)) return;
+    const snapshot = store.snapshot();
+    const credential = snapshot.credentials.find((item) => item.id === id);
+    if (!credential) throw new NotFoundError('Credential was not found.');
+    const inUse = snapshot.projects.some((project) => project.credentialId === id);
+    if (inUse) throw new InputError('This credential is still selected by a project. Change that project to another credential first.');
+    await store.update((state) => {
+      state.credentials = state.credentials.filter((item) => item.id !== id);
+      appendAudit(state, { action: 'credential.delete', outcome: 'success', actor: 'owner', target: credential.name, detail: 'HTTPS credential deleted from the encrypted vault.' });
+    });
+    return sendJson(response, 200, { ok: true });
+  }
+
+  async function handleNotificationHookCreate(request, response) {
+    if (!requireSession(request, response, true)) return;
+    if (!vault) throw new InputError('Credential vault is not configured.');
+    const hook = validateNotificationHook(await readJson(request));
+    const snapshot = store.snapshot();
+    if (hook.projectSlug && !snapshot.projects.some((project) => project.slug === hook.projectSlug)) throw new InputError('Selected project was not found.');
+    const created = {
+      id: randomUUID(), name: hook.name, provider: hook.provider, projectSlug: hook.projectSlug,
+      events: hook.events, encryptedEndpoint: vault.encrypt(hook.endpoint), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), lastDelivery: null
+    };
+    await store.update((state) => {
+      state.notificationHooks ??= [];
+      if (state.notificationHooks.some((item) => item.name === created.name)) throw new InputError('A notification hook with this name already exists.');
+      state.notificationHooks.push(created);
+      appendAudit(state, { action: 'notification_hook.create', outcome: 'success', actor: 'owner', target: created.projectSlug ?? 'all-projects', detail: `${created.provider} notification hook saved without exposing its webhook URL.` });
+    });
+    return sendJson(response, 201, { ok: true, hook: publicNotificationHook(created) });
+  }
+
+  async function handleNotificationHookDelete(request, response, id) {
+    if (!requireSession(request, response, true)) return;
+    const hook = (store.snapshot().notificationHooks ?? []).find((item) => item.id === id);
+    if (!hook) throw new NotFoundError('Notification hook was not found.');
+    await store.update((state) => {
+      state.notificationHooks = (state.notificationHooks ?? []).filter((item) => item.id !== id);
+      appendAudit(state, { action: 'notification_hook.delete', outcome: 'success', actor: 'owner', target: hook.projectSlug ?? 'all-projects', detail: 'Notification hook deleted.' });
+    });
+    return sendJson(response, 200, { ok: true });
+  }
+
   async function handleProjectEnvironment(request, response, slug) {
     if (!requireSession(request, response, true)) return;
     if (!vault) throw new InputError('Credential vault is not configured. Set HOSTMGR_SECRET_KEY before saving .env content.');
@@ -789,7 +880,7 @@ export async function createApplication(options = {}) {
 
   async function handleProjectDomains(request, response, slug) {
     if (!requireSession(request, response, true)) return;
-    const hosts = validateProjectDomains((await readJson(request)).domains);
+    const hosts = validateProjectDomains((await readJson(request)).domains, { allowEmpty: true });
     let active = false;
     await store.update((state) => {
       const project = findProject(state, slug);
@@ -801,7 +892,8 @@ export async function createApplication(options = {}) {
       const socketPath = process.env.HOSTMGR_DEPLOY_HELPER_SOCKET;
       if (!socketPath) throw new InputError('Domain saved, but the host deployment helper is not configured.');
       try {
-        await syncDomainsOnHost(socketPath, slug);
+        if (hosts.length) await syncDomainsOnHost(socketPath, slug);
+        else await callHostHelper(socketPath, { operation: 'remove-project-domains', slug });
       } catch {
         await store.update((state) => appendAudit(state, { action: 'project.sync_domains', outcome: 'failure', actor: 'owner', target: slug, detail: 'Domain saved but Nginx/TLS sync failed; previous managed configuration was retained.' }));
         throw new InputError('Domain was saved, but Nginx/TLS sync failed. Verify DNS points to this host and retry.');
@@ -809,7 +901,7 @@ export async function createApplication(options = {}) {
       await store.update((state) => {
         const project = findProject(state, slug);
         project.domains.syncedAt = new Date().toISOString();
-        appendAudit(state, { action: 'project.sync_domains', outcome: 'success', actor: 'owner', target: slug, detail: `Synced Nginx and TLS for ${project.domains.hosts.length} domain name(s)` });
+        appendAudit(state, { action: 'project.sync_domains', outcome: 'success', actor: 'owner', target: slug, detail: project.domains.hosts.length ? `Synced Nginx and TLS for ${project.domains.hosts.length} domain name(s)` : 'Removed managed Nginx domain configuration.' });
       });
     }
     return sendJson(response, 200, { ok: true, project: publicProject(store.snapshot().projects.find((item) => item.slug === slug)) });
@@ -1008,6 +1100,36 @@ export async function copyCandidateSource(source, destination) {
   });
 }
 
+function validateDeployProject(project) {
+  return project.runtime === 'docker-compose'
+    ? validateDockerComposeProject({ ...project, environment: {} })
+    : validateNativeProject({ ...project, environment: {} });
+}
+
+async function prepareDockerRelease(project, release, storedProject, vault, projectRoot, reportPhase = async () => {}) {
+  const source = repositoryDirectory(project, projectRoot);
+  const destination = join(projectRoot, project.slug, 'releases', release.id);
+  const sourceExists = await stat(source).then((item) => item.isDirectory()).catch(() => false);
+  if (!sourceExists) throw new InputError('The synced repository is missing. Sync it again before deploying.');
+  try {
+    await reportPhase('source_copy', 'started', 'Copying the synced repository into an isolated Docker Compose release.');
+    await mkdir(join(projectRoot, project.slug, 'releases'), { recursive: true, mode: 0o750 });
+    await copyCandidateSource(source, destination);
+    const composePath = join(destination, project.composeFile);
+    if (!(await stat(composePath).then((item) => item.isFile()).catch(() => false))) throw new InputError('The configured Docker Compose file was not found in the repository directory.');
+    await reportPhase('source_copy', 'passed', 'Docker Compose release source was prepared.');
+    if (storedProject.environment?.encryptedContent) {
+      if (!vault) throw new InputError('Credential vault is not configured.');
+      await writeFile(join(destination, '.env'), vault.decrypt(storedProject.environment.encryptedContent), { mode: 0o600 });
+    }
+    await reportPhase('docker_preflight', 'started', 'Checking Docker Compose release files; host activation will validate the trusted project configuration.');
+    await reportPhase('docker_preflight', 'passed', 'Docker Compose release files are ready for controlled host activation.');
+  } catch (error) {
+    await rm(destination, { recursive: true, force: true });
+    throw error;
+  }
+}
+
 async function healthCheckCandidate(cwd, project, storedProject, vault, reportPhase = async () => {}) {
   if (!project.healthCheckEnabled) {
     await reportPhase('candidate_health', 'skipped', 'Candidate health check is disabled for this project.');
@@ -1157,7 +1279,7 @@ function normalizeDomainCheckResult(hostname, result) {
       detail: 'DNS check failed. Verify network/DNS settings and try again.',
     };
   }
-  const status = ['ok', 'mismatch', 'unresolved', 'error'].includes(result.status) ? result.status : 'error';
+  const status = ['ok', 'mismatch', 'proxied', 'unresolved', 'error'].includes(result.status) ? result.status : 'error';
   const resolved = Array.isArray(result.resolved) ? result.resolved.filter((item) => typeof item === 'string') : [];
   const expected = Array.isArray(result.expected) ? result.expected.filter((item) => typeof item === 'string') : [];
   return {
@@ -1166,7 +1288,8 @@ function normalizeDomainCheckResult(hostname, result) {
     expected,
     matched: Boolean(result.matched),
     status,
-    ...(status === 'error' ? { detail: typeof result.detail === 'string' && result.detail ? result.detail.slice(0, 240) : 'DNS check failed. Verify network/DNS settings and try again.' } : {}),
+    ...(['proxied', 'error'].includes(status) ? { detail: typeof result.detail === 'string' && result.detail ? result.detail.slice(0, 240) : 'DNS check failed. Verify network/DNS settings and try again.' } : {}),
+    ...(status === 'proxied' ? { proxy: { detected: true, provider: result.proxy?.provider === 'Cloudflare' ? 'Cloudflare' : 'CDN' } } : {}),
   };
 }
 
@@ -1208,6 +1331,20 @@ function delay(milliseconds) {
 function publicCredential(credential) {
   const { encryptedToken, ...safe } = credential;
   return safe;
+}
+
+function publicNotificationHook(hook) {
+  const { encryptedEndpoint, ...safe } = hook;
+  return safe;
+}
+
+function notificationPayload(provider, { event, project, job, detail }) {
+  const title = event === 'deployment.succeeded' ? 'Deployment succeeded' : 'Deployment failed';
+  const text = `${title}: ${project.name} (${project.slug}) — ${detail}`;
+  if (provider === 'discord') return { content: text };
+  if (provider === 'google-chat') return { cardsV2: [{ cardId: `hostmgr-${job.id}`, card: { header: { title, subtitle: project.slug }, sections: [{ widgets: [{ decoratedText: { text: detail } }, { decoratedText: { text: `Release: ${job.releaseId || '—'}` } }] }] } }] };
+  if (provider === 'slack') return { text, blocks: [{ type: 'section', text: { type: 'mrkdwn', text: `*${title}*\n${project.name} (${project.slug})\n${detail}` } }] };
+  return { event, project: { name: project.name, slug: project.slug }, deployment: { jobId: job.id, releaseId: job.releaseId, status: job.status }, detail };
 }
 
 function monitorTokenHash(token) {

@@ -13,7 +13,7 @@ export const TOOLS = {
 
 export function createInitialState() {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     createdAt: new Date().toISOString(),
     tools: Object.fromEntries(Object.entries(TOOLS).map(([id, tool]) => [id, {
       id,
@@ -31,7 +31,8 @@ export function createInitialState() {
     jobs: [],
     monitorTokens: [],
     owner: null,
-    databaseConnections: []
+    databaseConnections: [],
+    notificationHooks: []
   };
 }
 
@@ -146,6 +147,7 @@ export class StateStore {
       setMeta.run('git', JSON.stringify(state.git ?? { identity: null }));
       setMeta.run('owner', JSON.stringify(state.owner ?? null));
       setMeta.run('monitor_tokens', JSON.stringify(state.monitorTokens ?? []));
+      setMeta.run('notification_hooks', JSON.stringify(state.notificationHooks ?? []));
       database.exec('COMMIT');
     } catch (error) {
       database.exec('ROLLBACK');
@@ -168,6 +170,7 @@ export class StateStore {
       audit: readPayloads('SELECT payload FROM audit_events ORDER BY occurred_at DESC'),
       jobs: readPayloads('SELECT payload FROM jobs ORDER BY created_at ASC'),
       monitorTokens: JSON.parse(meta('monitor_tokens', '[]')),
+      notificationHooks: JSON.parse(meta('notification_hooks', '[]')),
       owner: JSON.parse(meta('owner', 'null')),
       databaseConnections: readPayloads('SELECT payload FROM database_connections')
     };
@@ -216,14 +219,21 @@ export function validateProjectSync(input) {
   if (protocol === 'ssh' && !project.repository.startsWith('git@')) throw new InputError('SSH projects require Git SSH URL syntax.');
   const credentialId = optionalText(input.credentialId, 64);
   if (protocol === 'https' && credentialId && !/^[a-f0-9-]{36}$/i.test(credentialId)) throw new InputError('Credential selection is invalid.');
-  const buildScript = optionalNpmScript(input.buildScript, 'Build script');
-  const startScript = optionalNpmScript(input.startScript, 'Start script');
+  const runtime = input.runtime === undefined ? 'node' : input.runtime;
+  if (!['node', 'docker-compose'].includes(runtime)) throw new InputError('Project runtime is invalid.');
+  const buildScript = runtime === 'node' ? optionalNpmScript(input.buildScript, 'Build script') : null;
+  const startScript = runtime === 'node' ? optionalNpmScript(input.startScript, 'Start script') : null;
+  const composeFile = runtime === 'docker-compose' ? validateComposeFile(input.composeFile) : null;
+  const composeService = runtime === 'docker-compose' ? requiredText(input.composeService, 'Docker Compose service', 80) : null;
+  if (composeService && !/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,79}$/.test(composeService)) throw new InputError('Docker Compose service is invalid.');
   const domains = input.domains === undefined ? undefined : validateProjectDomains(input.domains);
   return {
     ...project,
     protocol,
     credentialId: protocol === 'https' ? credentialId || null : null,
     sshKeyId: protocol === 'ssh' ? `deploy-key-${project.slug}` : null,
+    runtime,
+    ...(runtime === 'docker-compose' ? { composeFile, composeService } : {}),
     ...(buildScript !== undefined ? { buildScript } : {}),
     ...(startScript !== undefined ? { startScript } : {}),
     ...(domains !== undefined ? { domains: { hosts: domains, updatedAt: new Date().toISOString(), syncedAt: null } } : {})
@@ -250,10 +260,10 @@ export function validateRepositoryDirectory(value) {
   return parts.length ? `/${parts.join('/')}` : '/';
 }
 
-export function validateProjectDomains(value) {
-  if (!Array.isArray(value) || value.length < 1 || value.length > 10) throw new InputError('Provide between 1 and 10 domain names.');
+export function validateProjectDomains(value, { allowEmpty = false } = {}) {
+  if (!Array.isArray(value) || value.length > 10 || (!allowEmpty && value.length < 1)) throw new InputError(allowEmpty ? 'Provide up to 10 domain names.' : 'Provide between 1 and 10 domain names.');
   const hosts = [...new Set(value.map((item) => validateDomain({ hostname: item })))];
-  if (!hosts.length) throw new InputError('Provide at least one domain name.');
+  if (!allowEmpty && !hosts.length) throw new InputError('Provide at least one domain name.');
   return hosts;
 }
 
@@ -263,6 +273,22 @@ export function validateHttpsCredential(input) {
   if (!/^[a-z][a-z0-9-]{0,79}$/.test(name)) throw new InputError('Credential name must use lowercase letters, digits, and hyphens.');
   if (token.includes('\n') || token.includes('\r')) throw new InputError('Access token is invalid.');
   return { name, token };
+}
+
+export function validateNotificationHook(input) {
+  const name = requiredText(input.name, 'Notification hook name', 80);
+  const provider = input.provider;
+  if (!['discord', 'google-chat', 'slack', 'generic'].includes(provider)) throw new InputError('Notification provider is invalid.');
+  const endpoint = requiredText(input.endpoint, 'Webhook URL', 2048);
+  let parsed;
+  try { parsed = new URL(endpoint); } catch { throw new InputError('Webhook URL is invalid.'); }
+  if (parsed.protocol !== 'https:' || parsed.username || parsed.password || parsed.hash) throw new InputError('Webhook URL must be a plain HTTPS URL.');
+  const projectSlug = optionalText(input.projectSlug, 63) || null;
+  if (projectSlug && !/^[a-z][a-z0-9-]{0,62}$/.test(projectSlug)) throw new InputError('Notification project is invalid.');
+  const events = Array.isArray(input.events) ? [...new Set(input.events)] : [];
+  const allowedEvents = new Set(['deployment.succeeded', 'deployment.failed']);
+  if (!events.length || events.length > allowedEvents.size || events.some((event) => !allowedEvents.has(event))) throw new InputError('Select at least one valid notification event.');
+  return { name, provider, endpoint: parsed.toString(), projectSlug, events };
 }
 
 export function validatePasswordChange(input) {
@@ -335,6 +361,15 @@ function optionalNpmScript(value, label) {
   return value;
 }
 
+function validateComposeFile(value) {
+  const file = optionalText(value, 240) || 'compose.yaml';
+  if (file.startsWith('/') || file.includes('\\') || file.includes('//')) throw new InputError('Docker Compose file must be inside the repository.');
+  const parts = file.split('/');
+  if (parts.some((part) => !part || part === '.' || part === '..' || !/^[A-Za-z0-9._-]+$/.test(part))) throw new InputError('Docker Compose file must stay inside the repository.');
+  if (!/\.ya?ml$/i.test(file)) throw new InputError('Docker Compose file must be YAML.');
+  return file;
+}
+
 function isRepositoryUrl(value) {
   return /^https:\/\/[^\s]+\.git(?:$|[?#])/.test(value) || /^git@[a-z0-9.-]+:[^\s]+\.git$/i.test(value);
 }
@@ -347,13 +382,14 @@ export function appendAudit(state, event) {
 }
 
 function migrateState(state) {
-  state.schemaVersion = 2;
+  state.schemaVersion = 3;
   state.git ??= { identity: null };
   state.sessions ??= [];
   state.credentials ??= [];
   state.projects ??= [];
   for (const project of state.projects) {
     project.directory ??= '/';
+    project.runtime ??= 'node';
     project.deployment ??= { state: 'idle', activeReleaseId: null, previousReleaseId: null, releases: [], updatedAt: new Date().toISOString() };
   }
   state.audit ??= [];
@@ -361,5 +397,6 @@ function migrateState(state) {
   state.monitorTokens ??= [];
   state.owner ??= null;
   state.databaseConnections ??= [];
+  state.notificationHooks ??= [];
   return state;
 }

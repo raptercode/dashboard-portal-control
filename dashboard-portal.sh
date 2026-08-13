@@ -194,8 +194,10 @@ chmod 0750 "$UPDATE_COMMAND"
 
 install -d -m 0700 -o "$APP_USER" -g "$APP_USER" "$DATA_ROOT" "$DATA_ROOT/projects"
 install -d -m 0750 -o root -g "$APP_USER" "$CONFIG_ROOT"
-install -d -m 0750 -o root -g root /etc/hostmgr /etc/hostmgr/projects /var/lib/hostmgr /var/lib/hostmgr/acme /srv/hostmgr /srv/hostmgr/projects
-install -d -m 0750 -o root -g root /srv/hostmgr/projects /etc/hostmgr/projects
+install -d -m 0750 -o root -g root /etc/hostmgr /etc/hostmgr/projects
+# Services need only traverse these parents to reach their own project or the
+# ACME webroot.  Do not grant directory listing to unrelated local users.
+install -d -m 0711 -o root -g root /var/lib/hostmgr /srv/hostmgr /srv/hostmgr/projects
 install -d -m 0755 -o root -g root /var/lib/hostmgr/acme
 if [[ ! -f "$CONFIG_ROOT/dashboard-portal.env" ]]; then
   read -r -s -p 'Choose the Dashboard owner password (at least 12 characters): ' ADMIN_PASSWORD; echo
@@ -282,10 +284,11 @@ RestartSec=2
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
-# The helper has a narrow Unix-socket protocol, but must be able to create the
-# runtime socket and update only its explicitly owned paths. Strict mode prevents
-# that runtime contract on some systemd versions.
-ProtectSystem=full
+# shadow-utils performs lock and atomic-rename operations across /etc. On
+# Ubuntu, ProtectSystem=full breaks those operations even with ReadWritePaths
+# exceptions. The helper remains root-owned and reachable only through its
+# bounded Unix-socket operation allowlist; do not re-enable ProtectSystem here.
+ProtectSystem=false
 ProtectControlGroups=true
 ProtectKernelModules=true
 ProtectKernelTunables=true
@@ -293,12 +296,6 @@ LockPersonality=true
 RestrictSUIDSGID=true
 SystemCallArchitectures=native
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
-# Account-management tools atomically update and lock files under /etc. Giving
-# the typed, root-only helper /etc access avoids pinning the transient
-# /etc/.pwd.lock into its mount namespace; the rest of the deployment paths
-# remain explicit under ProtectSystem=full.
-ReadWritePaths=/etc /var/lib/letsencrypt /var/log/letsencrypt /var/lib/hostmgr /srv/hostmgr/projects
-
 [Install]
 WantedBy=multi-user.target
 EOF

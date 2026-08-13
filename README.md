@@ -5,8 +5,10 @@ deploy Node apps, bind domains, issue TLS certificates, and manage Nginx —
 from one dashboard.
 
 > Production install is deliberately TLS-only and targets Ubuntu 24.04/25.04.
-> Docker below is a local evaluation sandbox, not a production certification —
-> see [ADR 0005](docs/adr/0005-docker-is-a-sandbox-not-a-host-certification.md).
+> The Portal's own Docker Compose file is a local evaluation sandbox. Project
+> Docker Compose deployment is a separate, guarded runtime for trusted
+> repositories; real-host acceptance remains required — see
+> [ADR 0021](docs/adr/0021-trusted-docker-compose-project-runtime.md).
 
 This file covers installing and using Dashboard Portal. For feature scope,
 architecture, and roadmap, see the [documentation map](#documentation-map) at
@@ -145,7 +147,6 @@ operational detail live under `docs/`:
 | [docs/context/scope-and-roadmap.md](docs/context/scope-and-roadmap.md) | Full v1 feature scope (with implemented/planned status per feature), roadmap, non-goals |
 | [docs/context/architecture.md](docs/context/architecture.md) | Trust boundary, configuration ownership, delivery lifecycle |
 | [docs/context/ui-rewrite-layout.md](docs/context/ui-rewrite-layout.md) | Current UI route map, template/renderer layout, and behavior notes |
-| [docs/context/ui-rewrite-brief.md](docs/context/ui-rewrite-brief.md) | Why the UI was rebuilt as server-rendered multi-page views (historical brief) |
 | [docs/context/owner-auth-and-db-connectors.md](docs/context/owner-auth-and-db-connectors.md) | Owner bootstrap/login and database client connector API surface |
 | [docs/production-install.md](docs/production-install.md) | Full production install, acceptance checklist, and operations runbook |
 | [docs/context/deployment-diagnostics-and-health-checks.md](docs/context/deployment-diagnostics-and-health-checks.md) | Reading release logs, the runtime log viewer, and diagnosing a failed activation |

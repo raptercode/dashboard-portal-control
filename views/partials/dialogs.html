@@ -48,8 +48,7 @@
     </header>
     <div class="modal-body" data-domain-view="list">
       <section class="domain-list-panel">
-        <h3>Public domains</h3>
-        <p>เพิ่มทีละโดเมน ระบบจะตรวจว่า A/AAAA ชี้เข้าเครื่องนี้หรือยัง แล้วยังบันทึกได้แม้ DNS ยังไม่พร้อม</p>
+        <div class="domain-list-heading"><div><h3>Public domains</h3><p>ตรวจ DNS และ CDN proxy ของทุกโดเมนได้จากหน้านี้</p></div><button class="secondary" id="domain-refresh" type="button">Refresh status</button></div>
         <div id="domain-list" class="domain-list" aria-live="polite"></div>
         <p id="domain-list-empty" class="field-hint">ยังไม่มีโดเมน — กดเพิ่มโดเมนเพื่อเริ่มต้น</p>
       </section>

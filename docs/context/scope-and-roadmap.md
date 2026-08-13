@@ -42,10 +42,11 @@ Each project gets its own service account, release directory, environment
 file, and systemd unit created by the root-owned helper
 (`scripts/hostmgr-deploy-helper.mjs`).
 
-**Docker Mode (Planned, v0.5)** — no Dockerfile/Compose project deployment
-path exists yet. `docker` is currently only one of the allowlisted tools the
-Setup page can detect/install; there is no Docker-project build, run, or
-log-viewing flow in `src/server.mjs`.
+**Docker Compose Mode (Implemented, v0.5)** — trusted repositories choose a
+repository-relative Compose YAML file and web service. The root helper performs
+policy validation, controlled build/start, host health check, rollback, and
+container-log access. It rejects privileged containers, host namespaces, and
+host bind mounts; this is a guardrail, not a hostile-code sandbox (ADR 0021).
 
 | Topic | Native | Docker |
 | --- | --- | --- |
@@ -54,7 +55,7 @@ log-viewing flow in `src/server.mjs`.
 | Dependency isolation | Process/user level | Container level |
 | Multiple runtime versions | Not a v1 focus | Supported via images |
 | Best for | Typical personal apps | Special apps or complex dependencies |
-| Current status | **Implemented** | **Planned (v0.5)** |
+| Current status | **Implemented** | **Implemented (trusted Docker Compose, v0.5)** |
 
 ## Features in v1 scope
 
@@ -72,7 +73,7 @@ log-viewing flow in `src/server.mjs`.
 ### Project management
 
 - Create Native projects: repository, branch, directory, build/start command, port — **Implemented**
-- Docker projects — **Planned (v0.5)**
+- Docker Compose projects — **Implemented (v0.5)** for trusted repositories: selected Compose file/service, policy preflight, guarded host activation, rollback, and container logs
 - Manage environment variables without exposing full values in the UI — **Implemented** (encrypted at rest, API returns key names only)
 - Deploy and rollback — **Implemented**, including a durable job queue that survives a Dashboard restart
 - Stop/restart as a standalone action (outside of deploy/rollback) — **Planned**
@@ -91,7 +92,7 @@ log-viewing flow in `src/server.mjs`.
 
 ### Domain management
 
-- Add/remove domains bound to a project (up to 10) — **Implemented**
+- Add/remove domains bound to a project (up to 10; removing the final domain removes only Portal-managed Nginx/TLS) — **Implemented**
 - DNS check (A/AAAA against this host) before and after saving — **Implemented**
 - Generate and validate Nginx config before use — **Implemented** (`nginx -t` before every reload)
 - Preview a diff before applying a Nginx change — **Planned** (the helper snapshots/restores internally, but nothing is shown to the owner before sync)
@@ -119,7 +120,7 @@ log-viewing flow in `src/server.mjs`.
 ### Logs and terminal
 
 - Per-release deployment/build logs in the UI — **Implemented**
-- systemd journal logs per Native project, from the UI — **Implemented** (see `/projects/:slug/logs` above); container logs for Docker projects remain **Planned**
+- systemd journal logs per Native project and Compose logs per Docker project, from the UI — **Implemented** (see `/projects/:slug/logs` above)
 - Search/filter logs by time range — **Planned** (Activity page is an unfiltered table today; the runtime log viewer shows a fixed recent-lines window)
 - In-browser terminal escape hatch — **Planned**; no such feature exists in the code yet, so there is nothing to gate behind an owner opt-in
 
@@ -162,7 +163,7 @@ flowchart TD
     A[GitHub or GitLab] --> B[Clone or Pull]
     B --> C{Deployment mode}
     C -->|Native — implemented| D[Install and Build]
-    C -->|Docker — planned v0.5| E[Build Image or Compose]
+    C -->|Docker Compose — trusted| E[Validate and activate Compose]
     D --> F[Start candidate]
     E --> F
     F --> G{Health check}
@@ -203,8 +204,8 @@ Management API
 
 Everything above the Privileged Helper is **Implemented** and matches
 `src/server.mjs` / `src/helper-client.mjs`. The Privileged Helper and
-Native/systemd path are **Implemented** in
-`scripts/hostmgr-deploy-helper.mjs`. The Docker/Compose branch is **Planned**.
+Native/systemd and trusted Docker/Compose paths are **Implemented** in
+`scripts/hostmgr-deploy-helper.mjs`; Docker guardrails are defined in ADR 0021.
 For the authoritative, currently-accurate trust-boundary description, see
 [architecture.md](architecture.md); this diagram is kept here only because it
 reads well next to the roadmap below.
@@ -297,20 +298,22 @@ alerting, no certificate expiry/renewal view.
 ### v0.4 — Admin UI rewrite, runtime logs, and database connectors — done
 
 Server-rendered multi-page admin UI replacing the original single-page shell
-(see [ui-rewrite-brief.md](ui-rewrite-brief.md) and
-[ui-rewrite-layout.md](ui-rewrite-layout.md)), owner password management,
+(see [ui-rewrite-layout.md](ui-rewrite-layout.md)), owner password management,
 database client connectors (MongoDB/PostgreSQL/MySQL/Redis), and the
 per-project runtime log viewer ([ADR 0019](../adr/0019-runtime-project-logs-are-read-through-the-root-owned-helper.md)).
 
-### v0.5 — Docker Projects — not started
+### v0.5 — Operations UX + Docker Compose — done
 
-Docker/Compose installer detection exists (as a Setup-page tool); no
-Dockerfile/Compose build, run, or log flow exists yet.
+Animated deployment phases and busy controls, complete management deletion,
+Monitor Logs Tokens, encrypted provider-aware deployment notifications, domain
+status/recheck guidance, and trusted Docker Compose projects. Docker activation
+is host-validated and supports rollback; it is not a general container-security
+boundary (see ADR 0021).
 
 ### v0.6 — Automation — not started
 
-No GitHub/GitLab webhook, no auto deploy, no per-project backup/restore, no
-failure/renewal notifications beyond an in-session toast.
+No GitHub/GitLab inbound auto-deploy, no per-project backup/restore, no
+certificate-expiry alert, and no notification retry queue.
 
 ## v1 readiness criteria
 

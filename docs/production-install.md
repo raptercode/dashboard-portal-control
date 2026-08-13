@@ -1,12 +1,13 @@
 # Production installation on Ubuntu 24.04 or 25.04
 
-This is the direct, production installation path. Docker is for development and integration tests only. The installer refuses an HTTP-only installation because Dashboard Portal has an owner login.
+This is the direct, production installation path. The Portal's own Docker Compose file is for development and integration tests; separately, v0.5 can deploy a trusted project's Docker Compose runtime through the privileged helper. The installer refuses an HTTP-only installation because Dashboard Portal has an owner login.
 
 ## Before installing
 
 - Use an Ubuntu Server **24.04 or 25.04 amd64** host for the first acceptance run. Do not make a first run on the only production server when a disposable host is available.
 - Create an A or AAAA record for the chosen fully qualified domain name and wait until `getent ahosts portal.example.com` resolves from the target host.
 - Permit inbound TCP 80 and 443 to the target host. Certbot uses the HTTP-01 challenge; a DNS record alone is insufficient.
+- If the domain uses a CDN such as Cloudflare, temporarily use **DNS only** and disable forced HTTPS while issuing the first certificate. Re-enable the proxy only after HTTPS works from the origin, using Full (strict) TLS.
 - Start from an extracted release archive, not a Git working copy. Download the latest signed release from GitHub, verify it, and extract it into its own directory — the archive has no top-level folder of its own, so extracting without one scatters files into the current directory:
 
 ```bash
@@ -47,7 +48,9 @@ It prompts for the owner password only on the initial install. Use at least 12 c
 
 Never change `HOSTMGR_SECRET_KEY` after credentials or project environment values exist. Back up `/etc/dashboard-portal/dashboard-portal.env` and `/var/lib/dashboard-portal` together, encrypted and access-controlled. A backup of only one is not recoverable.
 
-For a project deployment, save at least one FQDN in the Project's **Domains** action before creating a release. Its DNS record must already resolve to the host. On activation the helper creates only `/etc/nginx/sites-available/hostmgr-<project-slug>.conf`, validates Nginx, requests or expands a Let's Encrypt certificate, and reloads Nginx. It does not modify unrelated virtual hosts.
+For a project deployment, save at least one FQDN in the Project's **Domains** action before creating a release. Its DNS record must already resolve to the host. On activation the helper creates only `/etc/nginx/sites-available/hostmgr-<project-slug>.conf`, validates Nginx, requests or expands a Let's Encrypt certificate, and reloads Nginx. It does not modify unrelated virtual hosts. Before the first certificate, verify that `http://<project-domain>/.well-known/acme-challenge/…` reaches this host without a CDN HTTPS redirect; otherwise HTTP-01 will fail.
+
+For a Docker Compose project, install Docker Engine + Compose from **Setup** first and select a repository-relative Compose YAML file plus its web service. The helper rejects privileged containers, host network/PID/IPC namespaces, and host bind mounts, and requires that service to publish the configured project port. Treat this as a trusted-owner runtime, not isolation for untrusted Dockerfiles or images; validate one real deployment, logs, health check, and rollback on the Ubuntu host after updating the Portal.
 
 ## Acceptance checklist
 

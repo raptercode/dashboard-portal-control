@@ -43,9 +43,14 @@ button, .button {
   font: inherit;
   cursor: pointer;
   text-decoration: none;
+  transition: transform 150ms ease, box-shadow 150ms ease, filter 150ms ease, background-color 150ms ease;
 }
-button:hover, .button:hover { filter: brightness(0.96); text-decoration: none; }
+button:hover, .button:hover { filter: brightness(0.96); transform: translateY(-1px); box-shadow: 0 3px 8px rgba(20, 40, 56, 0.16); text-decoration: none; }
+button:active, .button:active { transform: translateY(0); box-shadow: none; }
+button:focus-visible, .button:focus-visible { outline: 3px solid rgba(14, 122, 95, 0.35); outline-offset: 2px; }
 button:disabled { opacity: 0.55; cursor: not-allowed; }
+button:disabled:hover { transform: none; box-shadow: none; }
+button.is-busy::before { content: ""; width: 11px; height: 11px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: button-spin 700ms linear infinite; }
 button.secondary, .button.secondary, a.secondary {
   background: var(--panel);
   color: var(--ink);
@@ -589,7 +594,7 @@ label input, label select, label textarea {
 .modal-body { display: grid; gap: 10px; }
 .modal-body h3 { margin: 0; font-size: 0.98rem; }
 .modal-body p { margin: 0; color: var(--muted); }
-.env-key-list, .domain-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.env-key-list { display: flex; flex-wrap: wrap; gap: 6px; }
 .env-key-list span, .domain-list .domain-chip {
   border: 1px solid var(--line);
   background: #eef2f6;
@@ -597,17 +602,39 @@ label input, label select, label textarea {
   padding: 2px 8px;
   font-size: 12px;
 }
-.domain-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
+.domain-list { display: grid; gap: 8px; }
+.domain-list-heading { display: flex; justify-content: space-between; gap: 12px; align-items: start; }
+.domain-list-heading > div { display: grid; gap: 3px; }
+.domain-list-heading button { flex: none; }
+.domain-row { border: 1px solid var(--line); border-radius: 10px; padding: 11px; display: grid; gap: 7px; background: #fff; }
+.domain-row-head { display: flex; gap: 8px; align-items: center; min-width: 0; }
+.domain-hostname { font-weight: 650; overflow-wrap: anywhere; }
+.domain-row-actions { margin-left: auto; display: flex; gap: 6px; }
+.domain-row-detail { font-size: 12px; color: var(--muted); line-height: 1.45; }
+.domain-records { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+@media (max-width: 580px) { .domain-list-heading { align-items: stretch; flex-direction: column; } .domain-row-head { align-items: start; } }
 .deployment-log-events {
   margin: 0;
-  padding-left: 18px;
+  padding: 0;
+  list-style: none;
   display: grid;
   gap: 8px;
 }
+.deployment-event { position: relative; display: grid; grid-template-columns: 18px 1fr; gap: 9px; align-items: start; min-height: 44px; padding: 8px 10px; border: 1px solid var(--line-soft); background: #fff; animation: event-enter 260ms ease both; }
+.deployment-event-dot { width: 10px; height: 10px; margin-top: 4px; border-radius: 50%; background: var(--line-strong); box-shadow: 0 0 0 3px #edf1f4; }
+.deployment-event.started .deployment-event-dot, .deployment-event.running .deployment-event-dot, .deployment-event.pending .deployment-event-dot { background: var(--warn); animation: event-pulse 1.15s ease-in-out infinite; }
+.deployment-event.passed .deployment-event-dot { background: var(--ok); }
+.deployment-event.failed .deployment-event-dot { background: var(--danger); }
+.deployment-event.skipped .deployment-event-dot { background: var(--muted); }
+.deployment-event-copy { display: grid; gap: 2px; }
+.deployment-event-copy strong { text-transform: none; font-size: 12px; }
+.deployment-event-copy span, .deployment-event-copy small { color: var(--muted); font-size: 12px; }
+.token-row { display: flex; gap: 8px; align-items: center; justify-content: space-between; border: 1px solid var(--line); background: #eef2f6; border-radius: 999px; padding: 3px 4px 3px 8px; font-size: 12px; }
+.token-row button { padding: 3px 7px; font-size: 12px; }
+@keyframes button-spin { to { transform: rotate(360deg); } }
+@keyframes event-enter { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
+@keyframes event-pulse { 50% { box-shadow: 0 0 0 6px rgba(154, 103, 0, 0.12); } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 1ms !important; transition-duration: 1ms !important; } }
 .confirm-form { padding: 16px; }
 .warning-mark {
   width: 36px;

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { InputError } from '../src/core.mjs';
-import { activateRelease, appendReleaseEvent, beginDeployment, beginRollback, createRelease, initialDeployment, markReleaseHealthy, markReleasePendingActivation, projectIdentity, renderEnvironmentFile, renderSystemdUnit, validateNativeProject, validatePackageScripts } from '../src/native-project.mjs';
+import { activateRelease, appendReleaseEvent, beginDeployment, beginRollback, createRelease, initialDeployment, markReleaseHealthy, markReleasePendingActivation, projectIdentity, renderEnvironmentFile, renderSystemdUnit, validateDockerComposeProject, validateNativeProject, validatePackageScripts } from '../src/native-project.mjs';
 
 const project = { name: 'Demo', slug: 'demo-app', repository: 'https://github.com/example/demo.git', branch: 'main', port: 3100, healthCheckPath: '/ready', buildScript: 'build', startScript: 'start', environment: { API_KEY: 'not logged', NODE_ENV: 'production' } };
 
@@ -71,4 +71,13 @@ test('release records safe deployment phases and supports an explicit health-che
   assert.equal(current.status, 'healthy');
   assert.equal(current.health.status, 'skipped');
   assert.equal(current.events.at(-1).phase, 'dependencies');
+});
+
+test('Docker Compose release uses the same durable release state without an npm script', () => {
+  const docker = validateDockerComposeProject({ ...project, runtime: 'docker-compose', composeFile: 'compose.yaml', composeService: 'web', environment: {} });
+  assert.equal(docker.candidatePort, docker.port);
+  const release = createRelease(docker, 'c'.repeat(40));
+  assert.equal(release.runtime, 'docker-compose');
+  assert.equal(release.startScript, null);
+  assert.throws(() => validateNativeProject(docker), InputError);
 });

@@ -3,6 +3,12 @@ import os from 'node:os';
 import { InputError, validateDomain } from './core.mjs';
 
 const DEFAULT_DNS_TIMEOUT_MS = 5_000;
+const CLOUDFLARE_IPV4_CIDRS = [
+  '173.245.48.0/20', '103.21.244.0/22', '103.22.200.0/22', '103.31.4.0/22',
+  '141.101.64.0/18', '108.162.192.0/18', '190.93.240.0/20', '188.114.96.0/20',
+  '197.234.240.0/22', '198.41.128.0/17', '162.158.0.0/15', '104.16.0.0/13',
+  '104.24.0.0/14', '172.64.0.0/13', '131.0.72.0/22'
+].map(parseIpv4Cidr);
 
 export function hostExpectedAddresses(env = process.env, networkInterfaces = os.networkInterfaces) {
   const fromEnv = String(env?.HOSTMGR_PUBLIC_IP || '')
@@ -106,6 +112,18 @@ export async function checkDomainDns(input, options = {}) {
       return { hostname, resolved: [], expected, matched: false, status: 'unresolved' };
     }
     const matched = uniqueResolved.some((address) => expected.includes(address));
+    const cloudflareProxy = !matched && uniqueResolved.every(isCloudflareIpv4);
+    if (cloudflareProxy) {
+      return {
+        hostname,
+        resolved: uniqueResolved,
+        expected,
+        matched: false,
+        status: 'proxied',
+        proxy: { detected: true, provider: 'Cloudflare' },
+        detail: 'DNS is routed through Cloudflare Proxy. Use DNS only and disable forced HTTPS while issuing the first HTTP-01 certificate.'
+      };
+    }
     return { hostname, resolved: uniqueResolved, expected, matched, status: matched ? 'ok' : 'mismatch' };
   } catch (error) {
     if (error instanceof InputError) throw error;
@@ -118,4 +136,21 @@ export async function checkDomainDns(input, options = {}) {
       detail: 'DNS check failed. Verify network/DNS settings and try again.',
     };
   }
+}
+
+function parseIpv4Cidr(value) {
+  const [address, length] = value.split('/');
+  const prefix = Number(length);
+  return { network: ipv4ToNumber(address), mask: prefix === 0 ? 0 : (0xffffffff << (32 - prefix)) >>> 0 };
+}
+
+function ipv4ToNumber(address) {
+  const parts = address.split('.').map(Number);
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return null;
+  return parts.reduce((value, part) => ((value << 8) | part) >>> 0, 0);
+}
+
+function isCloudflareIpv4(address) {
+  const value = ipv4ToNumber(address);
+  return value !== null && CLOUDFLARE_IPV4_CIDRS.some(({ network, mask }) => (value & mask) === (network & mask));
 }

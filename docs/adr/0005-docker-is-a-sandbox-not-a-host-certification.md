@@ -1,6 +1,6 @@
 # ADR 0005: Docker sandbox does not certify host behaviour
 
-- Status: Accepted
+- Status: Superseded by [ADR 0021](0021-trusted-docker-compose-project-runtime.md)
 - Date: 2026-08-03
 
 ## Context
@@ -11,7 +11,7 @@ Users want to develop and test through Docker on their main machine first and po
 
 Docker Compose runs the Dashboard in `demo` mode on Ubuntu 24.04 and publishes port 80 for `demo.test` in the test environment. In this mode the installer can exercise allowlist, confirmation, audit, and state transitions, but must not change packages on the Docker host.
 
-Certifying the privileged helper, package installation, systemd, and reboot persistence requires a separate Ubuntu 24.04 VM.
+Certifying the privileged helper, package installation, systemd, and reboot persistence requires a separate Ubuntu 24.04 VM. This remains true after Docker Compose became an optional project runtime: a sandbox test of the Portal itself does not certify real-host behaviour.
 
 ## Consequences
 

@@ -13,7 +13,10 @@
 | Credential reference | The name of an environment secret the deployment service resolves, without storing the secret value in the Dashboard |
 | Credential vault | Encrypted storage for HTTPS tokens in persistent state; tokens are never returned through the API |
 | Deploy key | An SSH key pair that lets the host access one repository; the UI never accesses the private key |
+| Docker Compose runtime | Optional runtime for a trusted owner repository; the helper validates a bounded Compose policy before controlled host activation. It is not multi-tenant container isolation. |
 | Native mode | Running the application on the host under systemd, not in a Docker container |
+| Monitor Logs Token | Project-scoped bearer token that reads safe deployment status only; it cannot read runtime logs, secrets, or repository URLs. |
+| Notification hook | Encrypted HTTPS destination that receives a provider-aware deployment success/failure payload; delivery never changes deployment state. |
 | Owned file | A file Host Manager creates and is allowed to modify, within the ownership boundary |
 | Privileged helper | A separate service that performs allowlisted high-privilege operations after validating input |
 | Project user | A limited Unix user used to build/run one Project's application |

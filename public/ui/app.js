@@ -66,6 +66,23 @@ function toast(message, error = false) {
 
 function showError(error) { toast(error.message || String(error), true); }
 
+function resetForm(form) {
+  if (form instanceof HTMLFormElement) form.reset();
+}
+
+async function withBusy(button, work) {
+  if (!button) return work();
+  button.disabled = true;
+  button.classList.add('is-busy');
+  button.setAttribute('aria-busy', 'true');
+  try { return await work(); }
+  finally {
+    button.disabled = false;
+    button.classList.remove('is-busy');
+    button.removeAttribute('aria-busy');
+  }
+}
+
 async function api(path, options = {}) {
   const headers = { Accept: 'application/json', ...(options.headers || {}) };
   if (options.body !== undefined) headers['Content-Type'] = 'application/json';
@@ -206,6 +223,7 @@ function renderOverview() {
   $('#memory').textContent = `${formatBytes(host.memoryBytes)} total`;
   renderResourceCards(host);
   const counts = projectStatusCounts(state.projects);
+  $('#status-total-count').textContent = String(state.projects.length);
   $('#status-ready-count').textContent = String(counts.ready);
   $('#status-down-count').textContent = String(counts.down);
   $('#status-pause-count').textContent = String(counts.pause);
@@ -451,6 +469,9 @@ function projectRow(project) {
   domain.type = 'button';
   domain.addEventListener('click', () => openDomainDialog(project));
   actions.append(domain);
+  const hooks = element('a', 'secondary button', 'แจ้งเตือน');
+  hooks.href = `/settings?project=${encodeURIComponent(project.slug)}#notifications`;
+  actions.append(hooks);
   const logsPage = element('a', 'secondary button', 'Logs');
   logsPage.href = `/projects/${encodeURIComponent(project.slug)}/logs`;
   actions.append(logsPage);
@@ -488,7 +509,20 @@ function renderCredentials() {
     const row = element('article', 'credential-row');
     const copy = element('div');
     copy.append(element('h3', '', credential.name), element('p', 'muted', `HTTPS token · บันทึก ${new Date(credential.createdAt).toLocaleString('th-TH')}`));
-    row.append(copy, statusChip('เข้ารหัสแล้ว', 'ready'));
+    const actions = element('div', 'form-actions');
+    actions.append(statusChip('เข้ารหัสแล้ว', 'ready'));
+    const remove = element('button', 'secondary danger', 'ลบ');
+    remove.type = 'button';
+    remove.addEventListener('click', async () => {
+      if (!await confirmAction('ลบ credential', `ลบ ${credential.name} หรือไม่? โปรเจคที่ยังเลือกใช้จะลบไม่ได้`, 'ลบ')) return;
+      await withBusy(remove, async () => {
+        await api(`/api/credentials/${encodeURIComponent(credential.id)}`, { method: 'DELETE', body: {} });
+        toast('ลบ credential แล้ว');
+        await refresh();
+      });
+    });
+    actions.append(remove);
+    row.append(copy, actions);
     return row;
   }));
 }
@@ -583,10 +617,44 @@ function renderAudit() {
 function renderSettings() {
   renderSoftwareUpdate();
   renderMonitorTokens().catch(showError);
+  renderNotificationHooks().catch(showError);
   $('#settings-mode').textContent = state.mode === 'host' ? 'host' : 'sandbox';
   $('#mode-description').textContent = state.mode === 'host'
     ? 'โหมด host — คำสั่งติดตั้งและ deploy ทำงานบนเครื่องจริงผ่าน privileged helper'
     : 'โหมด sandbox — การติดตั้งถูกจำลองและไม่แก้ host จริง';
+}
+
+async function renderNotificationHooks() {
+  const root = $('#notification-hook-list');
+  const select = $('#notification-hook-project');
+  if (!root || !select) return;
+  const payload = await api('/api/notification-hooks');
+  select.replaceChildren(new Option('All projects', ''), ...state.projects.map((project) => new Option(`${project.name} · ${project.slug}`, project.slug)));
+  const selectedProject = new URLSearchParams(location.search).get('project');
+  if (selectedProject && [...select.options].some((option) => option.value === selectedProject)) select.value = selectedProject;
+  if (!payload.vaultReady) {
+    root.replaceChildren(element('div', 'empty-state', 'Credential vault ยังไม่พร้อม จึงยังบันทึก webhook ไม่ได้'));
+    return;
+  }
+  const hooks = payload.hooks || [];
+  root.replaceChildren(...(hooks.length ? hooks.map((hook) => {
+    const row = element('article', 'credential-row');
+    const copy = element('div');
+    const last = hook.lastDelivery ? ` · ล่าสุด ${hook.lastDelivery.status} ${new Date(hook.lastDelivery.at).toLocaleString('th-TH')}` : '';
+    copy.append(element('h3', '', hook.name), element('p', 'muted', `${hook.provider} · ${hook.projectSlug || 'All projects'} · ${hook.events.join(', ')}${last}`));
+    const remove = element('button', 'secondary danger', 'ลบ');
+    remove.type = 'button';
+    remove.addEventListener('click', async () => {
+      if (!await confirmAction('ลบ notification hook', `ลบ ${hook.name} หรือไม่?`, 'ลบ')) return;
+      await withBusy(remove, async () => {
+        await api(`/api/notification-hooks/${encodeURIComponent(hook.id)}`, { method: 'DELETE', body: {} });
+        toast('ลบ notification hook แล้ว');
+        await renderNotificationHooks();
+      });
+    });
+    row.append(copy, remove);
+    return row;
+  }) : [element('div', 'empty-state', 'ยังไม่มี notification hook')]));
 }
 
 async function renderMonitorTokens() {
@@ -600,7 +668,24 @@ async function renderMonitorTokens() {
     return option;
   }));
   const list = $('#monitor-token-list');
-  list.replaceChildren(...(payload.tokens?.length ? payload.tokens.map((token) => element('span', '', `${token.name} · ${token.projectSlug}${token.revokedAt ? ' · revoked' : ''}`)) : [element('span', '', 'No monitor tokens')]));
+  list.replaceChildren(...(payload.tokens?.length ? payload.tokens.map((token) => {
+    const row = element('div', 'token-row');
+    row.append(element('span', '', `${token.name} · ${token.projectSlug}${token.revokedAt ? ' · revoked' : ''}`));
+    if (!token.revokedAt) {
+      const remove = element('button', 'secondary danger', 'Revoke');
+      remove.type = 'button';
+      remove.addEventListener('click', async () => {
+        if (!await confirmAction('Revoke Monitor Logs Token', `ยกเลิก token ${token.name} หรือไม่? จะใช้งานต่อไม่ได้ทันที`, 'Revoke')) return;
+        await withBusy(remove, async () => {
+          await api(`/api/monitor-tokens/${encodeURIComponent(token.id)}`, { method: 'DELETE', body: {} });
+          toast('ยกเลิก Monitor Logs Token แล้ว');
+          await renderMonitorTokens();
+        });
+      });
+      row.append(remove);
+    }
+    return row;
+  }) : [element('span', '', 'No Monitor Logs Tokens')]));
 }
 
 function renderSoftwareUpdate() {
@@ -706,12 +791,19 @@ function openDeploymentLog(project, release) {
   $('#deployment-log-summary').textContent = `${release.status || 'unknown'} · ${release.createdAt ? new Date(release.createdAt).toLocaleString('th-TH') : ''}`;
   const list = $('#deployment-log-events');
   const events = release.events || [];
-  list.replaceChildren(...(events.length ? events.map((event) => {
-    const item = element('li');
-    item.textContent = `${event.at ? new Date(event.at).toLocaleString('th-TH') : ''} · ${event.phase || event.status || 'event'} · ${event.message || ''}`;
-    return item;
-  }) : [element('li', '', 'ยังไม่มีเหตุการณ์')]));
+  list.replaceChildren(...(events.length ? events.map(deploymentEventItem) : [element('li', 'deployment-event waiting', 'ยังไม่มีเหตุการณ์')]));
   $('#deployment-log-dialog').showModal();
+}
+
+function deploymentEventItem(event) {
+  const status = event.status || 'pending';
+  const item = element('li', `deployment-event ${status}`);
+  const dot = element('span', 'deployment-event-dot');
+  dot.setAttribute('aria-hidden', 'true');
+  const copy = element('div', 'deployment-event-copy');
+  copy.append(element('strong', '', event.phase || status || 'event'), element('span', '', event.message || 'Deployment event recorded.'), element('small', '', event.at ? new Date(event.at).toLocaleString('th-TH') : ''));
+  item.append(dot, copy);
+  return item;
 }
 
 function renderProjectReleaseLogs(project) {
@@ -785,7 +877,7 @@ function showDeploymentProgress(project, initialJob) {
     $('#deployment-log-summary').textContent = `${job.status} · ${job.releaseId || ''}`;
     const list = $('#deployment-log-events');
     const events = job.events || [];
-    list.replaceChildren(...(events.length ? events.map((event) => element('li', '', `${event.at ? new Date(event.at).toLocaleString('th-TH') : ''} · ${event.phase || event.status || 'event'} · ${event.message || ''}`)) : [element('li', '', 'กำลังรอคิว')]));
+    list.replaceChildren(...(events.length ? events.map(deploymentEventItem) : [element('li', 'deployment-event waiting', 'กำลังรอคิว')]));
   };
   const poll = async () => {
     try {
@@ -823,7 +915,7 @@ function watchDeploymentJob(jobId, slug) {
 
 function openDomainDialog(project) {
   state.activeProject = project;
-  state.domainDraft = { hosts: [...(project.domains?.hosts || [])], pending: null, check: null };
+  state.domainDraft = { hosts: [...(project.domains?.hosts || [])], pending: null, check: null, checks: {} };
   $('#domain-project-label').textContent = `${project.name} · ${project.slug}`;
   setDomainView('list');
   renderDomainList();
@@ -864,30 +956,68 @@ function renderDomainList() {
   const list = $('#domain-list');
   $('#domain-list-empty').hidden = hosts.length > 0;
   list.replaceChildren(...hosts.map((host) => {
-    const chip = element('span', 'domain-chip', host);
+    const result = state.domainDraft?.checks?.[host];
+    const row = element('article', 'domain-row');
+    const header = element('div', 'domain-row-head');
+    header.append(element('span', 'domain-hostname', host), domainStatusChip(result));
+    const actions = element('div', 'domain-row-actions');
+    const refresh = element('button', 'secondary', 'Refresh');
+    refresh.type = 'button';
+    refresh.disabled = result?.status === 'checking';
+    refresh.addEventListener('click', () => refreshDomainStatuses([host]));
     const remove = element('button', 'secondary', 'ลบ');
     remove.type = 'button';
     remove.addEventListener('click', () => removeDomainHost(host));
-    chip.append(remove);
-    return chip;
+    actions.append(refresh, remove);
+    header.append(actions);
+    row.append(header, element('p', 'domain-row-detail', domainStatusDetail(result)));
+    if (result?.resolved?.length || result?.expected?.length) {
+      row.append(element('p', 'domain-records', `DNS: ${result.resolved?.join(', ') || '—'} · Origin: ${result.expected?.join(', ') || 'not configured'}`));
+    }
+    return row;
   }));
 }
 
 function domainStatusLabel(status) {
-  if (status === 'ok') return 'DNS พร้อม';
+  if (status === 'ok') return 'Ready';
+  if (status === 'proxied') return 'Proxy detected';
   if (status === 'mismatch') return 'ชี้ผิดเครื่อง';
   if (status === 'unresolved') return 'ยังไม่ resolve';
+  if (status === 'checking') return 'Checking';
   return 'ตรวจไม่ได้';
 }
 
-async function refreshDomainStatuses() {
+function domainStatusChip(result) {
+  const status = result?.status || 'checking';
+  const variant = status === 'ok' ? 'ready' : status === 'checking' ? 'muted' : 'needs';
+  return statusChip(domainStatusLabel(status), variant);
+}
+
+function domainStatusDetail(result) {
+  if (!result || result.status === 'checking') return 'กำลังตรวจ DNS และสถานะ proxy…';
+  if (result.status === 'ok') return 'DNS ชี้เข้าเครื่องนี้แล้ว พร้อมออก certificate และเปิดใช้งานโดเมน';
+  if (result.status === 'proxied') return `${result.proxy?.provider || 'CDN'} Proxy กำลังรับ traffic อยู่ — ตั้ง DNS only และปิด forced HTTPS ชั่วคราวก่อนออก certificate แบบ HTTP-01 แล้วกด Refresh`;
+  if (result.status === 'mismatch') return 'DNS ยังไม่ชี้มาที่ origin ของ Dashboard Portal';
+  if (result.status === 'unresolved') return 'ไม่พบ DNS record ที่ใช้งานได้ รอ propagation แล้วกด Refresh';
+  return result.detail || 'ตรวจ DNS ไม่สำเร็จ ลอง Refresh อีกครั้ง';
+}
+
+async function refreshDomainStatuses(hosts = state.domainDraft?.hosts || []) {
   const project = state.activeProject;
-  if (!project || !state.domainDraft?.hosts?.length) return;
-  for (const host of state.domainDraft.hosts) {
+  if (!project || !hosts.length || !state.domainDraft) return;
+  const button = $('#domain-refresh');
+  if (button) button.disabled = true;
+  for (const host of hosts) state.domainDraft.checks[host] = { status: 'checking' };
+  renderDomainList();
+  for (const host of hosts) {
     try {
-      await api(`/api/projects/${encodeURIComponent(project.slug)}/domains/check`, { method: 'POST', body: { hostname: host } });
-    } catch { /* keep list usable even if one check fails */ }
+      state.domainDraft.checks[host] = await api(`/api/projects/${encodeURIComponent(project.slug)}/domains/check`, { method: 'POST', body: { hostname: host } });
+    } catch (error) {
+      state.domainDraft.checks[host] = { hostname: host, status: 'error', detail: error.message };
+    }
+    renderDomainList();
   }
+  if (button) button.disabled = false;
 }
 
 async function checkDomainInput() {
@@ -931,6 +1061,7 @@ async function confirmAddDomain(event) {
   if (domains.length > 10) throw new Error('เพิ่มได้ไม่เกิน 10 โดเมน');
   const result = await api(`/api/projects/${encodeURIComponent(project.slug)}/domains`, { method: 'POST', body: { domains } });
   state.domainDraft.hosts = result.project?.domains?.hosts || domains;
+  state.domainDraft.checks = {};
   toast(`เพิ่ม ${hostname} แล้ว`);
   setDomainView('list');
   renderDomainList();
@@ -940,12 +1071,10 @@ async function confirmAddDomain(event) {
 async function removeDomainHost(host) {
   const project = state.activeProject;
   const domains = (state.domainDraft.hosts || []).filter((item) => item !== host);
-  if (!domains.length) {
-    toast('ต้องเหลืออย่างน้อยหนึ่งโดเมน หรือลบผ่านการตั้งค่าใหม่ภายหลัง', true);
-    return;
-  }
+  if (!await confirmAction('ลบ domain', domains.length ? `ลบ ${host} ออกจาก ${project.name} หรือไม่?` : `ลบ ${host} ซึ่งเป็น domain สุดท้ายหรือไม่? Nginx ที่ Portal จัดการให้จะถูกถอดออก แต่ service จะยังทำงานภายในเครื่อง`, 'ลบ')) return;
   const result = await api(`/api/projects/${encodeURIComponent(project.slug)}/domains`, { method: 'POST', body: { domains } });
   state.domainDraft.hosts = result.project?.domains?.hosts || domains;
+  delete state.domainDraft.checks?.[host];
   renderDomainList();
   await refresh();
 }
@@ -973,6 +1102,9 @@ async function ensureEditDraft() {
     port: String(project.port || 3000),
     buildScript: project.buildScript ?? 'build',
     startScript: project.startScript || 'start',
+    runtime: project.runtime || 'node',
+    composeFile: project.composeFile || 'compose.yaml',
+    composeService: project.composeService || '',
     healthCheckEnabled: project.healthCheckEnabled !== false,
     healthCheckPath: project.healthCheckPath || '/',
     protocol: project.protocol || 'https',
@@ -1007,12 +1139,17 @@ async function hydrateRepositoryStep() {
   $('#project-port').value = draft.port || '3000';
   $('#build-script').value = draft.buildScript ?? 'build';
   $('#start-script').value = draft.startScript || 'start';
+  const runtime = document.querySelector(`input[name="runtime"][value="${draft.runtime || 'node'}"]`);
+  if (runtime) runtime.checked = true;
+  $('#compose-file').value = draft.composeFile || 'compose.yaml';
+  $('#compose-service').value = draft.composeService || '';
   $('#health-check-enabled').checked = draft.healthCheckEnabled !== false;
   $('#health-check-path').value = draft.healthCheckPath || '/';
   const protocol = document.querySelector(`input[name="protocol"][value="${draft.protocol || 'https'}"]`);
   if (protocol) protocol.checked = true;
   toggleCredentialReference();
   toggleHealthCheckFields();
+  toggleRuntimeFields();
 }
 
 async function hydrateReviewStep() {
@@ -1030,6 +1167,7 @@ async function hydrateReviewStep() {
     ['Repository', draft.repository || '—'],
     ['Directory', draft.directory || '/'],
     ['Branch', draft.branch || '—'],
+    ['Runtime', draft.runtime === 'docker-compose' ? `Docker Compose · ${draft.composeFile || 'compose.yaml'} · service ${draft.composeService || '—'}` : 'Node.js / systemd'],
     ['การเชื่อมต่อ', connectionLabel(draft)],
     ['Port ภายในเครื่อง', draft.port || '—'],
     ['Health check', draft.healthCheckEnabled === false ? 'Skipped' : (draft.healthCheckPath || '/')]
@@ -1057,6 +1195,20 @@ function toggleHealthCheckFields() {
   const enabled = $('#health-check-enabled').checked;
   $('#health-check-path').disabled = !enabled;
   $('#health-check-path-row').classList.toggle('is-disabled', !enabled);
+}
+
+function toggleRuntimeFields() {
+  const runtime = document.querySelector('input[name="runtime"]:checked')?.value || 'node';
+  const docker = runtime === 'docker-compose';
+  $('#docker-compose-fields').hidden = !docker;
+  $('#build-script-row').hidden = docker;
+  $('#start-script-row').hidden = docker;
+  $('#build-script').disabled = docker;
+  $('#start-script').disabled = docker;
+  $('#start-script').required = !docker;
+  $('#compose-file').disabled = !docker;
+  $('#compose-service').disabled = !docker;
+  $('#compose-service').required = docker;
 }
 
 function toggleCredentialReference() {
@@ -1093,6 +1245,9 @@ async function syncProjectDraft() {
     port: Number(draft.port || 3000),
     buildScript: draft.buildScript ?? 'build',
     startScript: draft.startScript || 'start',
+    runtime: draft.runtime || 'node',
+    composeFile: draft.composeFile || 'compose.yaml',
+    composeService: draft.composeService || '',
     healthCheckEnabled: draft.healthCheckEnabled !== false,
     healthCheckPath: draft.healthCheckPath || '/',
     protocol: draft.protocol || 'https',
@@ -1187,32 +1342,48 @@ function bindEvents() {
   });
   $('#credential-form')?.addEventListener('submit', async (event) => {
     event.preventDefault();
+    const form = event.currentTarget;
     try {
-      await api('/api/credentials', { method: 'POST', body: Object.fromEntries(new FormData(event.currentTarget)) });
-      event.currentTarget.reset();
+      await api('/api/credentials', { method: 'POST', body: Object.fromEntries(new FormData(form)) });
+      resetForm(form);
       toast('บันทึก credential แล้ว');
       await refresh();
     } catch (error) { showError(error); }
   });
   $('#password-change-form')?.addEventListener('submit', async (event) => {
     event.preventDefault();
+    const form = event.currentTarget;
     try {
-      const values = new FormData(event.currentTarget);
+      const values = new FormData(form);
       if (values.get('newPassword') !== values.get('confirmPassword')) throw new Error('ยืนยันรหัสผ่านใหม่ไม่ตรงกัน');
       const result = await api('/api/settings/password', { method: 'POST', body: { currentPassword: values.get('currentPassword'), newPassword: values.get('newPassword') } });
       state.csrfToken = result.csrfToken;
-      event.currentTarget.reset();
+      resetForm(form);
       toast('เปลี่ยนรหัสผ่านแล้ว และออกจาก session อื่นทั้งหมดแล้ว');
     } catch (error) { showError(error); }
   });
   $('#monitor-token-form')?.addEventListener('submit', async (event) => {
     event.preventDefault();
+    const form = event.currentTarget;
     try {
-      const result = await api('/api/monitor-tokens', { method: 'POST', body: Object.fromEntries(new FormData(event.currentTarget)) });
+      const result = await api('/api/monitor-tokens', { method: 'POST', body: Object.fromEntries(new FormData(form)) });
       $('#monitor-token-value').hidden = false;
       $('#monitor-token-value').textContent = `Copy this token now: ${result.token}`;
-      event.currentTarget.reset();
+      resetForm(form);
       await renderMonitorTokens();
+    } catch (error) { showError(error); }
+  });
+  $('#notification-hook-form')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    try {
+      const data = Object.fromEntries(new FormData(form));
+      data.events = $$('input[name="events"]:checked', form).map((input) => input.value);
+      await api('/api/notification-hooks', { method: 'POST', body: data });
+      resetForm(form);
+      $$('input[name="events"]', form).forEach((input) => { input.checked = true; });
+      toast('บันทึก notification hook แล้ว');
+      await renderNotificationHooks();
     } catch (error) { showError(error); }
   });
   $('#copy-update-command')?.addEventListener('click', async () => {
@@ -1240,12 +1411,14 @@ function bindEvents() {
     event.preventDefault();
     const data = Object.fromEntries(new FormData(event.currentTarget));
     data.protocol = document.querySelector('input[name="protocol"]:checked')?.value || 'https';
+    data.runtime = document.querySelector('input[name="runtime"]:checked')?.value || 'node';
     data.healthCheckEnabled = $('#health-check-enabled').checked;
     writeDraft(data);
     location.href = flowPath('review');
   });
   $('#fetch-branches')?.addEventListener('click', () => fetchBranches().catch(showError));
   $('#health-check-enabled')?.addEventListener('change', toggleHealthCheckFields);
+  $$('input[name="runtime"]').forEach((input) => input.addEventListener('change', toggleRuntimeFields));
   $$('input[name="protocol"]').forEach((input) => input.addEventListener('change', toggleCredentialReference));
 
   $('#project-review-form')?.addEventListener('submit', async (event) => {
@@ -1273,6 +1446,7 @@ function bindEvents() {
   });
   $('#domain-check')?.addEventListener('click', () => checkDomainInput().catch(showError));
   $('#domain-recheck')?.addEventListener('click', () => checkDomainInput().catch(showError));
+  $('#domain-refresh')?.addEventListener('click', () => refreshDomainStatuses().catch(showError));
   $('#domain-form')?.addEventListener('submit', (event) => confirmAddDomain(event).catch(showError));
 }
 

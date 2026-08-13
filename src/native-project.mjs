@@ -3,6 +3,7 @@ import { InputError, validateProject } from './core.mjs';
 
 export function validateNativeProject(input) {
   const project = validateProject(input);
+  if ((input.runtime ?? 'node') !== 'node') throw new InputError('This operation requires the Node runtime.');
   // Server-rendered applications can have no compilation phase. An explicit
   // empty/null value means "install dependencies, then start"; omitting it
   // preserves the historical `build` default.
@@ -16,6 +17,15 @@ export function validateNativeProject(input) {
   // service ports in the upper ephemeral range.
   const candidatePort = validateCandidatePort(input.candidatePort ?? (project.port <= 55_535 ? project.port + 10_000 : project.port - 1_000), project.port);
   return { ...project, buildScript, startScript, environment, healthCheckTimeoutMs, candidatePort };
+}
+
+export function validateDockerComposeProject(input) {
+  const project = validateProject(input);
+  if (input.runtime !== 'docker-compose') throw new InputError('This operation requires the Docker Compose runtime.');
+  if (typeof input.composeFile !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._/-]{0,239}\.ya?ml$/i.test(input.composeFile) || input.composeFile.includes('..')) throw new InputError('Docker Compose file is invalid.');
+  if (typeof input.composeService !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,79}$/.test(input.composeService)) throw new InputError('Docker Compose service is invalid.');
+  const environment = validateEnvironment(input.environment ?? {});
+  return { ...project, runtime: 'docker-compose', composeFile: input.composeFile, composeService: input.composeService, environment, healthCheckTimeoutMs: validateTimeout(input.healthCheckTimeoutMs ?? 30_000), candidatePort: project.port };
 }
 
 export function projectIdentity(slug) {
@@ -46,15 +56,16 @@ export function validatePackageScripts(packageJson, projectInput) {
 }
 
 export function createRelease(projectInput, revision = null) {
-  const project = validateNativeProject(projectInput);
+  const project = projectInput.runtime === 'docker-compose' ? validateDockerComposeProject(projectInput) : validateNativeProject(projectInput);
   const now = new Date().toISOString();
   return {
     id: randomUUID(),
     status: 'candidate',
     createdAt: now,
     revision,
-    buildScript: project.buildScript,
-    startScript: project.startScript,
+    runtime: project.runtime ?? 'node',
+    buildScript: project.buildScript ?? null,
+    startScript: project.startScript ?? null,
     health: {
       enabled: project.healthCheckEnabled,
       path: project.healthCheckEnabled ? project.healthCheckPath : null,

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { InputError, StateStore, validateDomain, validatePasswordChange, validateProject, validateProjectSync, validateTool } from '../src/core.mjs';
+import { InputError, StateStore, validateDomain, validateNotificationHook, validatePasswordChange, validateProject, validateProjectDomains, validateProjectSync, validateTool } from '../src/core.mjs';
 
 test('validators accept a safe project and DNS hostname', () => {
   assert.deepEqual(validateProject({ name: 'Demo', slug: 'demo-app', repository: 'https://github.com/example/demo.git', port: 3000, healthCheckPath: '/ready' }), { name: 'Demo', organization: 'Default', slug: 'demo-app', repository: 'https://github.com/example/demo.git', branch: 'main', directory: '/', port: 3000, healthCheckEnabled: true, healthCheckPath: '/ready' });
@@ -33,6 +33,18 @@ test('project sync accepts an explicit no-build configuration but rejects shell 
   assert.equal(validateProjectSync(project).buildScript, null);
   assert.equal(validateProjectSync(project).startScript, 'start');
   assert.throws(() => validateProjectSync({ ...project, buildScript: 'build && id' }), InputError);
+});
+
+test('Docker Compose sync and notification hooks retain constrained inputs', () => {
+  const project = validateProjectSync({ name: 'Docker app', slug: 'docker-app', repository: 'https://github.com/example/docker.git', port: 3100, protocol: 'https', runtime: 'docker-compose', composeFile: 'deploy/compose.yaml', composeService: 'web' });
+  assert.equal(project.runtime, 'docker-compose');
+  assert.equal(project.startScript, null);
+  assert.throws(() => validateProjectSync({ ...project, composeFile: '../compose.yaml' }), InputError);
+  assert.deepEqual(validateProjectDomains([], { allowEmpty: true }), []);
+  assert.throws(() => validateProjectDomains([]), InputError);
+  const hook = validateNotificationHook({ name: 'prod-discord', provider: 'discord', endpoint: 'https://discord.com/api/webhooks/example', projectSlug: 'docker-app', events: ['deployment.succeeded', 'deployment.failed'] });
+  assert.equal(hook.provider, 'discord');
+  assert.throws(() => validateNotificationHook({ ...hook, endpoint: 'http://localhost/hook' }), InputError);
 });
 
 test('SQLite state store writes transactionally and preserves a tool update', async () => {

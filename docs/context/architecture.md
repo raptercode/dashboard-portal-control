@@ -17,6 +17,10 @@ Browser / CLI
 Project source/build process
   -> dedicated project Unix user
   -> project working and release directories only
+
+Trusted Docker Compose project
+  -> privileged helper validates a bounded Compose configuration
+  -> Docker Engine (no privileged/host-network/host-PID/host-bind-mount settings)
 ```
 
 No layer accepts free-form shell commands from the Browser or API. Privileged work must be converted into typed, validated operations before reaching the helper.
@@ -32,10 +36,10 @@ No layer accepts free-form shell commands from the Browser or API. Privileged wo
 ## Delivery lifecycle
 
 1. Validate project configuration and repository reference
-2. Build the candidate as the project user in a new release
-3. Start the candidate without affecting the active release
+2. Build the Node candidate as the project user in a new release, or copy a Docker Compose candidate and validate its Compose policy
+3. Start the Node candidate without affecting the active release; Docker Compose builds and starts during controlled host activation
 4. Run a bounded health check
-5. On success, switch owned traffic/config
+5. On success, switch owned traffic/config; Docker Compose rollback restores the prior release if activation/health fails
 6. On failure, keep logs and the previous active release; rollback must be an auditable operation
 
 Port allocation, release layout, health-check contract, and Node.js major details remain follow-on design topics.
@@ -61,6 +65,19 @@ not a setuid script or browser-provided command. The helper can create only the
 project's service and managed Nginx file, run a bounded health check, and use
 Certbot after DNS preflight. It restores the prior project symlink and managed
 Nginx file if activation or TLS setup fails.
+
+Docker Compose is optional and is deliberately limited to repositories the
+single owner trusts. The helper rejects privileged containers, host networking,
+host PID/IPC namespaces, and host bind mounts; it requires the selected service
+to publish the configured project port. This is guardrail policy, not a
+multi-tenant sandbox: image builds and container processes are still owner
+supplied code. See [ADR 0021](../adr/0021-trusted-docker-compose-project-runtime.md).
+
+Notification hooks are stored with their endpoint encrypted in the same vault
+as repository credentials. A completed or failed deployment may post a
+provider-aware payload (Discord, Google Chat, Slack, or generic HTTPS webhook)
+without making deployment success depend on delivery. Public APIs return hook
+metadata and last delivery result, never the endpoint.
 
 Dashboard Portal software updates are separate from project deployments. The
 web UI only reads and verifies a signed release manifest; it has no endpoint to

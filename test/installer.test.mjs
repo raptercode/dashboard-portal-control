@@ -28,11 +28,29 @@ test('installer keeps the deployed application root traversable by the service u
   assert.match(script, /mv "\$STAGING_ROOT" "\$APP_ROOT"\r?\nchown -R root:root "\$APP_ROOT"\r?\n#.*\r?\n#.*\r?\nchmod 0755 "\$APP_ROOT"\r?\nchmod -R go-w "\$APP_ROOT"/);
 });
 
-test('privileged helper declares the writable host paths required for project activation', async () => {
+test('privileged helper keeps shadow-utils and traversable managed roots compatible with systemd', async () => {
   const script = await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8');
-  assert.match(script, /ProtectSystem=full[\s\S]*?ReadWritePaths=\/etc \/var\/lib\/letsencrypt \/var\/log\/letsencrypt \/var\/lib\/hostmgr \/srv\/hostmgr\/projects/);
-  assert.match(script, /install -d -m 0750 -o root -g root \/etc\/hostmgr \/etc\/hostmgr\/projects \/var\/lib\/hostmgr \/var\/lib\/hostmgr\/acme \/srv\/hostmgr \/srv\/hostmgr\/projects/);
-  assert.doesNotMatch(script, /ReadWritePaths=.*\/etc\/\.pwd\.lock/);
+  const helperUnit = script.match(/Description=Dashboard Portal privileged deployment helper[\s\S]*?\n\[Install\]/)?.[0] ?? '';
+  assert.match(script, /ProtectSystem=false/);
+  assert.doesNotMatch(helperUnit, /\nProtectSystem=full\r?\n/);
+  assert.doesNotMatch(helperUnit, /\nReadWritePaths=/);
+  assert.match(script, /install -d -m 0711 -o root -g root \/var\/lib\/hostmgr \/srv\/hostmgr \/srv\/hostmgr\/projects/);
+  assert.match(script, /install -d -m 0755 -o root -g root \/var\/lib\/hostmgr\/acme/);
+});
+
+test('helper reports a safe and actionable TLS validation failure', async () => {
+  const helper = await readFile(new URL('../scripts/hostmgr-deploy-helper.mjs', import.meta.url), 'utf8');
+  assert.match(helper, /TLS certificate request failed\. Confirm the domain resolves to this host, port 80 is reachable, and any CDN proxy or HTTPS redirect is disabled during HTTP-01 validation\./);
+  assert.match(helper, /child\.stderr\.resume\(\)/);
+});
+
+test('helper keeps Docker Compose project activation bounded to guarded policy checks', async () => {
+  const helper = await readFile(new URL('../scripts/hostmgr-deploy-helper.mjs', import.meta.url), 'utf8');
+  assert.match(helper, /request\.operation === 'remove-project-domains'/);
+  assert.match(helper, /item\.privileged === true \|\| item\.network_mode === 'host' \|\| item\.pid === 'host' \|\| item\.ipc === 'host'/);
+  assert.match(helper, /Docker Compose host bind mounts are not allowed/);
+  assert.match(helper, /Docker Compose service must publish the configured project port/);
+  assert.match(helper, /\['compose', '--project-name'/);
 });
 
 test('installer provisions the reset-password command and stores the initial password encoded', async () => {

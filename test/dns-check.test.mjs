@@ -68,6 +68,17 @@ test('checkDomainDns reports ok, mismatch, and unresolved', async () => {
   assert.deepEqual(unresolved, { hostname: 'missing.example.test', resolved: [], expected: ['203.0.113.9'], matched: false, status: 'unresolved' });
 });
 
+test('checkDomainDns identifies a Cloudflare-proxied record without treating it as an origin match', async () => {
+  const result = await checkDomainDns('app.example.test', {
+    expected: ['203.0.113.9'],
+    lookup: async () => [{ address: '104.21.51.31', family: 4 }, { address: '172.67.220.8', family: 4 }],
+  });
+  assert.equal(result.status, 'proxied');
+  assert.equal(result.matched, false);
+  assert.deepEqual(result.proxy, { detected: true, provider: 'Cloudflare' });
+  assert.match(result.detail, /DNS only/);
+});
+
 test('checkDomainDns rejects invalid hostnames', async () => {
   await assert.rejects(() => checkDomainDns('not a domain'), InputError);
 });

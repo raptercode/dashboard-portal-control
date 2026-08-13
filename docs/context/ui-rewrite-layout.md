@@ -36,4 +36,6 @@ navigation opens the same section. Unknown paths remain a 404.
 - Resource history samples every 5 minutes into SQLite (`metric_samples`), retains 30 days, UI ranges 1/3/7/15/30 via `GET /api/metrics?range=`
 - Runtime log viewer polls a project's systemd unit through the root-owned helper; see [ADR 0019](../adr/0019-runtime-project-logs-are-read-through-the-root-owned-helper.md)
 - APIs, CSRF, sessions, and helper trust boundaries are unchanged
-- Docker project deploy, webhooks, and i18n remain out of scope
+- Project creation can choose Node.js/systemd or trusted Docker Compose. The latter asks for a repository-relative Compose file and service; Docker-specific host validation is described in ADR 0021.
+- Settings owns Monitor Logs Tokens and deployment notification hooks (Discord, Google Chat, Slack, or generic HTTPS); project cards link to the selected project's notification form.
+- Inbound Git auto-deploy and i18n remain out of scope

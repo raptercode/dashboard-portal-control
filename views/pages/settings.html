@@ -37,15 +37,30 @@
     </article>
     <article class="setting-row">
       <div>
-        <h2>AI Monitor token</h2>
+        <h2>Monitor Logs Token</h2>
         <p>Read safe deployment status for one project only; runtime logs, secrets, and repository URLs are excluded.</p>
         <p id="monitor-token-value" class="field-hint" hidden></p>
         <div id="monitor-token-list" class="env-key-list"></div>
       </div>
       <form id="monitor-token-form" class="form-grid compact">
-        <label for="monitor-token-name">Token name<input id="monitor-token-name" name="name" maxlength="80" placeholder="ai-monitor" pattern="[a-z][a-z0-9-]{0,79}" required></label>
+        <label for="monitor-token-name">Token name<input id="monitor-token-name" name="name" maxlength="80" placeholder="monitor-logs" pattern="[a-z][a-z0-9-]{0,79}" required></label>
         <label for="monitor-token-project">Project<select id="monitor-token-project" name="projectSlug" required></select></label>
         <button type="submit">Create token</button>
+      </form>
+    </article>
+    <article id="notifications" class="setting-row">
+      <div>
+        <h2>Deployment notifications</h2>
+        <p>ส่งสถานะ deploy สำเร็จ/ล้มเหลวไปยัง Discord, Google Chat, Slack หรือ webhook ทั่วไป โดยเก็บ URL แบบเข้ารหัส</p>
+        <div id="notification-hook-list" class="credential-list"></div>
+      </div>
+      <form id="notification-hook-form" class="form-grid compact">
+        <label for="notification-hook-name">Hook name<input id="notification-hook-name" name="name" maxlength="80" placeholder="production-discord" required></label>
+        <label for="notification-provider">Destination<select id="notification-provider" name="provider"><option value="discord">Discord</option><option value="google-chat">Google Chat</option><option value="slack">Slack</option><option value="generic">Generic webhook</option></select></label>
+        <label for="notification-hook-project">Project<select id="notification-hook-project" name="projectSlug"><option value="">All projects</option></select></label>
+        <label for="notification-hook-endpoint">Webhook URL<input id="notification-hook-endpoint" name="endpoint" type="url" maxlength="2048" placeholder="https://…" autocomplete="off" required></label>
+        <fieldset class="fieldset compact-fieldset"><legend>Notify when</legend><label class="check-row"><input name="events" type="checkbox" value="deployment.succeeded" checked><span><b>Deploy success</b></span></label><label class="check-row"><input name="events" type="checkbox" value="deployment.failed" checked><span><b>Deploy failed</b></span></label></fieldset>
+        <button type="submit">Save notification hook</button>
       </form>
     </article>
   </section>

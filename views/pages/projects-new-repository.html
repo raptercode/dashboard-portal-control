@@ -27,9 +27,18 @@
         <label for="project-port">Port ภายในเครื่อง<input id="project-port" name="port" type="number" min="1024" max="65535" value="3000" required></label>
         <span aria-hidden="true"></span>
       </div>
+      <fieldset class="fieldset">
+        <legend>Runtime</legend>
+        <label class="check-row"><input name="runtime" value="node" type="radio" checked><span><b>Node.js</b><small>build และ run ด้วย npm script ใน systemd</small></span></label>
+        <label class="check-row"><input name="runtime" value="docker-compose" type="radio"><span><b>Docker Compose</b><small>สำหรับ repository ที่เชื่อถือได้เท่านั้น; ไม่อนุญาต privileged, host network/PID หรือ host bind mount</small></span></label>
+      </fieldset>
       <div class="two-fields">
-        <label for="build-script">Build script <small class="field-hint">เว้นว่างได้ถ้าไม่มีขั้น build</small><input id="build-script" name="buildScript" value="build" maxlength="64" pattern="[A-Za-z0-9:_-]*" placeholder="build"></label>
-        <label for="start-script">Start script<input id="start-script" name="startScript" value="start" maxlength="64" pattern="[A-Za-z0-9:_-]+" placeholder="start" required></label>
+        <label id="build-script-row" for="build-script">Build script <small class="field-hint">เว้นว่างได้ถ้าไม่มีขั้น build</small><input id="build-script" name="buildScript" value="build" maxlength="64" pattern="[A-Za-z0-9:_-]*" placeholder="build"></label>
+        <label id="start-script-row" for="start-script">Start script<input id="start-script" name="startScript" value="start" maxlength="64" pattern="[A-Za-z0-9:_-]+" placeholder="start" required></label>
+      </div>
+      <div id="docker-compose-fields" class="two-fields" hidden>
+        <label for="compose-file">Compose file<input id="compose-file" name="composeFile" value="compose.yaml" maxlength="240" placeholder="compose.yaml"></label>
+        <label for="compose-service">Web service<input id="compose-service" name="composeService" maxlength="80" placeholder="web"></label>
       </div>
       <fieldset class="fieldset">
         <legend>Health check</legend>
