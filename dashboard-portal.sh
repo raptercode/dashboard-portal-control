@@ -197,9 +197,6 @@ install -d -m 0750 -o root -g "$APP_USER" "$CONFIG_ROOT"
 install -d -m 0750 -o root -g root /etc/hostmgr /etc/hostmgr/projects /var/lib/hostmgr /var/lib/hostmgr/acme /srv/hostmgr /srv/hostmgr/projects
 install -d -m 0750 -o root -g root /srv/hostmgr/projects /etc/hostmgr/projects
 install -d -m 0755 -o root -g root /var/lib/hostmgr/acme
-# `useradd` locks this file while changing the account databases. It must exist
-# before systemd builds the helper's private mount namespace.
-install -m 0600 -o root -g root /dev/null /etc/.pwd.lock
 if [[ ! -f "$CONFIG_ROOT/dashboard-portal.env" ]]; then
   read -r -s -p 'Choose the Dashboard owner password (at least 12 characters): ' ADMIN_PASSWORD; echo
   [[ ${#ADMIN_PASSWORD} -ge 12 ]] || die 'Password must be at least 12 characters.'
@@ -296,11 +293,11 @@ LockPersonality=true
 RestrictSUIDSGID=true
 SystemCallArchitectures=native
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
-# The helper stays confined to the typed Unix-socket API.  Its root-only
-# deployment contract creates system users, units, managed Nginx files,
-# project environment files, and ACME material, so these writable locations
-# must be explicitly visible when ProtectSystem=full is in effect.
-ReadWritePaths=/etc/passwd /etc/shadow /etc/group /etc/gshadow /etc/subuid /etc/subgid /etc/.pwd.lock /etc/systemd/system /etc/dashboard-portal /etc/hostmgr /etc/nginx /etc/letsencrypt /var/lib/letsencrypt /var/log/letsencrypt /var/lib/hostmgr /srv/hostmgr/projects
+# Account-management tools atomically update and lock files under /etc. Giving
+# the typed, root-only helper /etc access avoids pinning the transient
+# /etc/.pwd.lock into its mount namespace; the rest of the deployment paths
+# remain explicit under ProtectSystem=full.
+ReadWritePaths=/etc /var/lib/letsencrypt /var/log/letsencrypt /var/lib/hostmgr /srv/hostmgr/projects
 
 [Install]
 WantedBy=multi-user.target
