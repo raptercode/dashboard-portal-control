@@ -35,6 +35,14 @@ test('project sync accepts an explicit no-build configuration but rejects shell 
   assert.throws(() => validateProjectSync({ ...project, buildScript: 'build && id' }), InputError);
 });
 
+test('project sync accepts Bun package scripts with the same constrained input contract', () => {
+  const project = validateProjectSync({ name: 'Bun app', slug: 'bun-app', repository: 'https://github.com/example/bun.git', port: 3001, protocol: 'https', runtime: 'bun', buildScript: '', startScript: 'start' });
+  assert.equal(project.runtime, 'bun');
+  assert.equal(project.buildScript, null);
+  assert.equal(project.startScript, 'start');
+  assert.throws(() => validateProjectSync({ ...project, startScript: 'start; id' }), InputError);
+});
+
 test('Docker Compose sync and notification hooks retain constrained inputs', () => {
   const project = validateProjectSync({ name: 'Docker app', slug: 'docker-app', repository: 'https://github.com/example/docker.git', port: 3100, protocol: 'https', runtime: 'docker-compose', composeFile: 'deploy/compose.yaml', composeService: 'web' });
   assert.equal(project.runtime, 'docker-compose');

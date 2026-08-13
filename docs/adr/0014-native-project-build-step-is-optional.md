@@ -5,14 +5,15 @@
 
 ## Context
 
-Native Node.js projects use `npm ci` when a valid lockfile is available, then
+Native Node.js projects use `npm ci` when a valid lockfile is available, while
+Bun projects use `bun install --frozen-lockfile`; then
 the dashboard previously required an npm script named `build`. Server-rendered
 Express applications often have no compilation step and expose only `start`;
 forcing a fictitious `build` script prevents an otherwise valid deployment.
 
 ## Decision
 
-`startScript` remains required and is always a constrained npm-script name. A
+`startScript` remains required and is always a constrained package-script name. A
 project may explicitly leave `buildScript` empty, which means the candidate
 installs dependencies, skips the build phase, then starts and health-checks the
 application. A valid `package-lock.json` uses `npm ci`; an absent or stale
@@ -27,8 +28,8 @@ does not include process output or environment values.
 
 ## Consequences
 
-- Express and similar runtime-only projects can deploy without a dummy build
-  script.
+- Express, Bun, and similar runtime-only projects can deploy without a dummy
+  build script.
 - Frontend projects can continue to use their explicit `build` script.
 - The dashboard preserves the npm-script-only security boundary and does not
   persist arbitrary build logs that could expose secrets.

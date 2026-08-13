@@ -443,7 +443,9 @@ function projectRow(project) {
     element('h3', '', project.name),
     (() => { const meta = element('p', 'project-meta'); meta.append(element('b', '', project.slug), document.createTextNode(` ${project.branch} · ${project.protocol.toUpperCase()} · port ${project.port}`)); return meta; })(),
     element('p', 'project-meta', project.repository + (project.environment?.keys?.length ? ` · .env ${project.environment.keys.length} keys` : '')),
-    element('p', 'project-meta', `directory: ${project.directory || '/'} · npm: ${project.buildScript === null ? 'no build step' : `build=${project.buildScript || 'build'}`} · start=${project.startScript || 'start'}`),
+    element('p', 'project-meta', project.runtime === 'docker-compose'
+      ? `directory: ${project.directory || '/'} · Docker Compose: ${project.composeFile || 'compose.yaml'} · service=${project.composeService || 'web'}`
+      : `directory: ${project.directory || '/'} · ${project.runtime === 'bun' ? 'Bun' : 'npm'}: ${project.buildScript === null ? 'no build step' : `build=${project.buildScript || 'build'}`} · start=${project.startScript || 'start'}`),
     element('p', 'project-meta', project.domains?.hosts?.length ? `domains: ${project.domains.hosts.join(', ')}` : 'domains: not configured')
   );
   const badges = element('div', 'project-badges');
@@ -1109,6 +1111,7 @@ async function ensureEditDraft() {
     branch: project.branch || 'main',
     port: String(project.port || 3000),
     buildScript: project.buildScript ?? 'build',
+    skipBuild: project.buildScript === null,
     startScript: project.startScript || 'start',
     runtime: project.runtime || 'node',
     composeFile: project.composeFile || 'compose.yaml',
@@ -1146,6 +1149,7 @@ async function hydrateRepositoryStep() {
   setBranchOptions([draft.branch || 'main'], draft.branch || 'main');
   $('#project-port').value = draft.port || '3000';
   $('#build-script').value = draft.buildScript ?? 'build';
+  $('#skip-build').checked = draft.skipBuild === true || draft.buildScript === null;
   $('#start-script').value = draft.startScript || 'start';
   const runtime = document.querySelector(`input[name="runtime"][value="${draft.runtime || 'node'}"]`);
   if (runtime) runtime.checked = true;
@@ -1175,7 +1179,8 @@ async function hydrateReviewStep() {
     ['Repository', draft.repository || '—'],
     ['Directory', draft.directory || '/'],
     ['Branch', draft.branch || '—'],
-    ['Runtime', draft.runtime === 'docker-compose' ? `Docker Compose · ${draft.composeFile || 'compose.yaml'} · service ${draft.composeService || '—'}` : 'Node.js / systemd'],
+    ['Runtime', draft.runtime === 'docker-compose' ? `Docker Compose · ${draft.composeFile || 'compose.yaml'} · service ${draft.composeService || '—'}` : (draft.runtime === 'bun' ? 'Bun / systemd' : 'Node.js / systemd')],
+    ['Build', draft.skipBuild === true || draft.buildScript === null ? 'Skipped' : (draft.buildScript || 'build')],
     ['การเชื่อมต่อ', connectionLabel(draft)],
     ['Port ภายในเครื่อง', draft.port || '—'],
     ['Health check', draft.healthCheckEnabled === false ? 'Skipped' : (draft.healthCheckPath || '/')]
@@ -1209,14 +1214,24 @@ function toggleRuntimeFields() {
   const runtime = document.querySelector('input[name="runtime"]:checked')?.value || 'node';
   const docker = runtime === 'docker-compose';
   $('#docker-compose-fields').hidden = !docker;
+  $('#skip-build-row').hidden = docker;
   $('#build-script-row').hidden = docker;
   $('#start-script-row').hidden = docker;
+  $('#skip-build').disabled = docker;
   $('#build-script').disabled = docker;
   $('#start-script').disabled = docker;
   $('#start-script').required = !docker;
   $('#compose-file').disabled = !docker;
   $('#compose-service').disabled = !docker;
   $('#compose-service').required = docker;
+  toggleBuildFields();
+}
+
+function toggleBuildFields() {
+  const skip = $('#skip-build').checked;
+  const docker = document.querySelector('input[name="runtime"]:checked')?.value === 'docker-compose';
+  $('#build-script-row').hidden = docker || skip;
+  $('#build-script').disabled = docker || skip;
 }
 
 function toggleCredentialReference() {
@@ -1251,7 +1266,7 @@ async function syncProjectDraft() {
     directory: draft.directory || '/',
     branch: draft.branch || 'main',
     port: Number(draft.port || 3000),
-    buildScript: draft.buildScript ?? 'build',
+    buildScript: draft.skipBuild === true || draft.buildScript === null ? '' : (draft.buildScript ?? 'build'),
     startScript: draft.startScript || 'start',
     runtime: draft.runtime || 'node',
     composeFile: draft.composeFile || 'compose.yaml',
@@ -1420,12 +1435,15 @@ function bindEvents() {
     const data = Object.fromEntries(new FormData(event.currentTarget));
     data.protocol = document.querySelector('input[name="protocol"]:checked')?.value || 'https';
     data.runtime = document.querySelector('input[name="runtime"]:checked')?.value || 'node';
+    data.skipBuild = $('#skip-build').checked;
+    if (data.skipBuild) data.buildScript = '';
     data.healthCheckEnabled = $('#health-check-enabled').checked;
     writeDraft(data);
     location.href = flowPath('review');
   });
   $('#fetch-branches')?.addEventListener('click', () => fetchBranches().catch(showError));
   $('#health-check-enabled')?.addEventListener('change', toggleHealthCheckFields);
+  $('#skip-build')?.addEventListener('change', toggleBuildFields);
   $$('input[name="runtime"]').forEach((input) => input.addEventListener('change', toggleRuntimeFields));
   $$('input[name="protocol"]').forEach((input) => input.addEventListener('change', toggleCredentialReference));
 

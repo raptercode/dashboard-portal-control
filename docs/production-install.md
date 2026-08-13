@@ -32,7 +32,7 @@ To install a specific past version instead of the latest, replace the `TAG=$(cur
 sudo ./dashboard-portal.sh --domain=dpt.domain.com --email=admin@example.com
 ```
 
-Both flags are mandatory. `--email` is required for the Let's Encrypt account and the HTTPS certificate. The installer verifies DNS resolution, installs pinned Node.js 24.18.0 after SHA-256 verification, starts Dashboard Portal on `127.0.0.1:3100`, obtains a certificate, forces HTTPS with HSTS, and verifies `/api/health` through HTTPS.
+Both flags are mandatory. `--email` is required for the Let's Encrypt account and the HTTPS certificate. The installer verifies DNS resolution, installs pinned Node.js 24.18.0 and Bun 1.3.13 after SHA-256 verification, starts Dashboard Portal on `127.0.0.1:3100`, obtains a certificate, forces HTTPS with HSTS, and verifies `/api/health` through HTTPS.
 
 It prompts for the owner password only on the initial install. Use at least 12 characters and do not put that password on a command line, in a shell history, or in a deployment log.
 

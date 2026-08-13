@@ -17,6 +17,7 @@ const NGINX_AVAILABLE = '/etc/nginx/sites-available';
 const NGINX_ENABLED = '/etc/nginx/sites-enabled';
 const CONFIG_PATH = '/etc/dashboard-portal/dashboard-portal.env';
 const NPM = '/usr/local/bin/npm';
+const BUN = '/usr/local/bin/bun';
 const DOCKER = '/usr/bin/docker';
 
 const args = parseArgs(process.argv.slice(2));
@@ -193,8 +194,8 @@ function validateProject(project) {
   validateSlug(project.slug);
   if (!Number.isInteger(project.port) || project.port < 1024 || project.port > 65535) throw new HelperError('Project port is invalid.');
   project.runtime ??= 'node';
-  if (!['node', 'docker-compose'].includes(project.runtime)) throw new HelperError('Project runtime is invalid.');
-  if (project.runtime === 'node' && (typeof project.startScript !== 'string' || !/^[a-zA-Z0-9:_-]{1,64}$/.test(project.startScript))) throw new HelperError('Project start script is invalid.');
+  if (!['node', 'bun', 'docker-compose'].includes(project.runtime)) throw new HelperError('Project runtime is invalid.');
+  if (['node', 'bun'].includes(project.runtime) && (typeof project.startScript !== 'string' || !/^[a-zA-Z0-9:_-]{1,64}$/.test(project.startScript))) throw new HelperError('Project start script is invalid.');
   if (project.runtime === 'docker-compose') {
     if (typeof project.composeFile !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._/-]{0,239}\.ya?ml$/i.test(project.composeFile) || project.composeFile.includes('..')) throw new HelperError('Docker Compose file is invalid.');
     if (typeof project.composeService !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,79}$/.test(project.composeService)) throw new HelperError('Docker Compose service is invalid.');
@@ -475,7 +476,7 @@ async function clearPasswordLock() {
 }
 
 function renderProjectUnit(project, identity) {
-  return `[Unit]\nDescription=Dashboard Portal project ${project.slug}\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nUser=${identity.user}\nGroup=${identity.user}\nWorkingDirectory=${identity.current}\nEnvironmentFile=${identity.environmentFile}\nEnvironment=PORT=${project.port}\nExecStart=${NPM} run ${project.startScript}\nRestart=on-failure\nRestartSec=5\nNoNewPrivileges=true\nPrivateTmp=true\nProtectHome=true\nProtectSystem=strict\nReadWritePaths=${identity.root}\n\n[Install]\nWantedBy=multi-user.target\n`;
+  return `[Unit]\nDescription=Dashboard Portal project ${project.slug}\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nUser=${identity.user}\nGroup=${identity.user}\nWorkingDirectory=${identity.current}\nEnvironmentFile=${identity.environmentFile}\nEnvironment=PORT=${project.port}\nExecStart=${project.runtime === 'bun' ? BUN : NPM} run ${project.startScript}\nRestart=on-failure\nRestartSec=5\nNoNewPrivileges=true\nPrivateTmp=true\nProtectHome=true\nProtectSystem=strict\nReadWritePaths=${identity.root}\n\n[Install]\nWantedBy=multi-user.target\n`;
 }
 
 function validateSlug(slug) {

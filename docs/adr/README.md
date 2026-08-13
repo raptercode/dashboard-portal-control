@@ -7,4 +7,4 @@ Documents in this folder record architecture decisions that affect code, operati
 - An `Accepted` ADR is current policy; if it changes, create a new ADR and reference the previous one
 - Do not rewrite decision history to match current thinking; record the impact and reasons for the change instead
 
-Current operational decisions include [ADR 0020](0020-host-helper-keeps-shadow-utils-and-acme-visible.md) for the Hostinger helper compatibility fix and [ADR 0021](0021-trusted-docker-compose-project-runtime.md) for trusted Docker Compose projects.
+Current operational decisions include [ADR 0020](0020-host-helper-keeps-shadow-utils-and-acme-visible.md) for the Hostinger helper compatibility fix, [ADR 0021](0021-trusted-docker-compose-project-runtime.md) for trusted Docker Compose projects, and [ADR 0022](0022-bun-native-project-runtime.md) for Bun-native projects.

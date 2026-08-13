@@ -5,7 +5,8 @@
 | Active release | The release currently receiving traffic |
 | Audit event | A record of who/what invoked which operation, when, and with what result, with secrets redacted |
 | Candidate | A new release that is built and health-checked before becoming the active release |
-| Build step | An npm script run after `npm ci`; a Project may omit the build step but must still have a start script |
+| Build step | A constrained package script run after dependencies install; a Project may explicitly select Skip Build but must still have a start script |
+| Bun runtime | A native project runtime using checksum-verified Bun, `bun install`, and `bun run <script>` under the project systemd service |
 | Config drift | Owned config files no longer match the desired state or recorded hash |
 | Desired state | The Project/Domain state the system intends to create and store in the database |
 | Domain sync | Syncing Project, Domain, Nginx, and SSL relationships on the host only; not editing a DNS provider |

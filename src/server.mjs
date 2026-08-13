@@ -1060,7 +1060,7 @@ async function prepareNativeRelease(project, release, storedProject, vault, proj
   let packageJson;
   try { packageJson = JSON.parse(await readFile(packagePath, 'utf8')); } catch { throw new InputError('The synced repository has no valid package.json.'); }
   validatePackageScripts(packageJson, project);
-  const hasLockfile = await stat(join(source, 'package-lock.json')).then((item) => item.isFile()).catch(() => false);
+  const hasLockfile = await hasRuntimeLockfile(source, project.runtime);
   try {
     await reportPhase('source_copy', 'started', 'Copying the synced repository into an isolated candidate release.');
     await mkdir(join(projectRoot, project.slug, 'releases'), { recursive: true, mode: 0o750 });
@@ -1070,16 +1070,17 @@ async function prepareNativeRelease(project, release, storedProject, vault, proj
       if (!vault) throw new InputError('Credential vault is not configured.');
       await writeFile(join(destination, '.env'), vault.decrypt(storedProject.environment.encryptedContent), { mode: 0o600 });
     }
-    await runCandidateNpm(['--version'], {}, 'The host Node runtime is missing npm. Re-run the Dashboard Portal installer.');
+    await runCandidateRuntime(project.runtime, ['--version'], {}, `The host ${runtimeLabel(project.runtime)} runtime is missing. Re-run the Dashboard Portal installer.`);
     await installCandidateDependencies({
       hasLockfile,
-      runNpm: (args, options) => run(npmExecutable(), args, options),
+      runtime: project.runtime,
+      runNpm: (args, options) => run(runtimeExecutable(project.runtime), args, options),
       options: { cwd: destination, timeout: 300_000 },
       reportPhase
     });
     if (project.buildScript) {
-      await reportPhase('build', 'started', `Running npm script "${project.buildScript}".`);
-      await runCandidateNpm(['run', project.buildScript], { cwd: destination, timeout: 300_000 }, `Candidate build script "${project.buildScript}" failed.`);
+      await reportPhase('build', 'started', `Running ${runtimeLabel(project.runtime)} script "${project.buildScript}".`);
+      await runCandidateRuntime(project.runtime, ['run', project.buildScript], { cwd: destination, timeout: 300_000 }, `Candidate build script "${project.buildScript}" failed.`);
       await reportPhase('build', 'passed', `Build script "${project.buildScript}" passed.`);
     } else {
       await reportPhase('build', 'skipped', 'No build script is configured for this project.');
@@ -1138,7 +1139,7 @@ async function healthCheckCandidate(cwd, project, storedProject, vault, reportPh
   await reportPhase('candidate_health', 'started', `Starting the candidate and checking ${project.healthCheckPath}.`);
   const environment = { ...process.env, PORT: String(project.candidatePort), HOST: '127.0.0.1', HOSTMGR_CANDIDATE: 'true' };
   if (storedProject.environment?.encryptedContent) Object.assign(environment, parseEnvironment(vault?.decrypt(storedProject.environment.encryptedContent) ?? ''));
-  const candidate = spawn(npmExecutable(), ['run', project.startScript], { cwd, env: environment, shell: false, detached: process.platform !== 'win32', stdio: ['ignore', 'ignore', 'ignore'] });
+  const candidate = spawn(runtimeExecutable(project.runtime), ['run', project.startScript], { cwd, env: environment, shell: false, detached: process.platform !== 'win32', stdio: ['ignore', 'ignore', 'ignore'] });
   let exited = false;
   let startupError = false;
   candidate.once('error', () => { startupError = true; exited = true; });
@@ -1149,7 +1150,7 @@ async function healthCheckCandidate(cwd, project, storedProject, vault, reportPh
       if (await requestHealth(project.candidatePort, project.healthCheckPath)) return;
       await delay(250);
     }
-    if (startupError) throw new DeploymentFailure('The host Node runtime could not start npm. Re-run the Dashboard Portal installer.');
+    if (startupError) throw new DeploymentFailure(`The host ${runtimeLabel(project.runtime)} runtime could not start the project. Re-run the Dashboard Portal installer.`);
     if (exited) throw new DeploymentFailure(`Candidate start script "${project.startScript}" exited before the health check passed.`);
     throw new DeploymentFailure('Candidate health check did not pass before its timeout.');
   } finally {
@@ -1167,9 +1168,9 @@ function stopCandidate(candidate, signal) {
   } catch {}
 }
 
-async function runCandidateNpm(args, options, failure) {
+async function runCandidateRuntime(runtime, args, options, failure) {
   try {
-    return await run(npmExecutable(), args, options);
+    return await run(runtimeExecutable(runtime), args, options);
   } catch {
     throw new DeploymentFailure(failure);
   }
@@ -1177,45 +1178,60 @@ async function runCandidateNpm(args, options, failure) {
 
 /**
  * Install dependencies for an isolated candidate without modifying the synced
- * Git checkout. A healthy lockfile uses npm ci; an absent or stale lockfile
- * falls back to npm install only inside this candidate, so a future sync is
+ * Git checkout. A healthy lockfile uses the selected package manager's frozen
+ * install; an absent or stale lockfile falls back to an unlocked install only
+ * inside this candidate, so a future sync is
  * still wholly determined by the selected branch.
  */
-export async function installCandidateDependencies({ hasLockfile, runNpm, options, reportPhase = async () => {} }) {
+export async function installCandidateDependencies({ hasLockfile, runtime = 'node', runNpm, options, reportPhase = async () => {} }) {
+  const bun = runtime === 'bun';
+  const manager = bun ? 'Bun' : 'npm';
+  const frozenArgs = bun ? ['install', '--frozen-lockfile'] : ['ci'];
+  const installArgs = ['install'];
   if (!hasLockfile) {
-    await reportPhase('dependencies', 'started', 'No package-lock.json was found. Installing dependencies with npm install for this candidate.');
-    return installUnlockedCandidateDependencies(runNpm, options, reportPhase);
+    await reportPhase('dependencies', 'started', `No ${bun ? 'bun.lock' : 'package-lock.json'} was found. Installing dependencies with ${manager} for this candidate.`);
+    return installUnlockedCandidateDependencies(runNpm, options, reportPhase, manager, installArgs);
   }
 
-  await reportPhase('dependencies', 'started', 'Installing locked npm dependencies with npm ci.');
+  await reportPhase('dependencies', 'started', `Installing locked dependencies with ${manager}.`);
   try {
-    await runNpm(['ci'], options);
-    await reportPhase('dependencies', 'passed', 'Locked npm dependencies installed.');
+    await runNpm(frozenArgs, options);
+    await reportPhase('dependencies', 'passed', `Locked dependencies installed with ${manager}.`);
     return 'locked';
   } catch (error) {
-    if (!isNpmLockfileFailure(error)) throw new DeploymentFailure('Candidate dependency installation failed. Check package-lock.json and package dependencies.');
-    await reportPhase('dependencies', 'started', 'package-lock.json is incompatible with package.json. Retrying npm install for this candidate.');
-    return installUnlockedCandidateDependencies(runNpm, options, reportPhase);
+    if (!isLockfileFailure(error, runtime)) throw new DeploymentFailure(`Candidate dependency installation failed. Check ${bun ? 'bun.lock' : 'package-lock.json'} and package dependencies.`);
+    await reportPhase('dependencies', 'started', `The lockfile is incompatible with package.json. Retrying ${manager} install for this candidate.`);
+    return installUnlockedCandidateDependencies(runNpm, options, reportPhase, manager, installArgs);
   }
 }
 
-async function installUnlockedCandidateDependencies(runNpm, options, reportPhase) {
+async function installUnlockedCandidateDependencies(runNpm, options, reportPhase, manager = 'npm', installArgs = ['install']) {
   try {
-    await runNpm(['install'], options);
-    await reportPhase('dependencies', 'passed', 'Dependencies installed with npm install for this candidate; the synced Git checkout was not changed.');
+    await runNpm(installArgs, options);
+    await reportPhase('dependencies', 'passed', `Dependencies installed with ${manager} for this candidate; the synced Git checkout was not changed.`);
     return 'unlocked';
   } catch {
     throw new DeploymentFailure('Candidate dependency installation failed. Check package.json and package dependencies.');
   }
 }
 
-function isNpmLockfileFailure(error) {
+function isLockfileFailure(error, runtime) {
   const message = String(error?.message ?? '');
+  if (runtime === 'bun') return /frozen-lockfile|lockfile|package\.json.*bun\.lock|bun\.lock.*package\.json/i.test(message);
   return /npm(?: error)? code EUSAGE|package-lock\.json|package lock|missing: .* from lock file/i.test(message);
 }
 
-function npmExecutable() {
-  return process.env.HOSTMGR_NPM_PATH || '/usr/local/bin/npm';
+async function hasRuntimeLockfile(source, runtime) {
+  const names = runtime === 'bun' ? ['bun.lock', 'bun.lockb'] : ['package-lock.json'];
+  return (await Promise.all(names.map((name) => stat(join(source, name)).then((item) => item.isFile()).catch(() => false)))).some(Boolean);
+}
+
+function runtimeExecutable(runtime) {
+  return runtime === 'bun' ? (process.env.HOSTMGR_BUN_PATH || '/usr/local/bin/bun') : (process.env.HOSTMGR_NPM_PATH || '/usr/local/bin/npm');
+}
+
+function runtimeLabel(runtime) {
+  return runtime === 'bun' ? 'Bun' : 'Node.js/npm';
 }
 
 async function requestHealth(port, path) {

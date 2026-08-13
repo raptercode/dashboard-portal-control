@@ -220,9 +220,9 @@ export function validateProjectSync(input) {
   const credentialId = optionalText(input.credentialId, 64);
   if (protocol === 'https' && credentialId && !/^[a-f0-9-]{36}$/i.test(credentialId)) throw new InputError('Credential selection is invalid.');
   const runtime = input.runtime === undefined ? 'node' : input.runtime;
-  if (!['node', 'docker-compose'].includes(runtime)) throw new InputError('Project runtime is invalid.');
-  const buildScript = runtime === 'node' ? optionalNpmScript(input.buildScript, 'Build script') : null;
-  const startScript = runtime === 'node' ? optionalNpmScript(input.startScript, 'Start script') : null;
+  if (!['node', 'bun', 'docker-compose'].includes(runtime)) throw new InputError('Project runtime is invalid.');
+  const buildScript = ['node', 'bun'].includes(runtime) ? optionalPackageScript(input.buildScript, 'Build script') : null;
+  const startScript = ['node', 'bun'].includes(runtime) ? optionalPackageScript(input.startScript, 'Start script') : null;
   const composeFile = runtime === 'docker-compose' ? validateComposeFile(input.composeFile) : null;
   const composeService = runtime === 'docker-compose' ? requiredText(input.composeService, 'Docker Compose service', 80) : null;
   if (composeService && !/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,79}$/.test(composeService)) throw new InputError('Docker Compose service is invalid.');
@@ -354,10 +354,10 @@ function optionalText(value, max) {
   return text;
 }
 
-function optionalNpmScript(value, label) {
+function optionalPackageScript(value, label) {
   if (value === undefined) return undefined;
   if (value === null || value === '') return null;
-  if (typeof value !== 'string' || !/^[a-zA-Z0-9:_-]{1,64}$/.test(value)) throw new InputError(`${label} must be an npm script name, or be left empty.`);
+  if (typeof value !== 'string' || !/^[a-zA-Z0-9:_-]{1,64}$/.test(value)) throw new InputError(`${label} must be a package script name, or be left empty.`);
   return value;
 }
 

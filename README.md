@@ -61,10 +61,11 @@ so you can exercise the same pipeline production uses:
    browser.)
 3. Open the project's **Deploy** dialog. Add at least one `.env` line, or
    leave it blank — `NODE_ENV=production` is saved automatically — then
-   create a release. The sandbox uses `npm ci` for a valid lockfile and falls
-   back to `npm install` in an isolated candidate when the lockfile is absent
-   or stale; it then runs an optional build script and health-checks the
-   candidate.
+   create a release. Node projects use `npm ci` for a valid lockfile and Bun
+   projects use `bun install --frozen-lockfile`; either falls back to an
+   isolated unlocked install only when the lockfile is absent or stale. Choose
+   **Skip Build** for a runtime-only app, then the Portal starts and
+   health-checks the candidate.
 4. The sandbox has no privileged host helper, so a healthy candidate stops at
    "awaiting host activation" instead of actually taking over a systemd
    service and Nginx — that last step only happens on a real installed host
@@ -113,8 +114,8 @@ cd "dashboard-portal-${VERSION}"
 sudo ./dashboard-portal.sh --domain=portal.example.com --email=admin@example.com
 ```
 
-This installs Nginx/Certbot/Git, pins Node.js 24.18.0 after verifying its
-checksum, runs Dashboard Portal on `127.0.0.1:3100` behind host Nginx,
+This installs Nginx/Certbot/Git, pins Node.js 24.18.0 and Bun 1.3.13 after
+verifying their checksums, runs Dashboard Portal on `127.0.0.1:3100` behind host Nginx,
 requests a Let's Encrypt certificate, forces HTTPS with HSTS, and verifies
 `/api/health` over HTTPS. It prompts once for the owner password and fails
 closed — rather than reporting success — if DNS or the certificate isn't

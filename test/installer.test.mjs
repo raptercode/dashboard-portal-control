@@ -55,6 +55,13 @@ test('helper keeps Docker Compose project activation bounded to guarded policy c
   assert.match(helper, /ProtectHome=true intentionally makes \/root read-only/);
 });
 
+test('helper permits Bun projects and starts them through the fixed Bun executable', async () => {
+  const helper = await readFile(new URL('../scripts/hostmgr-deploy-helper.mjs', import.meta.url), 'utf8');
+  assert.match(helper, /const BUN = '\/usr\/local\/bin\/bun';/);
+  assert.match(helper, /\['node', 'bun', 'docker-compose'\]/);
+  assert.match(helper, /project\.runtime === 'bun' \? BUN : NPM/);
+});
+
 test('installer provisions the reset-password command and stores the initial password encoded', async () => {
   const script = await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8');
   assert.match(script, /PASSWORD_SCRIPT='\/usr\/local\/lib\/dashboard-portal\/password-config\.mjs'/);
@@ -74,4 +81,13 @@ test('installer configures the SQLite source of truth for a clean data cutover',
   const script = await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8');
   assert.match(script, /HOSTMGR_DATABASE_PATH=\$\{DATA_ROOT\}\/state\.sqlite/);
   assert.match(script, /set_config_value HOSTMGR_DATABASE_PATH "\$DATA_ROOT\/state\.sqlite"/);
+});
+
+test('installer provisions a checksum-verified Bun runtime for Bun projects', async () => {
+  const script = await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8');
+  assert.match(script, /BUN_VERSION='1\.3\.13'/);
+  assert.match(script, /BUN_SHA256='9d8a24292a7068090205daac0a5a223f5f69736f5287e37bf88d3b4031edc750'/);
+  assert.match(script, /bun-linux-x64-baseline\.zip/);
+  assert.match(script, /\/usr\/local\/bin\/bun/);
+  assert.match(script, /unzip git/);
 });

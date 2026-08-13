@@ -35,6 +35,8 @@ NGINX_ENABLED='/etc/nginx/sites-enabled/dashboard-portal'
 PORT='3100'
 NODE_VERSION='24.18.0'
 NODE_SHA256='55aa7153f9d88f28d765fcdad5ae6945b5c0f98a36881703817e4c450fa76742'
+BUN_VERSION='1.3.13'
+BUN_SHA256='9d8a24292a7068090205daac0a5a223f5f69736f5287e37bf88d3b4031edc750'
 
 TMP_DIR=''
 BACKUP_DIR=''
@@ -140,7 +142,7 @@ export DEBIAN_FRONTEND=noninteractive
 # prior deployment to leave `/tmp` inaccessible to package verification.
 chmod 1777 /tmp
 apt-get update
-apt-get install -y --no-install-recommends nginx certbot python3-certbot-nginx curl ca-certificates xz-utils git
+apt-get install -y --no-install-recommends nginx certbot python3-certbot-nginx curl ca-certificates xz-utils unzip git
 
 if ! id -u "$APP_USER" >/dev/null 2>&1; then
   useradd --system --create-home --home-dir "$DATA_ROOT" --shell /usr/sbin/nologin "$APP_USER"
@@ -162,6 +164,22 @@ for node_tool in node npm npx corepack; do
 done
 "/usr/local/bin/node" --version | grep -qx "v${NODE_VERSION}" || die 'Installed Node.js version did not match the pinned release.'
 "/usr/local/bin/npm" --version >/dev/null || die 'Installed Node.js npm runtime could not be executed.'
+
+# Bun is a project runtime, not a dependency of Dashboard Portal itself. Pin
+# and verify the baseline x64 binary so projects can safely select it after a
+# fresh install or an ordinary Portal update.
+if [[ ! -x "/opt/bun-v${BUN_VERSION}/bin/bun" ]]; then
+  bun_archive="bun-linux-x64-baseline.zip"
+  curl --fail --location --proto '=https' --tlsv1.2 --silent --show-error \
+    "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/${bun_archive}" -o "$TMP_DIR/$bun_archive"
+  printf '%s  %s\n' "$BUN_SHA256" "$TMP_DIR/$bun_archive" | sha256sum --check --status || die 'Bun archive checksum verification failed.'
+  unzip -q "$TMP_DIR/$bun_archive" -d "$TMP_DIR/bun"
+  [[ -x "$TMP_DIR/bun/bun-linux-x64-baseline/bun" ]] || die 'Bun archive did not contain the expected executable.'
+  install -d -m 0755 "/opt/bun-v${BUN_VERSION}/bin"
+  install -m 0755 "$TMP_DIR/bun/bun-linux-x64-baseline/bun" "/opt/bun-v${BUN_VERSION}/bin/bun"
+fi
+ln -sfn "/opt/bun-v${BUN_VERSION}/bin/bun" /usr/local/bin/bun
+"/usr/local/bin/bun" --version | grep -qx "${BUN_VERSION}" || die 'Installed Bun version did not match the pinned release.'
 
 # Validate a staged release before replacing the live application files.
 STAGING_ROOT="$TMP_DIR/app"

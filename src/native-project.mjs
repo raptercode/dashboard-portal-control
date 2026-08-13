@@ -3,20 +3,21 @@ import { InputError, validateProject } from './core.mjs';
 
 export function validateNativeProject(input) {
   const project = validateProject(input);
-  if ((input.runtime ?? 'node') !== 'node') throw new InputError('This operation requires the Node runtime.');
+  const runtime = input.runtime ?? 'node';
+  if (!['node', 'bun'].includes(runtime)) throw new InputError('This operation requires the Node.js or Bun runtime.');
   // Server-rendered applications can have no compilation phase. An explicit
   // empty/null value means "install dependencies, then start"; omitting it
   // preserves the historical `build` default.
   const buildScript = input.buildScript === '' || input.buildScript === null
     ? null
-    : validateNpmScript(input.buildScript ?? 'build', 'Build script');
-  const startScript = validateNpmScript(input.startScript ?? 'start', 'Start script');
+    : validatePackageScript(input.buildScript ?? 'build', 'Build script');
+  const startScript = validatePackageScript(input.startScript ?? 'start', 'Start script');
   const environment = validateEnvironment(input.environment ?? {});
   const healthCheckTimeoutMs = validateTimeout(input.healthCheckTimeoutMs ?? 30_000);
   // Keep the default deterministic while retaining compatibility with valid
   // service ports in the upper ephemeral range.
   const candidatePort = validateCandidatePort(input.candidatePort ?? (project.port <= 55_535 ? project.port + 10_000 : project.port - 1_000), project.port);
-  return { ...project, buildScript, startScript, environment, healthCheckTimeoutMs, candidatePort };
+  return { ...project, runtime, buildScript, startScript, environment, healthCheckTimeoutMs, candidatePort };
 }
 
 export function validateDockerComposeProject(input) {
@@ -36,7 +37,7 @@ export function projectIdentity(slug) {
 export function renderSystemdUnit(input) {
   const project = validateNativeProject(input);
   const identity = projectIdentity(project.slug);
-  return `[Unit]\nDescription=Host Manager project ${project.slug}\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nUser=${identity.user}\nGroup=${identity.user}\nWorkingDirectory=${identity.root}/current\nEnvironmentFile=${identity.environmentFile}\nEnvironment=PORT=${project.port}\nExecStart=/usr/local/bin/npm run ${project.startScript}\nRestart=on-failure\nRestartSec=5\nNoNewPrivileges=true\nPrivateTmp=true\nProtectHome=true\nProtectSystem=strict\nReadWritePaths=${identity.root}\n\n[Install]\nWantedBy=multi-user.target\n`;
+  return `[Unit]\nDescription=Host Manager project ${project.slug}\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nUser=${identity.user}\nGroup=${identity.user}\nWorkingDirectory=${identity.root}/current\nEnvironmentFile=${identity.environmentFile}\nEnvironment=PORT=${project.port}\nExecStart=${runtimeExecutable(project.runtime)} run ${project.startScript}\nRestart=on-failure\nRestartSec=5\nNoNewPrivileges=true\nPrivateTmp=true\nProtectHome=true\nProtectSystem=strict\nReadWritePaths=${identity.root}\n\n[Install]\nWantedBy=multi-user.target\n`;
 }
 
 /**
@@ -63,7 +64,7 @@ export function createRelease(projectInput, revision = null) {
     status: 'candidate',
     createdAt: now,
     revision,
-    runtime: project.runtime ?? 'node',
+    runtime: project.runtime,
     buildScript: project.buildScript ?? null,
     startScript: project.startScript ?? null,
     health: {
@@ -191,9 +192,13 @@ export function renderEnvironmentFile(environment) {
   return Object.entries(safe).sort(([a], [b]) => a.localeCompare(b)).map(([key, value]) => `${key}=${systemdEscape(value)}`).join('\n') + (Object.keys(safe).length ? '\n' : '');
 }
 
-function validateNpmScript(value, label) {
-  if (typeof value !== 'string' || !/^[a-zA-Z0-9:_-]{1,64}$/.test(value)) throw new InputError(`${label} must be an npm script name, not a shell command.`);
+function validatePackageScript(value, label) {
+  if (typeof value !== 'string' || !/^[a-zA-Z0-9:_-]{1,64}$/.test(value)) throw new InputError(`${label} must be a package script name, not a shell command.`);
   return value;
+}
+
+function runtimeExecutable(runtime) {
+  return runtime === 'bun' ? '/usr/local/bin/bun' : '/usr/local/bin/npm';
 }
 
 function validateTimeout(value) {

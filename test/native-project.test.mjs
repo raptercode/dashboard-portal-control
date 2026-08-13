@@ -60,6 +60,13 @@ test('native project can explicitly skip a build step without relaxing the start
   assert.match(renderSystemdUnit(runtimeOnly), /ExecStart=\/usr\/local\/bin\/npm run start/);
 });
 
+test('Bun native projects render Bun as the constrained systemd launcher', () => {
+  const bunProject = { ...project, runtime: 'bun', buildScript: null };
+  assert.equal(validateNativeProject(bunProject).runtime, 'bun');
+  assert.match(renderSystemdUnit(bunProject), /ExecStart=\/usr\/local\/bin\/bun run start/);
+  assert.equal(validatePackageScripts({ scripts: { start: 'bun server.ts' } }, bunProject).startScript, 'start');
+});
+
 test('release records safe deployment phases and supports an explicit health-check skip', () => {
   const release = createRelease({ ...project, healthCheckEnabled: false });
   assert.equal(release.health.enabled, false);

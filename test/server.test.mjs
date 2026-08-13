@@ -62,6 +62,21 @@ test('candidate dependency install uses npm install only when a lockfile is abse
   );
 });
 
+test('Bun candidate installs use a frozen lockfile and fall back only for a lock mismatch', async () => {
+  const calls = [];
+  const runner = async (args) => { calls.push(args); };
+  assert.equal(await installCandidateDependencies({ hasLockfile: true, runtime: 'bun', runNpm: runner, options: {} }), 'locked');
+  assert.deepEqual(calls, [['install', '--frozen-lockfile']]);
+
+  calls.length = 0;
+  const staleLockRunner = async (args) => {
+    calls.push(args);
+    if (args.includes('--frozen-lockfile')) throw new Error('error: lockfile had changes, but lockfile is frozen');
+  };
+  assert.equal(await installCandidateDependencies({ hasLockfile: true, runtime: 'bun', runNpm: staleLockRunner, options: {} }), 'unlocked');
+  assert.deepEqual(calls, [['install', '--frozen-lockfile'], ['install']]);
+});
+
 test('project-scoped monitor tokens expose safe deployment status without an owner session', async (t) => {
   const { app, base } = await start();
   t.after(() => app.close());

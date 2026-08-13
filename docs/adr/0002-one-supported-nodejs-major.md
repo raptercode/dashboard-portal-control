@@ -1,6 +1,6 @@
 # ADR 0002: Native mode supports one Node.js major version
 
-- Status: Accepted
+- Status: Superseded by [ADR 0022](0022-bun-native-project-runtime.md)
 - Date: 2026-08-03
 
 ## Context

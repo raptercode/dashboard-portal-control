@@ -30,8 +30,10 @@
       <fieldset class="fieldset">
         <legend>Runtime</legend>
         <label class="check-row"><input name="runtime" value="node" type="radio" checked><span><b>Node.js</b><small>build และ run ด้วย npm script ใน systemd</small></span></label>
+        <label class="check-row"><input name="runtime" value="bun" type="radio"><span><b>Bun</b><small>ติดตั้ง dependencies และ run package script ด้วย Bun ใน systemd</small></span></label>
         <label class="check-row"><input name="runtime" value="docker-compose" type="radio"><span><b>Docker Compose</b><small>สำหรับ repository ที่เชื่อถือได้เท่านั้น; ไม่อนุญาต privileged, host network/PID หรือ host bind mount</small></span></label>
       </fieldset>
+      <label id="skip-build-row" class="check-row"><input id="skip-build" name="skipBuild" type="checkbox"><span><b>Skip Build</b><small>ใช้เมื่อโปรเจคพร้อม run ได้ทันที เช่น Bun start</small></span></label>
       <div class="two-fields">
         <label id="build-script-row" for="build-script">Build script <small class="field-hint">เว้นว่างได้ถ้าไม่มีขั้น build</small><input id="build-script" name="buildScript" value="build" maxlength="64" pattern="[A-Za-z0-9:_-]*" placeholder="build"></label>
         <label id="start-script-row" for="start-script">Start script<input id="start-script" name="startScript" value="start" maxlength="64" pattern="[A-Za-z0-9:_-]+" placeholder="start" required></label>
