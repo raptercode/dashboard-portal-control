@@ -21,6 +21,11 @@ const args = parseArgs(process.argv.slice(2));
 const socketPath = args.socket;
 if (!socketPath) throw new Error('The helper socket path is required.');
 
+// The installer creates dashboardportal with shadow-utils immediately before
+// restarting this helper. Under the systemd writable-path sandbox that leaves
+// a stale zero-byte lock behind, so remove it before accepting any account
+// management request. No helper request is being processed at startup.
+await rm('/etc/.pwd.lock', { force: true });
 await mkdir(basename(socketPath) === socketPath ? '.' : socketPath.slice(0, socketPath.lastIndexOf('/')), { recursive: true, mode: 0o750 });
 await rm(socketPath, { force: true });
 const server = createServer({ allowHalfOpen: true }, (socket) => handleSocket(socket));
