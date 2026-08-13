@@ -98,3 +98,21 @@
     </div>
   </form>
 </dialog>
+
+<dialog id="project-delete-dialog" class="modal confirm-modal project-delete-modal" aria-labelledby="project-delete-title" aria-describedby="project-delete-message">
+  <form id="project-delete-form" method="dialog" class="confirm-form">
+    <div class="warning-mark danger-mark" aria-hidden="true"><svg class="icon" aria-hidden="true"><use href="#icon-alert"></use></svg></div>
+    <h2 id="project-delete-title">ลบโปรเจกต์</h2>
+    <p id="project-delete-message">การดำเนินการนี้จะลบการตั้งค่า release, domain และข้อมูลของโปรเจกต์ออกจาก Dashboard</p>
+    <label class="project-delete-confirmation" for="project-delete-confirmation">พิมพ์ชื่อโปรเจกต์เพื่อยืนยัน
+      <code id="project-delete-name"></code>
+      <input id="project-delete-confirmation" type="text" autocomplete="off" spellcheck="false" required>
+    </label>
+    <p class="muted">ต้องตรงกับชื่อโปรเจกต์ทุกตัวอักษร</p>
+    <div class="modal-footer">
+      <button class="secondary" value="cancel" type="submit">ยกเลิก</button>
+      <span class="modal-spacer"></span>
+      <button id="project-delete-accept" class="danger" value="confirm" type="submit" disabled>ลบโปรเจกต์</button>
+    </div>
+  </form>
+</dialog>

@@ -438,16 +438,29 @@ function projectRow(project) {
   const sync = project.sync || { status: 'unknown', detail: 'ยังไม่มีข้อมูลการ sync' };
   const deployment = project.deployment || { state: 'idle', activeReleaseId: null, previousReleaseId: null, releases: [] };
   const row = element('article', 'project-row');
-  const copy = element('div');
-  copy.append(
-    element('h3', '', project.name),
-    (() => { const meta = element('p', 'project-meta'); meta.append(element('b', '', project.slug), document.createTextNode(` ${project.branch} · ${project.protocol.toUpperCase()} · port ${project.port}`)); return meta; })(),
-    element('p', 'project-meta', project.repository + (project.environment?.keys?.length ? ` · .env ${project.environment.keys.length} keys` : '')),
-    element('p', 'project-meta', project.runtime === 'docker-compose'
-      ? `directory: ${project.directory || '/'} · Docker Compose: ${project.composeFile || 'compose.yaml'} · service=${project.composeService || 'web'}`
-      : `directory: ${project.directory || '/'} · ${project.runtime === 'bun' ? 'Bun' : 'npm'}: ${project.buildScript === null ? 'no build step' : `build=${project.buildScript || 'build'}`} · start=${project.startScript || 'start'}`),
-    element('p', 'project-meta', project.domains?.hosts?.length ? `domains: ${project.domains.hosts.join(', ')}` : 'domains: not configured')
-  );
+  const copy = element('div', 'project-copy');
+  const identity = element('p', 'project-identity');
+  identity.append(element('code', '', project.slug), document.createTextNode(` · ${project.branch}`));
+  const domains = project.domains?.hosts?.length
+    ? element('p', 'project-domain', project.domains.hosts.join(', '))
+    : element('p', 'project-domain muted', 'ยังไม่ได้ตั้งค่า domain');
+  const details = element('details', 'project-details');
+  const detailSummary = element('summary', '', 'รายละเอียดการตั้งค่า');
+  const detailList = element('dl', 'project-detail-list');
+  const runtime = project.runtime === 'docker-compose'
+    ? `Docker Compose · ${project.composeFile || 'compose.yaml'} · service=${project.composeService || 'web'}`
+    : `${project.runtime === 'bun' ? 'Bun' : 'Node.js'} · ${project.buildScript === null ? 'ไม่ build' : `build=${project.buildScript || 'build'}`} · start=${project.startScript || 'start'}`;
+  const values = [
+    ['Repository', project.repository],
+    ['Directory', project.directory || '/'],
+    ['Protocol', project.protocol.toUpperCase()],
+    ['Port', String(project.port)],
+    ['Runtime', runtime],
+    ['Environment', project.environment?.keys?.length ? `.env ${project.environment.keys.length} keys` : 'ไม่มีค่า .env']
+  ];
+  values.forEach(([label, value]) => detailList.append(element('dt', '', label), element('dd', '', value)));
+  details.append(detailSummary, detailList);
+  copy.append(element('h3', '', project.name), identity, domains, details);
   const badges = element('div', 'project-badges');
   const syncTone = sync.status === 'synced' ? 'ready' : (sync.status === 'failed' || sync.status === 'needs_ssh_key' ? 'needs' : 'muted');
   const syncLabel = sync.status === 'synced' ? 'source synced' : sync.status === 'needs_ssh_key' ? 'ต้องมี SSH key' : sync.status === 'failed' ? 'sync ล้มเหลว' : 'ยังไม่ sync';
@@ -455,41 +468,53 @@ function projectRow(project) {
   const releaseLabel = deployment.state === 'active' ? 'release พร้อมใช้งาน' : deployment.state === 'awaiting_activation' ? 'รอ activate บน host' : deployment.state === 'failed' ? 'deploy ล้มเหลว' : 'ยังไม่ deploy';
   badges.append(statusChip(releaseLabel, deployment.state === 'active' ? 'ready' : deployment.state === 'failed' ? 'needs' : 'muted'));
   const actions = element('div', 'project-actions');
+  const menu = element('details', 'project-actions-menu');
+  const menuSummary = element('summary', '', 'Actions');
+  menuSummary.setAttribute('aria-label', `จัดการ ${project.name}`);
+  const actionList = element('div', 'project-action-list');
+  const closeMenu = (callback) => (...args) => {
+    menu.open = false;
+    return callback(...args);
+  };
   const deploy = element('button', 'secondary', 'สร้าง release');
   deploy.type = 'button';
   deploy.disabled = sync.status !== 'synced';
-  deploy.addEventListener('click', () => openDeployDialog(project));
-  actions.append(deploy);
+  deploy.addEventListener('click', closeMenu(() => openDeployDialog(project)));
+  actionList.append(deploy);
   const latestRelease = deployment.releases?.[0];
   if (latestRelease) {
     const logs = element('button', 'secondary', 'ดู log');
     logs.type = 'button';
-    logs.addEventListener('click', () => openDeploymentLog(project, latestRelease));
-    actions.append(logs);
+    logs.addEventListener('click', closeMenu(() => openDeploymentLog(project, latestRelease)));
+    actionList.append(logs);
   }
   const domain = element('button', 'secondary', 'จัดการ domain');
   domain.type = 'button';
-  domain.addEventListener('click', () => openDomainDialog(project));
-  actions.append(domain);
+  domain.addEventListener('click', closeMenu(() => openDomainDialog(project)));
+  actionList.append(domain);
   const hooks = element('a', 'secondary button', 'แจ้งเตือน');
   hooks.href = `/settings?project=${encodeURIComponent(project.slug)}#notifications`;
-  actions.append(hooks);
+  actionList.append(hooks);
   const logsPage = element('a', 'secondary button', 'Logs');
   logsPage.href = `/projects/${encodeURIComponent(project.slug)}/logs`;
-  actions.append(logsPage);
+  actionList.append(logsPage);
   const edit = element('a', 'secondary button', 'แก้ไข');
   edit.href = `/projects/${encodeURIComponent(project.slug)}/edit`;
-  actions.append(edit);
-  const remove = element('button', 'secondary danger', 'ลบ');
-  remove.type = 'button';
-  remove.addEventListener('click', () => deleteProject(project, remove));
-  actions.append(remove);
+  actionList.append(edit);
   if (deployment.previousReleaseId) {
     const rollback = element('button', 'secondary', 'ย้อนกลับ');
     rollback.type = 'button';
-    rollback.addEventListener('click', () => rollbackProject(project, rollback));
-    actions.append(rollback);
+    rollback.addEventListener('click', closeMenu(() => rollbackProject(project, rollback)));
+    actionList.append(rollback);
   }
+  const divider = element('div', 'project-action-divider');
+  divider.setAttribute('role', 'separator');
+  const remove = element('button', 'project-action-danger', 'ลบโปรเจกต์');
+  remove.type = 'button';
+  remove.addEventListener('click', closeMenu(() => deleteProject(project, remove)));
+  actionList.append(divider, remove);
+  menu.append(menuSummary, actionList);
+  actions.append(menu);
   const side = element('div', 'project-side');
   side.append(badges, actions);
   row.append(copy, side);
@@ -735,7 +760,7 @@ function confirmAction(title, message, acceptLabel = 'ยืนยัน') {
 }
 
 async function deleteProject(project, button) {
-  if (!await confirmAction('ลบโปรเจค', `ลบ ${project.name} ออกจาก Dashboard หรือไม่?`, 'ลบ')) return;
+  if (!await confirmProjectDeletion(project)) return;
   button.disabled = true;
   try {
     await api(`/api/projects/${encodeURIComponent(project.slug)}`, { method: 'DELETE', body: {} });
@@ -743,6 +768,28 @@ async function deleteProject(project, button) {
     await refresh();
   } catch (error) { showError(error); }
   finally { button.disabled = false; }
+}
+
+function confirmProjectDeletion(project) {
+  const dialog = $('#project-delete-dialog');
+  const form = $('#project-delete-form');
+  const projectName = $('#project-delete-name');
+  const input = $('#project-delete-confirmation');
+  const accept = $('#project-delete-accept');
+  projectName.textContent = project.name;
+  input.value = '';
+  input.placeholder = project.name;
+  accept.disabled = true;
+  const updateAcceptance = () => { accept.disabled = input.value !== project.name; };
+  input.addEventListener('input', updateAcceptance);
+  dialog.showModal();
+  requestAnimationFrame(() => input.focus());
+  return new Promise((resolve) => {
+    dialog.addEventListener('close', () => {
+      input.removeEventListener('input', updateAcceptance);
+      resolve(dialog.returnValue === 'confirm' && input.value === project.name);
+    }, { once: true });
+  });
 }
 
 async function rollbackProject(project, button) {
