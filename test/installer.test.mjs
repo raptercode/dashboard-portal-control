@@ -51,6 +51,8 @@ test('helper keeps Docker Compose project activation bounded to guarded policy c
   assert.match(helper, /Docker Compose host bind mounts are not allowed/);
   assert.match(helper, /Docker Compose service must publish the configured project port/);
   assert.match(helper, /\['compose', '--project-name'/);
+  assert.match(helper, /DOCKER_CONFIG: DOCKER_CONFIG_ROOT/);
+  assert.match(helper, /ProtectHome=true intentionally makes \/root read-only/);
 });
 
 test('installer provisions the reset-password command and stores the initial password encoded', async () => {

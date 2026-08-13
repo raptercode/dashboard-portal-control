@@ -12,6 +12,7 @@ const STATE_DATABASE_PATH = '/var/lib/dashboard-portal/state.sqlite';
 const RUNTIME_ROOT = '/srv/hostmgr/projects';
 const ENVIRONMENT_ROOT = '/etc/hostmgr/projects';
 const ACME_ROOT = '/var/lib/hostmgr/acme';
+const DOCKER_CONFIG_ROOT = '/var/lib/hostmgr/docker-client';
 const NGINX_AVAILABLE = '/etc/nginx/sites-available';
 const NGINX_ENABLED = '/etc/nginx/sites-enabled';
 const CONFIG_PATH = '/etc/dashboard-portal/dashboard-portal.env';
@@ -336,8 +337,16 @@ function composePortPublishes(port, expected) {
   const published = Number(port?.published ?? port?.target);
   return published === expected;
 }
-function runDockerCompose(project, releaseRoot, args, options = {}) {
-  return run(DOCKER, ['compose', '--project-name', dockerProjectName(project.slug), '--file', join(releaseRoot, project.composeFile), ...args], options);
+async function runDockerCompose(project, releaseRoot, args, options = {}) {
+  // ProtectHome=true intentionally makes /root read-only for this helper.
+  // Docker Compose otherwise lazily creates /root/.docker before it contacts
+  // the daemon, so use a root-only managed client directory instead.
+  await mkdir(DOCKER_CONFIG_ROOT, { recursive: true, mode: 0o700 });
+  await chmod(DOCKER_CONFIG_ROOT, 0o700);
+  return run(DOCKER, ['compose', '--project-name', dockerProjectName(project.slug), '--file', join(releaseRoot, project.composeFile), ...args], {
+    ...options,
+    env: { ...process.env, DOCKER_CONFIG: DOCKER_CONFIG_ROOT }
+  });
 }
 
 async function applyDomains(project) {

@@ -22,6 +22,11 @@ starts the release during host activation, checks the configured HTTP endpoint,
 and restores the previous Compose release if activation, health, domain, or TLS
 fails. Runtime logs are read through the same helper.
 
+Because the helper keeps `ProtectHome=true`, Docker Compose uses the root-only
+managed client directory `/var/lib/hostmgr/docker-client` instead of trying to
+create `/root/.docker`. This preserves systemd hardening while allowing the
+Docker client to contact its daemon.
+
 Docker Compose deployment is only for trusted owner repositories. These checks
 are guardrails, not a security boundary against a malicious Dockerfile, image,
 or container process. The Portal's own `compose.yaml` remains a local sandbox;
