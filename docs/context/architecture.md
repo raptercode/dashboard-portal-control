@@ -49,7 +49,9 @@ Ubuntu 24.04 or 25.04 host acceptance tests are required for paths that depend o
 Production deployment uses `dashboard-portal.sh` to install the service directly on Ubuntu 24.04 or 25.04. The application binds only to loopback and host Nginx owns public HTTP/HTTPS. A direct install fails closed unless domain resolution, a Certbot certificate, HTTPS redirect/HSTS, and an HTTPS health check succeed. It never removes unrelated Nginx virtual hosts.
 
 The pinned Node runtime is exposed as `node`, `npm`, `npx`, and `corepack` in
-`/usr/local/bin`. Native candidates always run `npm ci`; they then run an
+`/usr/local/bin`. Native candidates run `npm ci` when a valid lockfile is
+available. If it is absent or incompatible, the isolated candidate falls back
+to `npm install` without modifying the synced Git checkout; it then runs an
 optional named build script and a required named start script. Failure metadata
 identifies the bounded deployment stage without storing process output or
 environment values.

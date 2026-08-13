@@ -913,7 +913,6 @@ async function prepareNativeRelease(project, release, storedProject, vault, proj
   try { packageJson = JSON.parse(await readFile(packagePath, 'utf8')); } catch { throw new InputError('The synced repository has no valid package.json.'); }
   validatePackageScripts(packageJson, project);
   const hasLockfile = await stat(join(source, 'package-lock.json')).then((item) => item.isFile()).catch(() => false);
-  if (!hasLockfile) throw new InputError('Native Node deployments require package-lock.json for reproducible npm ci builds.');
   try {
     await reportPhase('source_copy', 'started', 'Copying the synced repository into an isolated candidate release.');
     await mkdir(join(projectRoot, project.slug, 'releases'), { recursive: true, mode: 0o750 });
@@ -924,9 +923,12 @@ async function prepareNativeRelease(project, release, storedProject, vault, proj
       await writeFile(join(destination, '.env'), vault.decrypt(storedProject.environment.encryptedContent), { mode: 0o600 });
     }
     await runCandidateNpm(['--version'], {}, 'The host Node runtime is missing npm. Re-run the Dashboard Portal installer.');
-    await reportPhase('dependencies', 'started', 'Installing locked npm dependencies with npm ci.');
-    await runCandidateNpm(['ci'], { cwd: destination, timeout: 300_000 }, 'Candidate dependency installation failed. Check package-lock.json and package dependencies.');
-    await reportPhase('dependencies', 'passed', 'Locked npm dependencies installed.');
+    await installCandidateDependencies({
+      hasLockfile,
+      runNpm: (args, options) => run(npmExecutable(), args, options),
+      options: { cwd: destination, timeout: 300_000 },
+      reportPhase
+    });
     if (project.buildScript) {
       await reportPhase('build', 'started', `Running npm script "${project.buildScript}".`);
       await runCandidateNpm(['run', project.buildScript], { cwd: destination, timeout: 300_000 }, `Candidate build script "${project.buildScript}" failed.`);
@@ -993,6 +995,45 @@ async function runCandidateNpm(args, options, failure) {
   } catch {
     throw new DeploymentFailure(failure);
   }
+}
+
+/**
+ * Install dependencies for an isolated candidate without modifying the synced
+ * Git checkout. A healthy lockfile uses npm ci; an absent or stale lockfile
+ * falls back to npm install only inside this candidate, so a future sync is
+ * still wholly determined by the selected branch.
+ */
+export async function installCandidateDependencies({ hasLockfile, runNpm, options, reportPhase = async () => {} }) {
+  if (!hasLockfile) {
+    await reportPhase('dependencies', 'started', 'No package-lock.json was found. Installing dependencies with npm install for this candidate.');
+    return installUnlockedCandidateDependencies(runNpm, options, reportPhase);
+  }
+
+  await reportPhase('dependencies', 'started', 'Installing locked npm dependencies with npm ci.');
+  try {
+    await runNpm(['ci'], options);
+    await reportPhase('dependencies', 'passed', 'Locked npm dependencies installed.');
+    return 'locked';
+  } catch (error) {
+    if (!isNpmLockfileFailure(error)) throw new DeploymentFailure('Candidate dependency installation failed. Check package-lock.json and package dependencies.');
+    await reportPhase('dependencies', 'started', 'package-lock.json is incompatible with package.json. Retrying npm install for this candidate.');
+    return installUnlockedCandidateDependencies(runNpm, options, reportPhase);
+  }
+}
+
+async function installUnlockedCandidateDependencies(runNpm, options, reportPhase) {
+  try {
+    await runNpm(['install'], options);
+    await reportPhase('dependencies', 'passed', 'Dependencies installed with npm install for this candidate; the synced Git checkout was not changed.');
+    return 'unlocked';
+  } catch {
+    throw new DeploymentFailure('Candidate dependency installation failed. Check package.json and package dependencies.');
+  }
+}
+
+function isNpmLockfileFailure(error) {
+  const message = String(error?.message ?? '');
+  return /npm(?: error)? code EUSAGE|package-lock\.json|package lock|missing: .* from lock file/i.test(message);
 }
 
 function npmExecutable() {

@@ -52,15 +52,17 @@ so you can exercise the same pipeline production uses:
    nothing on your machine changes) and set the Git identity used for
    commits.
 2. **Projects** (`/projects`) — create a project against a public Node
-   repository that has both `package.json` and `package-lock.json`, pick a
-   branch, and sync. This clones the repository inside the container.
+   repository with `package.json`, pick a branch, and sync. This clones the
+   repository inside the container.
    (Optional: add a token under **Credentials** first if you want to try a
    private repository — tokens are encrypted and never sent back to the
    browser.)
 3. Open the project's **Deploy** dialog. Add at least one `.env` line, or
    leave it blank — `NODE_ENV=production` is saved automatically — then
-   create a release. The sandbox runs `npm ci`, an optional build script, and
-   health-checks the candidate.
+   create a release. The sandbox uses `npm ci` for a valid lockfile and falls
+   back to `npm install` in an isolated candidate when the lockfile is absent
+   or stale; it then runs an optional build script and health-checks the
+   candidate.
 4. The sandbox has no privileged host helper, so a healthy candidate stops at
    "awaiting host activation" instead of actually taking over a systemd
    service and Nginx — that last step only happens on a real installed host

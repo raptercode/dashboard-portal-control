@@ -10,6 +10,15 @@ filesystem paths derived from project input, environment values, and secrets.
 
 The active release is not changed unless every required phase succeeds.
 
+## Dependency installation
+
+When `package-lock.json` is present and compatible with `package.json`, a
+candidate uses `npm ci` for a clean, locked install. If the lockfile is absent
+or npm reports that it is incompatible, the Portal retries `npm install` only
+in that isolated candidate. It does not write, commit, or push a replacement
+lockfile to the synced Git checkout. The dependency phase records which path
+was used without retaining raw npm output.
+
 ## Health-check configuration
 
 Health checks are enabled by default for compatibility and safety. A project
