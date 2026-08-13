@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { copyCandidateSource, createApplication, installCandidateDependencies } from '../src/server.mjs';
+import { copyCandidateSource, createApplication, installCandidateDependencies, resolveProjectPort } from '../src/server.mjs';
 
 async function start(options = {}) {
   const dir = await mkdtemp(join(tmpdir(), 'hostmgr-server-'));
@@ -75,6 +75,20 @@ test('Bun candidate installs use a frozen lockfile and fall back only for a lock
   };
   assert.equal(await installCandidateDependencies({ hasLockfile: true, runtime: 'bun', runNpm: staleLockRunner, options: {} }), 'unlocked');
   assert.deepEqual(calls, [['install', '--frozen-lockfile'], ['install']]);
+});
+
+test('automatic project ports retry reserved and listening ports, including their candidate ports', async () => {
+  const attempts = [12_000, 13_000, 14_000];
+  const checked = [];
+  const port = await resolveProjectPort(
+    { slug: 'new-app', runtime: 'bun', port: null },
+    null,
+    [{ slug: 'existing-app', runtime: 'node', port: 12_000 }],
+    async (candidate) => { checked.push(candidate); return candidate !== 13_000; },
+    () => attempts.shift()
+  );
+  assert.equal(port, 14_000);
+  assert.deepEqual(checked, [13_000, 14_000, 24_000]);
 });
 
 test('project-scoped monitor tokens expose safe deployment status without an owner session', async (t) => {

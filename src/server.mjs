@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import { createServer as createTcpServer } from 'node:net';
 import { chmod, cp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -7,7 +8,7 @@ import os from 'node:os';
 import { spawn } from 'node:child_process';
 import { StateStore, TOOLS, SUPPORTED_NODE_MAJOR, SecretVault, appendAudit, validateDomain, validateEnvironmentContent, validateGitBranchRequest, validateGitIdentity, validateHttpsCredential, validateNotificationHook, validatePasswordChange, validateProjectDomains, validateProjectSync, validateTool, InputError } from './core.mjs';
 import { checkDomainDns } from './dns-check.mjs';
-import { activateRelease, appendReleaseEvent, beginDeployment, beginRollback, createRelease, failRelease, initialDeployment, markReleaseHealthy, markReleasePendingActivation, projectIdentity, validateDockerComposeProject, validateNativeProject, validatePackageScripts } from './native-project.mjs';
+import { activateRelease, appendReleaseEvent, beginDeployment, beginRollback, createRelease, defaultCandidatePort, failRelease, initialDeployment, markReleaseHealthy, markReleasePendingActivation, projectIdentity, validateDockerComposeProject, validateNativeProject, validatePackageScripts } from './native-project.mjs';
 import { callHostHelper } from './helper-client.mjs';
 import { softwareUpdateStatus, updateConfiguration } from '../scripts/software-update.mjs';
 import { passwordFromEnvironment } from '../scripts/password-config.mjs';
@@ -62,6 +63,8 @@ export async function createApplication(options = {}) {
   const softwareVersion = options.softwareVersion ?? await installedSoftwareVersion();
   const domainDnsCheck = options.domainDnsCheck ?? checkDomainDns;
   const branchFetcher = options.branchFetcher ?? listRemoteBranches;
+  const portAvailability = options.portAvailability ?? isTcpPortAvailable;
+  const portRandom = options.portRandom ?? randomProjectPort;
   const store = new StateStore(options.dataPath ?? process.env.HOSTMGR_DATABASE_PATH ?? process.env.HOSTMGR_DATA_PATH ?? join(here, '..', 'data', 'state.sqlite'));
   if (!['demo', 'host'].includes(mode)) throw new Error('HOSTMGR_MODE must be demo or host.');
   await store.load();
@@ -440,8 +443,10 @@ export async function createApplication(options = {}) {
   async function handleProjectSync(request, response) {
     if (!requireSession(request, response, true)) return;
     const body = await readJson(request);
-    const project = validateProjectSync(body);
+    let project = validateProjectSync(body);
     const state = store.snapshot();
+    const storedProject = state.projects.find((item) => item.slug === project.slug) ?? null;
+    project = { ...project, port: await resolveProjectPort(project, storedProject, state.projects, portAvailability, portRandom) };
     const gitTool = mode === 'host' ? (await toolProbe([state.tools.git]))[0] : state.tools.git;
     if (gitTool.status !== 'Installed') throw new InputError('Install Git before syncing a project.');
     if (project.runtime === 'docker-compose') {
@@ -1049,6 +1054,56 @@ function safeGitBranchFailure(error) {
 function normalizeBranches(branches) {
   if (!Array.isArray(branches)) throw new InputError('Git returned an invalid branch list.');
   return [...new Set(branches.filter((branch) => typeof branch === 'string' && /^[A-Za-z0-9._/-]{1,100}$/.test(branch) && !branch.startsWith('-')))].sort((left, right) => left.localeCompare(right));
+}
+
+const AUTO_PORT_MIN = 12_000;
+const AUTO_PORT_MAX = 45_000;
+const AUTO_PORT_ATTEMPTS = 128;
+
+export async function resolveProjectPort(project, existingProject, projects, portAvailability = isTcpPortAvailable, portRandom = randomProjectPort) {
+  const reserved = reservedProjectPorts(projects, project.slug);
+  const requiresCandidatePort = project.runtime !== 'docker-compose';
+  const available = async (port) => {
+    if (reserved.has(port)) return false;
+    if (!(await portAvailability(port))) return false;
+    const candidatePort = requiresCandidatePort ? defaultCandidatePort(port) : null;
+    return candidatePort === null || (!reserved.has(candidatePort) && await portAvailability(candidatePort));
+  };
+
+  if (project.port !== null) {
+    if (project.port === existingProject?.port) return project.port;
+    if (!(await available(project.port))) throw new InputError('The selected port is already in use. Leave it empty to assign an available port automatically.');
+    return project.port;
+  }
+
+  for (let attempt = 0; attempt < AUTO_PORT_ATTEMPTS; attempt += 1) {
+    const port = portRandom();
+    if (await available(port)) return port;
+  }
+  throw new InputError('Could not find an available project port. Try again after releasing a port on the host.');
+}
+
+function reservedProjectPorts(projects, currentSlug) {
+  const ports = new Set();
+  for (const item of projects) {
+    if (item?.slug === currentSlug || !Number.isInteger(item?.port)) continue;
+    ports.add(item.port);
+    if (item.runtime !== 'docker-compose') ports.add(defaultCandidatePort(item.port));
+  }
+  return ports;
+}
+
+function randomProjectPort() {
+  return AUTO_PORT_MIN + (randomBytes(4).readUInt32BE(0) % (AUTO_PORT_MAX - AUTO_PORT_MIN + 1));
+}
+
+async function isTcpPortAvailable(port) {
+  return new Promise((resolve) => {
+    const listener = createTcpServer();
+    listener.unref();
+    listener.once('error', () => resolve(false));
+    listener.listen({ host: '127.0.0.1', port, exclusive: true }, () => listener.close(() => resolve(true)));
+  });
 }
 
 async function prepareNativeRelease(project, release, storedProject, vault, projectRoot, reportPhase = async () => {}) {

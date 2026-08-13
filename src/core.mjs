@@ -190,7 +190,9 @@ export function validateProject(input) {
     repository: requiredText(input.repository, 'Repository URL', 500),
     branch: optionalText(input.branch, 100) || 'main',
     directory: validateRepositoryDirectory(input.directory),
-    port: Number(input.port),
+    // A project sync may omit the port and let the Portal reserve a unique
+    // host port. Deployment validation still requires the resolved integer.
+    port: input.port === undefined || input.port === null || input.port === '' ? null : Number(input.port),
     // Existing projects predate this option, so an omitted value must keep the
     // safe historical behavior of requiring a candidate and host health check.
     healthCheckEnabled: input.healthCheckEnabled === undefined ? true : input.healthCheckEnabled === true,
@@ -199,7 +201,7 @@ export function validateProject(input) {
   if (!/^[a-z][a-z0-9-]{0,62}$/.test(project.slug)) throw new InputError('Project slug must use lowercase letters, digits, and hyphens.');
   if (!isRepositoryUrl(project.repository)) throw new InputError('Repository URL must be HTTPS or SSH Git syntax.');
   if (!/^[A-Za-z0-9._/-]{1,100}$/.test(project.branch) || project.branch.startsWith('-')) throw new InputError('Branch name is invalid.');
-  if (!Number.isInteger(project.port) || project.port < 1024 || project.port > 65535) throw new InputError('Port must be between 1024 and 65535.');
+  if (project.port !== null && (!Number.isInteger(project.port) || project.port < 1024 || project.port > 65535)) throw new InputError('Port must be between 1024 and 65535.');
   if (!/^\/(?!\/)[^\s]*$/.test(project.healthCheckPath)) throw new InputError('Health-check path must start with one slash.');
   return project;
 }

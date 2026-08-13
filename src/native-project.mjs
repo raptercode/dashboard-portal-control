@@ -16,7 +16,7 @@ export function validateNativeProject(input) {
   const healthCheckTimeoutMs = validateTimeout(input.healthCheckTimeoutMs ?? 30_000);
   // Keep the default deterministic while retaining compatibility with valid
   // service ports in the upper ephemeral range.
-  const candidatePort = validateCandidatePort(input.candidatePort ?? (project.port <= 55_535 ? project.port + 10_000 : project.port - 1_000), project.port);
+  const candidatePort = validateCandidatePort(input.candidatePort ?? defaultCandidatePort(project.port), project.port);
   return { ...project, runtime, buildScript, startScript, environment, healthCheckTimeoutMs, candidatePort };
 }
 
@@ -32,6 +32,10 @@ export function validateDockerComposeProject(input) {
 export function projectIdentity(slug) {
   if (!/^[a-z][a-z0-9-]{0,62}$/.test(slug)) throw new InputError('Project slug is invalid.');
   return { user: `hostmgr-${slug}`, service: `hostmgr-project-${slug}.service`, root: `/srv/hostmgr/projects/${slug}`, releases: `/srv/hostmgr/projects/${slug}/releases`, shared: `/srv/hostmgr/projects/${slug}/shared`, environmentFile: `/etc/hostmgr/projects/${slug}.env` };
+}
+
+export function defaultCandidatePort(port) {
+  return port <= 55_535 ? port + 10_000 : port - 1_000;
 }
 
 export function renderSystemdUnit(input) {

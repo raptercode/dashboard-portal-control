@@ -209,6 +209,11 @@ async function prepareProjectRelease(project, releaseId) {
   const identity = projectIdentity(project.slug);
   await ensureProjectUser(identity);
   await mkdir(identity.releases, { recursive: true, mode: 0o750 });
+  // mkdir runs as the root-owned helper after ensureProjectUser has corrected
+  // the project root. Ensure a newly-created releases parent remains
+  // traversable by the project's systemd account as well.
+  await run('/usr/bin/chown', ['--no-dereference', `${identity.user}:${identity.user}`, identity.releases]);
+  await chmod(identity.releases, 0o750);
   await mkdir(ENVIRONMENT_ROOT, { recursive: true, mode: 0o750 });
   const source = join(PROJECT_ROOT, project.slug, 'releases', releaseId);
   await assertDirectory(source, 'Candidate release is unavailable.');

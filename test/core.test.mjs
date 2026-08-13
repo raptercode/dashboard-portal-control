@@ -12,6 +12,11 @@ test('validators accept a safe project and DNS hostname', () => {
   assert.equal(validateTool('nginx'), 'nginx');
 });
 
+test('project validation permits an omitted port for automatic assignment during sync', () => {
+  const project = validateProject({ name: 'Auto port', slug: 'auto-port', repository: 'https://github.com/example/auto-port.git' });
+  assert.equal(project.port, null);
+});
+
 test('validators reject dangerous free-form inputs', () => {
   assert.throws(() => validateTool('nginx; id'), InputError);
   assert.throws(() => validateProject({ name: 'Demo', slug: '../escape', repository: 'https://example.com/a.git', port: 3000 }), InputError);

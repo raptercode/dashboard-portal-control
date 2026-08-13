@@ -55,7 +55,8 @@ so you can exercise the same pipeline production uses:
    commits.
 2. **Projects** (`/projects`) — create a project against a public Node
    repository with `package.json`, pick a branch, and sync. This clones the
-   repository inside the container.
+   repository inside the container. The Portal automatically reserves an
+   available internal port for each new project.
    (Optional: add a token under **Credentials** first if you want to try a
    private repository — tokens are encrypted and never sent back to the
    browser.)

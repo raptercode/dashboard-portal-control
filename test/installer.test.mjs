@@ -62,6 +62,13 @@ test('helper permits Bun projects and starts them through the fixed Bun executab
   assert.match(helper, /project\.runtime === 'bun' \? BUN : NPM/);
 });
 
+test('helper gives each project service account access to its release parent', async () => {
+  const helper = await readFile(new URL('../scripts/hostmgr-deploy-helper.mjs', import.meta.url), 'utf8');
+  assert.match(helper, /await mkdir\(identity\.releases, \{ recursive: true, mode: 0o750 \}\);/);
+  assert.match(helper, /\['--no-dereference', `\$\{identity\.user\}:\$\{identity\.user\}`, identity\.releases\]/);
+  assert.match(helper, /await chmod\(identity\.releases, 0o750\);/);
+});
+
 test('installer provisions the reset-password command and stores the initial password encoded', async () => {
   const script = await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8');
   assert.match(script, /PASSWORD_SCRIPT='\/usr\/local\/lib\/dashboard-portal\/password-config\.mjs'/);

@@ -7,6 +7,7 @@
 | Candidate | A new release that is built and health-checked before becoming the active release |
 | Build step | A constrained package script run after dependencies install; a Project may explicitly select Skip Build but must still have a start script |
 | Bun runtime | A native project runtime using checksum-verified Bun, `bun install`, and `bun run <script>` under the project systemd service |
+| Project port | A Portal-assigned loopback port used by one managed project; it is checked against saved projects and active host listeners before saving |
 | Config drift | Owned config files no longer match the desired state or recorded hash |
 | Desired state | The Project/Domain state the system intends to create and store in the database |
 | Domain sync | Syncing Project, Domain, Nginx, and SSL relationships on the host only; not editing a DNS provider |

@@ -1109,7 +1109,8 @@ async function ensureEditDraft() {
     repository: project.repository || '',
     directory: project.directory || '/',
     branch: project.branch || 'main',
-    port: String(project.port || 3000),
+    port: project.port ? String(project.port) : '',
+    autoPort: false,
     buildScript: project.buildScript ?? 'build',
     skipBuild: project.buildScript === null,
     startScript: project.startScript || 'start',
@@ -1147,7 +1148,8 @@ async function hydrateRepositoryStep() {
   $('#repository').value = draft.repository || '';
   $('#project-directory').value = draft.directory || '/';
   setBranchOptions([draft.branch || 'main'], draft.branch || 'main');
-  $('#project-port').value = draft.port || '3000';
+  $('#project-port').value = draft.port || '';
+  $('#auto-project-port').checked = draft.autoPort === true || draft.autoPort === 'on' || (!draft.port && flowMode !== 'edit');
   $('#build-script').value = draft.buildScript ?? 'build';
   $('#skip-build').checked = draft.skipBuild === true || draft.buildScript === null;
   $('#start-script').value = draft.startScript || 'start';
@@ -1162,6 +1164,7 @@ async function hydrateRepositoryStep() {
   toggleCredentialReference();
   toggleHealthCheckFields();
   toggleRuntimeFields();
+  toggleProjectPort();
 }
 
 async function hydrateReviewStep() {
@@ -1182,7 +1185,7 @@ async function hydrateReviewStep() {
     ['Runtime', draft.runtime === 'docker-compose' ? `Docker Compose · ${draft.composeFile || 'compose.yaml'} · service ${draft.composeService || '—'}` : (draft.runtime === 'bun' ? 'Bun / systemd' : 'Node.js / systemd')],
     ['Build', draft.skipBuild === true || draft.buildScript === null ? 'Skipped' : (draft.buildScript || 'build')],
     ['การเชื่อมต่อ', connectionLabel(draft)],
-    ['Port ภายในเครื่อง', draft.port || '—'],
+    ['Port ภายในเครื่อง', draft.autoPort === true || draft.autoPort === 'on' || !draft.port ? 'สุ่มพอร์ตว่างตอนบันทึก' : draft.port],
     ['Health check', draft.healthCheckEnabled === false ? 'Skipped' : (draft.healthCheckPath || '/')]
   ];
   const list = $('#project-review');
@@ -1234,6 +1237,12 @@ function toggleBuildFields() {
   $('#build-script').disabled = docker || skip;
 }
 
+function toggleProjectPort() {
+  const automatic = $('#auto-project-port').checked;
+  $('#project-port').disabled = automatic;
+  $('#project-port-row').classList.toggle('is-disabled', automatic);
+}
+
 function toggleCredentialReference() {
   const selected = document.querySelector('input[name="protocol"]:checked')?.value || 'https';
   $('#https-credential').hidden = selected !== 'https';
@@ -1265,7 +1274,7 @@ async function syncProjectDraft() {
     repository: draft.repository,
     directory: draft.directory || '/',
     branch: draft.branch || 'main',
-    port: Number(draft.port || 3000),
+    port: draft.autoPort === true || draft.autoPort === 'on' || !draft.port ? null : Number(draft.port),
     buildScript: draft.skipBuild === true || draft.buildScript === null ? '' : (draft.buildScript ?? 'build'),
     startScript: draft.startScript || 'start',
     runtime: draft.runtime || 'node',
@@ -1435,6 +1444,8 @@ function bindEvents() {
     const data = Object.fromEntries(new FormData(event.currentTarget));
     data.protocol = document.querySelector('input[name="protocol"]:checked')?.value || 'https';
     data.runtime = document.querySelector('input[name="runtime"]:checked')?.value || 'node';
+    data.autoPort = $('#auto-project-port').checked;
+    if (data.autoPort) data.port = '';
     data.skipBuild = $('#skip-build').checked;
     if (data.skipBuild) data.buildScript = '';
     data.healthCheckEnabled = $('#health-check-enabled').checked;
@@ -1443,6 +1454,7 @@ function bindEvents() {
   });
   $('#fetch-branches')?.addEventListener('click', () => fetchBranches().catch(showError));
   $('#health-check-enabled')?.addEventListener('change', toggleHealthCheckFields);
+  $('#auto-project-port')?.addEventListener('change', toggleProjectPort);
   $('#skip-build')?.addEventListener('change', toggleBuildFields);
   $$('input[name="runtime"]').forEach((input) => input.addEventListener('change', toggleRuntimeFields));
   $$('input[name="protocol"]').forEach((input) => input.addEventListener('change', toggleCredentialReference));

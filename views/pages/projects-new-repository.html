@@ -24,9 +24,10 @@
         </label>
       </div>
       <div class="two-fields">
-        <label for="project-port">Port ภายในเครื่อง<input id="project-port" name="port" type="number" min="1024" max="65535" value="3000" required></label>
+        <label id="project-port-row" for="project-port">Port ภายในเครื่อง <small class="field-hint">ระบบจะกันพอร์ตนี้ให้กับโปรเจกต์</small><input id="project-port" name="port" type="number" min="1024" max="65535" readonly placeholder="จะสุ่มตอนบันทึก"></label>
         <span aria-hidden="true"></span>
       </div>
+      <label class="check-row"><input id="auto-project-port" name="autoPort" type="checkbox" checked><span><b>สุ่มพอร์ตว่างอัตโนมัติ</b><small>ตรวจพอร์ตของโปรเจกต์อื่นและ listener บน host; ถ้าชนจะสุ่มใหม่</small></span></label>
       <fieldset class="fieldset">
         <legend>Runtime</legend>
         <label class="check-row"><input name="runtime" value="node" type="radio" checked><span><b>Node.js</b><small>build และ run ด้วย npm script ใน systemd</small></span></label>
