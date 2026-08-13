@@ -29,6 +29,7 @@ export function createInitialState() {
     projects: [],
     audit: [],
     jobs: [],
+    monitorTokens: [],
     owner: null,
     databaseConnections: []
   };
@@ -144,6 +145,7 @@ export class StateStore {
       setMeta.run('created_at', state.createdAt ?? new Date().toISOString());
       setMeta.run('git', JSON.stringify(state.git ?? { identity: null }));
       setMeta.run('owner', JSON.stringify(state.owner ?? null));
+      setMeta.run('monitor_tokens', JSON.stringify(state.monitorTokens ?? []));
       database.exec('COMMIT');
     } catch (error) {
       database.exec('ROLLBACK');
@@ -165,6 +167,7 @@ export class StateStore {
       projects: readPayloads('SELECT payload FROM projects'),
       audit: readPayloads('SELECT payload FROM audit_events ORDER BY occurred_at DESC'),
       jobs: readPayloads('SELECT payload FROM jobs ORDER BY created_at ASC'),
+      monitorTokens: JSON.parse(meta('monitor_tokens', '[]')),
       owner: JSON.parse(meta('owner', 'null')),
       databaseConnections: readPayloads('SELECT payload FROM database_connections')
     };
@@ -355,6 +358,7 @@ function migrateState(state) {
   }
   state.audit ??= [];
   state.jobs ??= [];
+  state.monitorTokens ??= [];
   state.owner ??= null;
   state.databaseConnections ??= [];
   return state;

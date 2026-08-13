@@ -37,6 +37,7 @@ const pageTitles = {
   'project-logs': 'Logs'
 };
 const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
+const MONITOR_TOKEN_PREFIX = 'dpm_';
 const HOST_TOOL_COMMANDS = {
   nginx: [['/usr/sbin/nginx', ['-v']]],
   certbot: [['/usr/bin/certbot', ['--version']]],
@@ -143,6 +144,8 @@ export async function createApplication(options = {}) {
         return response.end();
       }
       if (request.method === 'GET' && url.pathname === '/api/health') return sendJson(response, 200, { status: 'ok', mode, node: process.version });
+      const monitorDeploymentMatch = url.pathname.match(/^\/api\/monitor\/v1\/projects\/([a-z][a-z0-9-]{0,62})\/deployments$/);
+      if (request.method === 'GET' && monitorDeploymentMatch) return await handleMonitorDeployment(request, response, monitorDeploymentMatch[1]);
       if (request.method === 'GET' && url.pathname === '/api/session') {
         const session = getSession(request);
         const owner = store.snapshot().owner;
@@ -213,6 +216,13 @@ export async function createApplication(options = {}) {
         if (!requireSession(request, response)) return;
         return sendJson(response, 200, { credentials: store.snapshot().credentials.map(publicCredential), vaultReady: Boolean(vault) });
       }
+      if (request.method === 'GET' && url.pathname === '/api/monitor-tokens') {
+        if (!requireSession(request, response)) return;
+        return sendJson(response, 200, { tokens: (store.snapshot().monitorTokens ?? []).map(publicMonitorToken) });
+      }
+      if (request.method === 'POST' && url.pathname === '/api/monitor-tokens') return await handleMonitorTokenCreate(request, response);
+      const monitorTokenMatch = url.pathname.match(/^\/api\/monitor-tokens\/([a-f0-9-]{36})$/i);
+      if (request.method === 'DELETE' && monitorTokenMatch) return await handleMonitorTokenDelete(request, response, monitorTokenMatch[1]);
       if (request.method === 'POST' && url.pathname === '/api/credentials') return await handleCredential(request, response);
       if (request.method === 'GET' && url.pathname === '/api/databases') {
         if (!requireSession(request, response)) return;
@@ -679,6 +689,52 @@ export async function createApplication(options = {}) {
       });
       return sendJson(response, 422, { ok: false, error: 'Rollback activation failed. The active release was left unchanged.', project: publicProject(store.snapshot().projects.find((item) => item.slug === slug)) });
     }
+  }
+
+  async function handleMonitorTokenCreate(request, response) {
+    if (!requireSession(request, response, true)) return;
+    const input = await readJson(request);
+    const name = typeof input.name === 'string' ? input.name.trim() : '';
+    const projectSlug = typeof input.projectSlug === 'string' ? input.projectSlug : '';
+    if (!/^[a-z][a-z0-9-]{0,79}$/.test(name)) throw new InputError('Monitor token name must use lowercase letters, digits, and hyphens.');
+    if (!findProject(store.snapshot(), projectSlug)) throw new InputError('Project was not found.');
+    const token = `${MONITOR_TOKEN_PREFIX}${randomBytes(32).toString('base64url')}`;
+    const created = { id: randomUUID(), name, projectSlug, tokenHash: monitorTokenHash(token), createdAt: new Date().toISOString(), lastUsedAt: null, revokedAt: null };
+    await store.update((state) => {
+      state.monitorTokens ??= [];
+      if (state.monitorTokens.some((item) => item.name === name)) throw new InputError('A monitor token with this name already exists.');
+      state.monitorTokens.push(created);
+      appendAudit(state, { action: 'monitor_token.create', outcome: 'success', actor: 'owner', target: projectSlug, detail: 'Project-scoped monitoring token created without storing its raw value' });
+    });
+    return sendJson(response, 201, { ok: true, token, monitorToken: publicMonitorToken(created) });
+  }
+
+  async function handleMonitorTokenDelete(request, response, id) {
+    if (!requireSession(request, response, true)) return;
+    let removed;
+    await store.update((state) => {
+      const token = (state.monitorTokens ?? []).find((item) => item.id === id && !item.revokedAt);
+      if (!token) throw new NotFoundError('Monitor token was not found.');
+      token.revokedAt = new Date().toISOString();
+      removed = token;
+      appendAudit(state, { action: 'monitor_token.revoke', outcome: 'success', actor: 'owner', target: token.projectSlug, detail: 'Project-scoped monitoring token revoked' });
+    });
+    return sendJson(response, 200, { ok: true, monitorToken: publicMonitorToken(removed) });
+  }
+
+  async function handleMonitorDeployment(request, response, slug) {
+    const authorization = request.headers.authorization ?? '';
+    const token = authorization.startsWith('Bearer ') ? authorization.slice('Bearer '.length) : '';
+    if (!token.startsWith(MONITOR_TOKEN_PREFIX) || token.length > 200) return sendJson(response, 401, { error: 'Valid monitor token required.' });
+    const state = store.snapshot();
+    const matching = (state.monitorTokens ?? []).find((item) => !item.revokedAt && item.projectSlug === slug && constantEqual(item.tokenHash, monitorTokenHash(token)));
+    if (!matching) return sendJson(response, 403, { error: 'Monitor token is not authorized for this project.' });
+    const project = findProject(state, slug);
+    await store.update((next) => {
+      const stored = (next.monitorTokens ?? []).find((item) => item.id === matching.id);
+      if (stored) stored.lastUsedAt = new Date().toISOString();
+    });
+    return sendJson(response, 200, { project: publicMonitorProject(project), jobs: state.jobs.filter((item) => item.projectSlug === slug).slice(-25).reverse().map(publicJob) });
   }
 
   async function handleCredential(request, response) {
@@ -1152,6 +1208,40 @@ function delay(milliseconds) {
 function publicCredential(credential) {
   const { encryptedToken, ...safe } = credential;
   return safe;
+}
+
+function monitorTokenHash(token) {
+  return createHash('sha256').update(token).digest('base64url');
+}
+
+function publicMonitorToken(token) {
+  const { tokenHash, ...safe } = token;
+  return safe;
+}
+
+function publicMonitorProject(project) {
+  const deployment = project.deployment ?? initialDeployment();
+  return {
+    slug: project.slug,
+    branch: project.branch,
+    sync: { status: project.sync?.status ?? 'unknown', at: project.sync?.at ?? null, detail: project.sync?.detail ?? null },
+    deployment: {
+      state: deployment.state,
+      activeReleaseId: deployment.activeReleaseId,
+      previousReleaseId: deployment.previousReleaseId,
+      updatedAt: deployment.updatedAt,
+      releases: (deployment.releases ?? []).slice(0, 25).map((release) => ({
+        id: release.id,
+        revision: release.revision,
+        status: release.status,
+        createdAt: release.createdAt,
+        activatedAt: release.activatedAt ?? null,
+        failure: release.failure ?? null,
+        health: release.health,
+        events: release.events ?? []
+      }))
+    }
+  };
 }
 
 function publicProject(project) {

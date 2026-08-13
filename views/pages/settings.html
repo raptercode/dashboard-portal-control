@@ -35,5 +35,18 @@
       </div>
       <span id="settings-mode" class="mode-badge">—</span>
     </article>
+    <article class="setting-row">
+      <div>
+        <h2>AI Monitor token</h2>
+        <p>Read safe deployment status for one project only; runtime logs, secrets, and repository URLs are excluded.</p>
+        <p id="monitor-token-value" class="field-hint" hidden></p>
+        <div id="monitor-token-list" class="env-key-list"></div>
+      </div>
+      <form id="monitor-token-form" class="form-grid compact">
+        <label for="monitor-token-name">Token name<input id="monitor-token-name" name="name" maxlength="80" placeholder="ai-monitor" pattern="[a-z][a-z0-9-]{0,79}" required></label>
+        <label for="monitor-token-project">Project<select id="monitor-token-project" name="projectSlug" required></select></label>
+        <button type="submit">Create token</button>
+      </form>
+    </article>
   </section>
 </section>

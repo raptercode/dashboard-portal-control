@@ -24,6 +24,7 @@ const state = {
   domainDraft: null,
   slugManual: false
 };
+let deploymentProgressTimer = null;
 
 const page = document.body.dataset.page || pageForPathname(location.pathname);
 const view = document.body.dataset.view || page;
@@ -581,10 +582,25 @@ function renderAudit() {
 
 function renderSettings() {
   renderSoftwareUpdate();
+  renderMonitorTokens().catch(showError);
   $('#settings-mode').textContent = state.mode === 'host' ? 'host' : 'sandbox';
   $('#mode-description').textContent = state.mode === 'host'
     ? 'โหมด host — คำสั่งติดตั้งและ deploy ทำงานบนเครื่องจริงผ่าน privileged helper'
     : 'โหมด sandbox — การติดตั้งถูกจำลองและไม่แก้ host จริง';
+}
+
+async function renderMonitorTokens() {
+  const payload = await api('/api/monitor-tokens');
+  const select = $('#monitor-token-project');
+  if (!select) return;
+  select.replaceChildren(...state.projects.map((project) => {
+    const option = document.createElement('option');
+    option.value = project.slug;
+    option.textContent = `${project.name} · ${project.slug}`;
+    return option;
+  }));
+  const list = $('#monitor-token-list');
+  list.replaceChildren(...(payload.tokens?.length ? payload.tokens.map((token) => element('span', '', `${token.name} · ${token.projectSlug}${token.revokedAt ? ' · revoked' : ''}`)) : [element('span', '', 'No monitor tokens')]));
 }
 
 function renderSoftwareUpdate() {
@@ -648,7 +664,7 @@ async function rollbackProject(project, button) {
   try {
     const result = await api(`/api/projects/${encodeURIComponent(project.slug)}/rollback`, { method: 'POST', body: {} });
     toast(result.activation === 'queued' || result.activation === 'pending' ? 'จัดคิว rollback แล้ว' : 'rollback สำเร็จ');
-    if (result.job?.id) watchDeploymentJob(result.job.id, project.slug);
+    if (result.job?.id) showDeploymentProgress(project, result.job);
     else await refresh();
   } catch (error) { showError(error); }
   finally { button.disabled = false; }
@@ -679,7 +695,7 @@ async function submitDeploy(event) {
     const result = await api(`/api/projects/${encodeURIComponent(project.slug)}/deploy`, { method: 'POST', body: {} });
     $('#deploy-dialog').close();
     toast(result.activation === 'queued' ? 'จัดคิว deploy แล้ว' : 'สร้าง release แล้ว');
-    if (result.job?.id) watchDeploymentJob(result.job.id, project.slug);
+    if (result.job?.id) showDeploymentProgress(project, result.job);
     else await refresh();
   } catch (error) { showError(error); }
   finally { submit.disabled = false; }
@@ -759,6 +775,35 @@ async function hydrateProjectLogs() {
   $('#log-refresh-now').addEventListener('click', loadRuntimeLog);
   await loadRuntimeLog();
   schedule();
+}
+
+function showDeploymentProgress(project, initialJob) {
+  clearTimeout(deploymentProgressTimer);
+  $('#deployment-log-title').textContent = `${project.name} · กำลัง deploy`;
+  $('#deployment-log-dialog').showModal();
+  const render = (job) => {
+    $('#deployment-log-summary').textContent = `${job.status} · ${job.releaseId || ''}`;
+    const list = $('#deployment-log-events');
+    const events = job.events || [];
+    list.replaceChildren(...(events.length ? events.map((event) => element('li', '', `${event.at ? new Date(event.at).toLocaleString('th-TH') : ''} · ${event.phase || event.status || 'event'} · ${event.message || ''}`)) : [element('li', '', 'กำลังรอคิว')]));
+  };
+  const poll = async () => {
+    try {
+      const { job } = await api(`/api/jobs/${encodeURIComponent(initialJob.id)}`);
+      render(job);
+      if (job.status === 'succeeded' || job.status === 'failed' || job.status === 'cancelled' || job.status === 'interrupted') {
+        await refresh();
+        toast(job.status === 'succeeded' ? `งานของ ${project.slug} สำเร็จ` : `งานของ ${project.slug} สิ้นสุดด้วยสถานะ ${job.status}`, job.status !== 'succeeded');
+        return;
+      }
+      deploymentProgressTimer = setTimeout(poll, 1500);
+    } catch (error) {
+      $('#deployment-log-summary').textContent = error.message || 'โหลดสถานะ release ไม่สำเร็จ';
+      deploymentProgressTimer = setTimeout(poll, 2500);
+    }
+  };
+  render(initialJob);
+  void poll();
 }
 
 function watchDeploymentJob(jobId, slug) {
@@ -1158,6 +1203,16 @@ function bindEvents() {
       state.csrfToken = result.csrfToken;
       event.currentTarget.reset();
       toast('เปลี่ยนรหัสผ่านแล้ว และออกจาก session อื่นทั้งหมดแล้ว');
+    } catch (error) { showError(error); }
+  });
+  $('#monitor-token-form')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    try {
+      const result = await api('/api/monitor-tokens', { method: 'POST', body: Object.fromEntries(new FormData(event.currentTarget)) });
+      $('#monitor-token-value').hidden = false;
+      $('#monitor-token-value').textContent = `Copy this token now: ${result.token}`;
+      event.currentTarget.reset();
+      await renderMonitorTokens();
     } catch (error) { showError(error); }
   });
   $('#copy-update-command')?.addEventListener('click', async () => {

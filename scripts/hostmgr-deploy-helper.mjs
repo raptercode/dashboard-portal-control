@@ -135,6 +135,7 @@ async function deleteProject(slug) {
   await rm(identity.environmentFile, { force: true });
   await rm(identity.root, { recursive: true, force: true });
   await run('/usr/sbin/userdel', [identity.user]).catch(() => {});
+  await clearPasswordLock();
   return { slug };
 }
 
@@ -337,10 +338,20 @@ function projectIdentity(slug) {
 
 async function ensureProjectUser(identity) {
   const exists = await run('/usr/bin/id', ['-u', identity.user]).then(() => true).catch(() => false);
-  if (!exists) await run('/usr/sbin/useradd', ['--system', '--create-home', '--home-dir', identity.root, '--shell', '/usr/sbin/nologin', identity.user], { failure: 'The project service account could not be created.' });
+  if (!exists) {
+    await run('/usr/sbin/useradd', ['--system', '--create-home', '--home-dir', identity.root, '--shell', '/usr/sbin/nologin', identity.user], { failure: 'The project service account could not be created.' });
+    await clearPasswordLock();
+  }
   identity.gid = await lookupUserGroupId(identity.user);
   await mkdir(identity.root, { recursive: true, mode: 0o750 });
   await run('/usr/bin/chown', ['-R', '--no-dereference', `${identity.user}:${identity.user}`, identity.root]);
+}
+
+async function clearPasswordLock() {
+  // shadow-utils leaves this zero-byte lock behind under the helper's narrowed
+  // systemd writable-path sandbox. It is created by the successful account
+  // operation above, so clear only after that operation has returned.
+  await rm('/etc/.pwd.lock', { force: true });
 }
 
 function renderProjectUnit(project, identity) {
