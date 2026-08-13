@@ -15,6 +15,8 @@ test('project list keeps technical settings behind details and protects deletion
 
   assert.match(app, /project-details/);
   assert.match(app, /project-actions-menu/);
+  assert.match(app, /domain\.target = '_blank'/);
+  assert.match(app, /domain\.rel = 'noopener noreferrer'/);
   assert.match(app, /input\.value !== project\.name/);
   assert.match(dialogs, /id="project-delete-dialog"/);
   assert.match(dialogs, /id="project-delete-confirmation"/);

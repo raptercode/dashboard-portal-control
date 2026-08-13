@@ -439,11 +439,24 @@ function projectRow(project) {
   const deployment = project.deployment || { state: 'idle', activeReleaseId: null, previousReleaseId: null, releases: [] };
   const row = element('article', 'project-row');
   const copy = element('div', 'project-copy');
+  const headline = element('div', 'project-headline');
   const identity = element('p', 'project-identity');
   identity.append(element('code', '', project.slug), document.createTextNode(` · ${project.branch}`));
-  const domains = project.domains?.hosts?.length
-    ? element('p', 'project-domain', project.domains.hosts.join(', '))
-    : element('p', 'project-domain muted', 'ยังไม่ได้ตั้งค่า domain');
+  const secondary = element('div', 'project-secondary');
+  const domains = element('span', 'project-domain');
+  if (project.domains?.hosts?.length) {
+    project.domains.hosts.forEach((host, index) => {
+      if (index) domains.append(document.createTextNode(', '));
+      const domain = element('a', 'project-domain-link', host);
+      domain.href = `https://${host}`;
+      domain.target = '_blank';
+      domain.rel = 'noopener noreferrer';
+      domains.append(domain);
+    });
+  } else {
+    domains.classList.add('muted');
+    domains.textContent = 'ยังไม่ได้ตั้งค่า domain';
+  }
   const details = element('details', 'project-details');
   const detailSummary = element('summary', '', 'รายละเอียดการตั้งค่า');
   const detailList = element('dl', 'project-detail-list');
@@ -460,7 +473,9 @@ function projectRow(project) {
   ];
   values.forEach(([label, value]) => detailList.append(element('dt', '', label), element('dd', '', value)));
   details.append(detailSummary, detailList);
-  copy.append(element('h3', '', project.name), identity, domains, details);
+  headline.append(element('h3', '', project.name), identity);
+  secondary.append(domains, details);
+  copy.append(headline, secondary);
   const badges = element('div', 'project-badges');
   const syncTone = sync.status === 'synced' ? 'ready' : (sync.status === 'failed' || sync.status === 'needs_ssh_key' ? 'needs' : 'muted');
   const syncLabel = sync.status === 'synced' ? 'source synced' : sync.status === 'needs_ssh_key' ? 'ต้องมี SSH key' : sync.status === 'failed' ? 'sync ล้มเหลว' : 'ยังไม่ sync';
