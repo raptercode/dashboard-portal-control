@@ -67,6 +67,9 @@ so you can exercise the same pipeline production uses:
    isolated unlocked install only when the lockfile is absent or stale. Choose
    **Skip Build** for a runtime-only app, then the Portal starts and
    health-checks the candidate.
+   After successful native deployments, dependency trees from releases older
+   than the active and immediate rollback releases are removed to limit disk
+   usage.
 4. The sandbox has no privileged host helper, so a healthy candidate stops at
    "awaiting host activation" instead of actually taking over a systemd
    service and Nginx — that last step only happens on a real installed host

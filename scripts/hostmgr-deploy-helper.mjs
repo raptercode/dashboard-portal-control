@@ -1,7 +1,7 @@
 #!/usr/local/bin/node
 import { createServer } from 'node:net';
 import { spawn } from 'node:child_process';
-import { access, chmod, chown, copyFile, cp, lstat, mkdir, readFile, readlink, rename, rm, symlink, unlink, writeFile } from 'node:fs/promises';
+import { access, chmod, chown, copyFile, cp, lstat, mkdir, readFile, readdir, readlink, rename, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { updateStoredPassword } from './password-config.mjs';
@@ -125,7 +125,10 @@ async function activateProject(slug, releaseId) {
   }
   try {
     await applyDomains(project);
-    return { releaseId, domains: project.domains.hosts };
+    const cleanedNodeModules = project.runtime === 'docker-compose'
+      ? 0
+      : await pruneHistoricalNodeModules(transaction.identity, releaseId, transaction.previousTarget).catch(() => 0);
+    return { releaseId, domains: project.domains.hosts, cleanedNodeModules };
   } catch (error) {
     await transaction.rollback();
     throw helperFailure(error, 'Domain or TLS activation failed; the previous active release was restored.');
@@ -460,7 +463,8 @@ function projectIdentity(slug) {
   validateSlug(slug);
   const user = `hostmgr-${slug}`;
   const root = join(RUNTIME_ROOT, slug);
-  return { user, root, releases: join(root, 'releases'), current: join(root, 'current'), service: `hostmgr-project-${slug}.service`, unitFile: join('/etc/systemd/system', `hostmgr-project-${slug}.service`), environmentFile: join(ENVIRONMENT_ROOT, `${slug}.env`), gid: null };
+  const runtimeDirectory = `hostmgr-project-${slug}`;
+  return { user, root, releases: join(root, 'releases'), current: join(root, 'current'), runtimeDirectory, runtimeApplicationPath: join('/run', runtimeDirectory, 'app'), service: `hostmgr-project-${slug}.service`, unitFile: join('/etc/systemd/system', `hostmgr-project-${slug}.service`), environmentFile: join(ENVIRONMENT_ROOT, `${slug}.env`), gid: null };
 }
 
 async function ensureProjectUser(identity) {
@@ -481,7 +485,27 @@ async function clearPasswordLock() {
 }
 
 function renderProjectUnit(project, identity) {
-  return `[Unit]\nDescription=Dashboard Portal project ${project.slug}\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nUser=${identity.user}\nGroup=${identity.user}\nWorkingDirectory=${identity.current}\nEnvironmentFile=${identity.environmentFile}\nEnvironment=PORT=${project.port}\nExecStart=${project.runtime === 'bun' ? BUN : NPM} run ${project.startScript}\nRestart=on-failure\nRestartSec=5\nNoNewPrivileges=true\nPrivateTmp=true\nProtectHome=true\nProtectSystem=strict\nReadWritePaths=${identity.root}\n\n[Install]\nWantedBy=multi-user.target\n`;
+  const bunRuntime = project.runtime === 'bun';
+  const workingDirectory = bunRuntime ? identity.runtimeApplicationPath : identity.current;
+  const bunSandbox = bunRuntime ? `RuntimeDirectory=${identity.runtimeDirectory}/app\nRuntimeDirectoryMode=0750\nBindPaths=${identity.current}:${identity.runtimeApplicationPath}\n` : '';
+  return `[Unit]\nDescription=Dashboard Portal project ${project.slug}\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nUser=${identity.user}\nGroup=${identity.user}\n${bunSandbox}WorkingDirectory=${workingDirectory}\nEnvironmentFile=${identity.environmentFile}\nEnvironment=PORT=${project.port}\nExecStart=${project.runtime === 'bun' ? BUN : NPM} run ${project.startScript}\nRestart=on-failure\nRestartSec=5\nNoNewPrivileges=true\nPrivateTmp=true\nProtectHome=true\nProtectSystem=strict\nReadWritePaths=${identity.root}\n\n[Install]\nWantedBy=multi-user.target\n`;
+}
+
+async function pruneHistoricalNodeModules(identity, activeReleaseId, previousTarget) {
+  const keep = new Set([activeReleaseId]);
+  const previousReleaseId = previousTarget ? basename(previousTarget) : null;
+  if (/^[a-f0-9-]{36}$/i.test(previousReleaseId ?? '')) keep.add(previousReleaseId);
+  const entries = await readdir(identity.releases, { withFileTypes: true });
+  let cleaned = 0;
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !/^[a-f0-9-]{36}$/i.test(entry.name) || keep.has(entry.name)) continue;
+    const dependencies = join(identity.releases, entry.name, 'node_modules');
+    if (await lstat(dependencies).catch(() => null)) {
+      await rm(dependencies, { recursive: true, force: true, maxRetries: 2 });
+      cleaned += 1;
+    }
+  }
+  return cleaned;
 }
 
 function validateSlug(slug) {

@@ -60,6 +60,17 @@ test('helper permits Bun projects and starts them through the fixed Bun executab
   assert.match(helper, /const BUN = '\/usr\/local\/bin\/bun';/);
   assert.match(helper, /\['node', 'bun', 'docker-compose'\]/);
   assert.match(helper, /project\.runtime === 'bun' \? BUN : NPM/);
+  assert.match(helper, /RuntimeDirectory=\$\{identity\.runtimeDirectory\}\/app/);
+  assert.match(helper, /BindPaths=\$\{identity\.current\}:\$\{identity\.runtimeApplicationPath\}/);
+  assert.match(helper, /WorkingDirectory=\$\{workingDirectory\}/);
+});
+
+test('helper trims dependencies only from historical releases outside the rollback window', async () => {
+  const helper = await readFile(new URL('../scripts/hostmgr-deploy-helper.mjs', import.meta.url), 'utf8');
+  assert.match(helper, /async function pruneHistoricalNodeModules/);
+  assert.match(helper, /const keep = new Set\(\[activeReleaseId\]\)/);
+  assert.match(helper, /join\(identity\.releases, entry\.name, 'node_modules'\)/);
+  assert.match(helper, /keep\.has\(entry\.name\)/);
 });
 
 test('helper gives each project service account access to its release parent', async () => {

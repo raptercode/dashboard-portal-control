@@ -20,7 +20,9 @@ that lockfile is incompatible. Host systemd units execute the fixed
 `/usr/local/bin/bun run <start-script>` argument vector.
 
 The production installer provides a pinned, checksum-verified Bun baseline
-binary for amd64 Ubuntu hosts. The project wizard exposes an explicit **Skip
+binary for amd64 Ubuntu hosts. Bun services use a bind-mounted service runtime
+path below `/run` so Bun can resolve its current directory without making the
+shared project parent listable. The project wizard exposes an explicit **Skip
 Build** option; it stores an empty build script and therefore skips only the
 build phase, not dependency installation, start-script validation, health
 checks, or host activation safeguards.

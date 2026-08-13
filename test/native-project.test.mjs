@@ -63,7 +63,8 @@ test('native project can explicitly skip a build step without relaxing the start
 test('Bun native projects render Bun as the constrained systemd launcher', () => {
   const bunProject = { ...project, runtime: 'bun', buildScript: null };
   assert.equal(validateNativeProject(bunProject).runtime, 'bun');
-  assert.match(renderSystemdUnit(bunProject), /ExecStart=\/usr\/local\/bin\/bun run start/);
+  const unit = renderSystemdUnit(bunProject);
+  assert.match(unit, /ExecStart=\/usr\/local\/bin\/bun run start/);
   assert.equal(validatePackageScripts({ scripts: { start: 'bun server.ts' } }, bunProject).startScript, 'start');
 });
 
