@@ -602,6 +602,15 @@ label input, label select, label textarea {
   padding: 2px 8px;
   font-size: 12px;
 }
+#deploy-environment-update {
+  display: grid;
+  gap: 10px;
+}
+#deploy-environment-update summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-weight: 700;
+}
 .domain-list { display: grid; gap: 8px; }
 .domain-list-heading { display: flex; justify-content: space-between; gap: 12px; align-items: start; }
 .domain-list-heading > div { display: grid; gap: 3px; }

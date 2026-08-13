@@ -759,11 +759,19 @@ function openDeployDialog(project) {
   state.activeProject = project;
   $('#deploy-project-label').textContent = `${project.name} · ${project.slug}`;
   const keys = project.environment?.keys || [];
+  const hasKeys = keys.length > 0;
   const keyList = $('#deploy-existing-keys');
-  keyList.hidden = !keys.length;
+  keyList.hidden = !hasKeys;
   keyList.replaceChildren(...keys.map((key) => element('span', '', key)));
   $('#deploy-environment').value = '';
-  $('#deploy-env-hint').textContent = keys.length ? `มี ${keys.length} keys อยู่แล้ว — วางทับได้เมื่อต้องการอัปเดต` : 'ต้องมีอย่างน้อยหนึ่งตัวแปรก่อน deploy';
+  $('#deploy-environment-update').open = !hasKeys;
+  $('#deploy-saved-env-message').textContent = hasKeys
+    ? 'release นี้จะใช้ .env ที่บันทึกและเข้ารหัสไว้โดยอัตโนมัติ ชื่อ key ด้านล่างเป็นข้อมูลสำหรับตรวจสอบเท่านั้น'
+    : 'ใส่ .env ครั้งแรก ระบบจะเก็บแบบเข้ารหัสและแสดงเฉพาะชื่อ key';
+  $('#deploy-env-hint').textContent = hasKeys
+    ? `มี ${keys.length} keys ที่บันทึกแล้ว — ไม่ต้องกรอกซ้ำ หากไม่ต้องการเปลี่ยนค่า`
+    : 'ต้องมีอย่างน้อยหนึ่งตัวแปรก่อน deploy';
+  $('#deploy-submit').textContent = hasKeys ? 'สร้าง release ด้วย .env ที่บันทึกไว้' : 'บันทึกและสร้าง release';
   $('#deploy-dialog').showModal();
 }
 

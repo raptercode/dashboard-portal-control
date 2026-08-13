@@ -9,11 +9,14 @@
     </header>
     <div class="modal-body">
       <h3>Project secrets</h3>
-      <p>บันทึก <code>.env</code> ของโปรเจคนี้ก่อนสร้าง release ระบบเก็บแบบเข้ารหัสและแสดงเฉพาะชื่อ key</p>
+      <p id="deploy-saved-env-message">บันทึก <code>.env</code> ของโปรเจคนี้ก่อนสร้าง release ระบบเก็บแบบเข้ารหัสและแสดงเฉพาะชื่อ key</p>
       <div id="deploy-existing-keys" class="env-key-list" hidden></div>
-      <label for="deploy-environment">ค่า <code>.env</code>
-        <textarea id="deploy-environment" name="content" rows="8" placeholder="NODE_ENV=production&#10;DATABASE_URL=...&#10;API_KEY=..." spellcheck="false"></textarea>
-      </label>
+      <details id="deploy-environment-update">
+        <summary>อัปเดต <code>.env</code> ก่อนสร้าง release</summary>
+        <label for="deploy-environment">ค่า <code>.env</code> ใหม่
+          <textarea id="deploy-environment" name="content" rows="8" placeholder="NODE_ENV=production&#10;DATABASE_URL=...&#10;API_KEY=..." spellcheck="false"></textarea>
+        </label>
+      </details>
       <p id="deploy-env-hint" class="field-hint">ต้องมีอย่างน้อยหนึ่งตัวแปรก่อน deploy</p>
       <aside class="notice"><svg class="icon" aria-hidden="true"><use href="#icon-info"></use></svg><p>ระบบจะ build และ health-check candidate ก่อน activate — release ปัจจุบันจะไม่ถูกเปลี่ยนหากขั้นตอนใดล้มเหลว</p></aside>
     </div>
