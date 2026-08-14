@@ -48,6 +48,8 @@ body[data-shell="dashboard"] .sidebar {
 .sidebar-footer .status { color: var(--brand-accent); font-size: 12px; font-weight: 500; }
 .sidebar-footer .close-btn { margin-left: auto; }
 .nav-item .count { margin-left: auto; }
+.sidebar-toggle { color: var(--text-on-dark); }
+.sidebar-toggle:hover { background: var(--slate-800); color: var(--text-on-dark); }
 .nav-link.nav-item:hover { background: var(--slate-50); color: var(--text-primary); }
 .nav-link.nav-item.active { background: var(--brand-primary-soft); border-left-color: var(--brand-primary); color: var(--brand-primary); }
 .close-btn, .icon-button { background: transparent; border-color: transparent; color: var(--text-secondary); }
@@ -155,6 +157,29 @@ button.danger, .button.danger { background: var(--status-error); border-color: v
 .project-card .card-actions .btn { flex: 1; justify-content: center; }
 .project-card .card-actions .project-actions-menu { flex: 0; }
 
+/* On desktop the navigation can collapse to its icons without changing the
+   mobile drawer, which must retain full text labels. */
+@media (min-width: 901px) {
+  body.sidebar-collapsed .app { --sidebar-w: 68px; }
+  body.sidebar-collapsed .sidebar { padding-inline: 10px; overflow-x: hidden; }
+  body.sidebar-collapsed .sidebar .nav-section,
+  body.sidebar-collapsed .sidebar .nav-item > span,
+  body.sidebar-collapsed .sidebar-footer > :not(.avatar),
+  body.sidebar-collapsed .sidebar-footer .close-btn {
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    height: 1px;
+    overflow: hidden;
+    position: absolute;
+    white-space: nowrap;
+    width: 1px;
+  }
+  body.sidebar-collapsed .sidebar .nav-item { justify-content: center; padding-inline: 0; }
+  body.sidebar-collapsed .sidebar-footer { justify-content: center; padding-inline: 0; }
+  body.sidebar-collapsed .sidebar-footer .avatar { margin: 0; }
+  body.sidebar-collapsed .sidebar-toggle .icon { transform: rotate(180deg); }
+}
+
 /* Activity becomes the source timeline rather than a dense table. */
 .activity-filter { display: flex; gap: 8px; margin-bottom: 20px; }
 .activity-filter .chip { cursor: default; }
@@ -223,6 +248,7 @@ dialog.deploy-drawer::backdrop { background: rgba(15, 23, 42, .5); backdrop-filt
   body[data-shell="dashboard"] .main { overflow: visible; }
   .topbar { position: sticky; top: 0; z-index: 30; }
   .portal-mobile-menu { display: grid; }
+  .sidebar-toggle { display: none; }
   .sidebar { display: none; }
   body.nav-open .sidebar { display: flex; position: fixed; inset: var(--topbar-h) auto 0 0; width: min(280px, 86vw); z-index: 25; box-shadow: var(--shadow-lg); }
   .main > .page { padding: 20px; }

@@ -65,6 +65,7 @@ export async function createApplication(options = {}) {
   const branchFetcher = options.branchFetcher ?? listRemoteBranches;
   const portAvailability = options.portAvailability ?? isTcpPortAvailable;
   const portRandom = options.portRandom ?? randomProjectPort;
+  const projectRuntimeProbe = options.projectRuntimeProbe ?? probeProjectRuntime;
   const store = new StateStore(options.dataPath ?? process.env.HOSTMGR_DATABASE_PATH ?? process.env.HOSTMGR_DATA_PATH ?? join(here, '..', 'data', 'state.sqlite'));
   if (!['demo', 'host'].includes(mode)) throw new Error('HOSTMGR_MODE must be demo or host.');
   await store.load();
@@ -195,7 +196,7 @@ export async function createApplication(options = {}) {
       if (request.method === 'POST' && url.pathname === '/api/git-config') return await handleGitConfig(request, response);
       if (request.method === 'GET' && url.pathname === '/api/projects') {
         if (!requireSession(request, response)) return;
-        return sendJson(response, 200, { projects: store.snapshot().projects.map(publicProject) });
+        return sendJson(response, 200, { projects: await publicProjectsWithRuntimeStatus() });
       }
       if (request.method === 'POST' && url.pathname === '/api/git/branches') return await handleGitBranches(request, response);
       if (request.method === 'POST' && url.pathname === '/api/projects/sync') return await handleProjectSync(request, response);
@@ -509,9 +510,29 @@ export async function createApplication(options = {}) {
     await store.update((state) => {
       findProject(state, slug);
       state.projects = state.projects.filter((item) => item.slug !== slug);
-      appendAudit(state, { action: 'project.delete', outcome: 'success', actor: 'owner', target: slug, detail: 'Removed project configuration and its managed workspace.' });
+      const removedNotificationHooks = (state.notificationHooks ?? []).filter((hook) => hook.projectSlug === slug).length;
+      state.notificationHooks = (state.notificationHooks ?? []).filter((hook) => hook.projectSlug !== slug);
+      appendAudit(state, { action: 'project.delete', outcome: 'success', actor: 'owner', target: slug, detail: `Removed project configuration, its managed workspace, and ${removedNotificationHooks} project webhook(s).` });
     });
     return sendJson(response, 200, { ok: true });
+  }
+
+  async function publicProjectsWithRuntimeStatus() {
+    return Promise.all(store.snapshot().projects.map(async (project) => ({
+      ...publicProject(project),
+      runtimeStatus: await projectRuntimeStatus(project)
+    })));
+  }
+
+  async function projectRuntimeStatus(project) {
+    if (mode !== 'host' || project.deployment?.state !== 'active' || !project.deployment?.activeReleaseId) return { state: 'unknown' };
+    const socketPath = process.env.HOSTMGR_DEPLOY_HELPER_SOCKET;
+    if (!socketPath) return { state: 'unknown' };
+    try {
+      const result = await projectRuntimeProbe({ socketPath, project });
+      if (result?.state === 'active' || result?.state === 'down') return { state: result.state, checkedAt: new Date().toISOString() };
+    } catch { /* Runtime status is advisory; it must not block the project list. */ }
+    return { state: 'unknown' };
   }
 
   async function handleProjectDeploy(request, response, slug) {
@@ -1404,6 +1425,11 @@ async function activateOnHost(socketPath, slug, releaseId) {
 async function syncDomainsOnHost(socketPath, slug) {
   const result = await callHostHelper(socketPath, { operation: 'sync-project-domains', slug });
   if (!result.ok) throw new Error('Deployment helper rejected the domain sync.');
+}
+
+async function probeProjectRuntime({ socketPath, project }) {
+  const result = await callHostHelper(socketPath, { operation: 'project-runtime-status', slug: project.slug });
+  return result.ok && (result.state === 'active' || result.state === 'down') ? { state: result.state } : { state: 'unknown' };
 }
 
 function findProject(state, slug) {

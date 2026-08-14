@@ -249,6 +249,7 @@ input, textarea, select { font-family: inherit; font-size: inherit; }
 .status-dot.success { background: var(--brand-accent); box-shadow: 0 0 0 3px var(--brand-accent-soft); }
 .status-dot.building { background: var(--status-warning); box-shadow: 0 0 0 3px var(--status-warning-soft); animation: pulse 1.5s infinite; }
 .status-dot.error { background: var(--status-error); box-shadow: 0 0 0 3px var(--status-error-soft); }
+.status-dot.muted { background: var(--slate-400); box-shadow: 0 0 0 3px var(--slate-100); }
 @keyframes pulse { 50% { opacity: .5; } }
 
 .card-version {
@@ -271,6 +272,11 @@ input, textarea, select { font-family: inherit; font-size: inherit; }
 }
 .card-meta .meta-item { display: flex; align-items: center; gap: 5px; }
 .card-meta .meta-item strong { color: var(--text-primary); font-weight: 600; }
+.project-state { margin-left: auto; font-size: 12px; }
+.project-state.success { color: var(--brand-accent); }
+.project-state.building { color: #b45309; }
+.project-state.error { color: var(--status-error); }
+.project-state.muted { color: var(--text-tertiary); }
 .card-actions { display: flex; gap: 6px; }
 .card-actions .btn { flex: 1; justify-content: center; }
 .card-actions .btn-icon { flex: 0; }

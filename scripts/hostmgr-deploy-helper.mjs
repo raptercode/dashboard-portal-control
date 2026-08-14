@@ -69,6 +69,7 @@ async function dispatch(request) {
   if (request.operation === 'delete-project') return deleteProject(request.slug);
   if (request.operation === 'set-admin-password') return setAdminPassword(request.password);
   if (request.operation === 'read-project-log') return readProjectLog(request.slug, request.lines);
+  if (request.operation === 'project-runtime-status') return projectRuntimeStatus(request.slug);
   throw new HelperError('Unsupported helper operation.');
 }
 
@@ -84,6 +85,23 @@ async function readProjectLog(slug, lines) {
   }
   const output = await run('/usr/bin/journalctl', ['-u', identity.service, '-n', String(count), '--no-pager', '-o', 'short-iso'], { failure: 'Could not read the project log.' }).catch(() => '');
   return { lines: output.split('\n').filter(Boolean).slice(-count).map((line) => line.slice(0, 1000)) };
+}
+
+async function projectRuntimeStatus(slug) {
+  const project = await loadProject(slug);
+  const identity = projectIdentity(slug);
+  if (project.runtime === 'docker-compose') {
+    const current = await readlink(identity.current).catch(() => null);
+    if (!current) return { state: 'down' };
+    const running = await runDockerCompose(project, current, ['ps', '--status', 'running', '--services'], { failure: 'Could not read the project runtime status.' }).catch(() => '');
+    const serviceIsRunning = running.split('\n').some((service) => service.trim() === project.composeService);
+    if (!serviceIsRunning) return { state: 'down' };
+  } else {
+    const active = await run('/usr/bin/systemctl', ['is-active', '--quiet', identity.service], { failure: 'Could not read the project runtime status.' }).then(() => true).catch(() => false);
+    if (!active) return { state: 'down' };
+  }
+  if (project.healthCheckEnabled !== false && !await healthCheck(project.port, project.healthCheckPath ?? '/')) return { state: 'down' };
+  return { state: 'active' };
 }
 
 async function setAdminPassword(password) {

@@ -124,6 +124,39 @@
   </form>
 </dialog>
 
+<dialog id="notification-hook-dialog" class="modal notification-hook-modal" aria-labelledby="notification-hook-dialog-title">
+  <form id="project-notification-hook-form" class="modal-form">
+    <header class="modal-header">
+      <div>
+        <h2 id="notification-hook-dialog-title">Deployment notifications</h2>
+        <p id="notification-hook-project-label" class="modal-sub">—</p>
+      </div>
+      <button class="modal-close" id="notification-hook-close" type="button" aria-label="ปิด"><svg class="icon" aria-hidden="true"><use href="#icon-close"></use></svg></button>
+    </header>
+    <div class="modal-body">
+      <section class="notification-hook-list-panel">
+        <div>
+          <h3>Webhooks for this project</h3>
+          <p>ส่งผลลัพธ์เมื่อ deploy สำเร็จหรือล้มเหลวไปยังปลายทางที่เลือก</p>
+        </div>
+        <div id="project-notification-hook-list" class="notification-hook-list" aria-live="polite"></div>
+      </section>
+      <section id="notification-hook-create-panel" class="notification-hook-create-panel">
+        <h3>Add webhook</h3>
+        <label for="project-notification-hook-name">Hook name<input id="project-notification-hook-name" name="name" maxlength="80" placeholder="production-discord" required></label>
+        <label for="project-notification-provider">Destination<select id="project-notification-provider" name="provider"><option value="discord">Discord</option><option value="google-chat">Google Chat</option><option value="slack">Slack</option><option value="generic">Generic webhook</option></select></label>
+        <label for="project-notification-hook-endpoint">Webhook URL<input id="project-notification-hook-endpoint" name="endpoint" type="url" maxlength="2048" placeholder="https://…" autocomplete="off" required></label>
+        <fieldset class="fieldset compact-fieldset"><legend>Notify when</legend><label class="check-row"><input name="events" type="checkbox" value="deployment.succeeded" checked><span><b>Deploy success</b></span></label><label class="check-row"><input name="events" type="checkbox" value="deployment.failed" checked><span><b>Deploy failed</b></span></label></fieldset>
+      </section>
+    </div>
+    <footer class="modal-footer">
+      <button class="secondary" id="notification-hook-cancel" type="button">ปิด</button>
+      <span class="modal-spacer"></span>
+      <button id="notification-hook-submit" type="submit">Save webhook</button>
+    </footer>
+  </form>
+</dialog>
+
 <dialog id="confirm-dialog" class="modal confirm-modal" aria-labelledby="confirm-title" aria-describedby="confirm-message">
   <form method="dialog" class="confirm-form">
     <div class="warning-mark" aria-hidden="true"><svg class="icon" aria-hidden="true"><use href="#icon-alert"></use></svg></div>

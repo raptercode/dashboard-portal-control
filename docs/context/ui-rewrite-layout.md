@@ -52,6 +52,7 @@ navigation opens the same section. Unknown paths remain a 404.
 - Runtime log viewer polls a project's systemd unit through the root-owned helper; see [ADR 0019](../adr/0019-runtime-project-logs-are-read-through-the-root-owned-helper.md)
 - APIs, CSRF, sessions, and helper trust boundaries are unchanged
 - Project creation can choose Node.js/systemd or trusted Docker Compose. The latter asks for a repository-relative Compose file and service; Docker-specific host validation is described in ADR 0021.
-- Settings owns Monitor Logs Tokens and deployment notification hooks (Discord, Google Chat, Slack, or generic HTTPS); project cards link to the selected project's notification form.
-- Project cards keep identity, domain, and status visible; repository, directory, runtime scripts, protocol, port, and environment-key count are in an expandable details section. Operational actions are grouped in a dropdown, and deleting requires an exact project-name confirmation.
+- Settings owns Monitor Logs Tokens. Each project card owns its deployment notification modal for Discord, Google Chat, Slack, or generic HTTPS hooks; the dialog creates and lists only hooks scoped to that project.
+- Project cards keep identity, domain, and a concise state visible: green for an active release, yellow while deploying, red for attention required (failed sync/release or down runtime), and gray after a successful sync before the first release. The card does not disclose the failure cause; operators inspect Logs or the action menu. Repository, directory, runtime scripts, protocol, port, and environment-key count are in an expandable details section. Operational actions are grouped in a dropdown, and deleting requires an exact project-name confirmation.
+- On desktop, the sidebar can be collapsed to icons and remembers that local preference. Mobile keeps the existing full-label navigation drawer.
 - Inbound Git auto-deploy and i18n remain out of scope

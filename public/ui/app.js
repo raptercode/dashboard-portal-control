@@ -1,6 +1,7 @@
 import { pageForPathname } from './router.js';
 
 const DRAFT_KEY = 'hostmgr.projectDraft';
+const SIDEBAR_COLLAPSED_KEY = 'hostmgr.sidebarCollapsed';
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 
@@ -23,6 +24,7 @@ const state = {
   activeProject: null,
   deployEnvironmentVariables: [],
   domainDraft: null,
+  notificationProject: null,
   slugManual: false,
   deployStep: 1
 };
@@ -136,11 +138,20 @@ const PROJECT_STATUS = Object.freeze({
 });
 
 function projectRuntimeStatus(project) {
+  const status = projectDisplayStatus(project);
+  if (status.key === 'released') return 'ready';
+  if (status.key === 'attention') return 'down';
+  return 'pause';
+}
+
+function projectDisplayStatus(project) {
   const deployment = project.deployment || {};
   const sync = project.sync || {};
-  if (deployment.state === 'active') return 'ready';
-  if (deployment.state === 'failed' || sync.status === 'failed') return 'down';
-  return 'pause';
+  const latestRelease = deployment.releases?.[0];
+  if (project.runtimeStatus?.state === 'down' || ['failed', 'needs_ssh_key'].includes(sync.status) || latestRelease?.status === 'failed' || deployment.state === 'failed') return { key: 'attention', tone: 'error', label: 'Needs attention' };
+  if (['deploying', 'rolling_back', 'awaiting_activation'].includes(deployment.state)) return { key: 'deploying', tone: 'building', label: 'Deploying…' };
+  if (deployment.state === 'active' && deployment.activeReleaseId) return { key: 'released', tone: 'success', label: 'Released' };
+  return { key: 'synced', tone: 'muted', label: 'Ready to release' };
 }
 
 function projectStatusCounts(projects) {
@@ -184,9 +195,20 @@ async function showBootstrap(requireCurrent = false) {
 
 async function showDashboard() {
   setShell('dashboard');
+  setSidebarCollapsed(localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === 'true');
   $$('.nav-link').forEach((link) => link.classList.toggle('active', link.dataset.nav === page));
   await refresh();
   await hydrateCurrentView();
+}
+
+function setSidebarCollapsed(collapsed) {
+  document.body.classList.toggle('sidebar-collapsed', collapsed);
+  const toggle = $('#sidebar-toggle');
+  if (!toggle) return;
+  const label = collapsed ? 'Expand sidebar' : 'Collapse sidebar';
+  toggle.setAttribute('aria-label', label);
+  toggle.setAttribute('aria-pressed', String(collapsed));
+  toggle.title = label;
 }
 
 async function refresh() {
@@ -486,8 +508,8 @@ function projectRow(project) {
   const copy = element('div', 'project-copy');
   const headline = element('div', 'card-head project-headline');
   const cardTitle = element('div', 'card-title');
-  const runtimeStatus = projectRuntimeStatus(project);
-  cardTitle.append(element('span', `status-dot ${runtimeStatus === 'ready' ? 'success' : runtimeStatus === 'down' ? 'error' : 'building'}`), element('h3', '', project.name));
+  const displayStatus = projectDisplayStatus(project);
+  cardTitle.append(element('span', `status-dot ${displayStatus.tone}`), element('h3', '', project.name));
   const latestRelease = deployment.releases?.[0];
   const version = latestRelease?.revision || deployment.activeReleaseId || (deployment.state === 'active' ? 'active' : deployment.state);
   const identity = element('span', 'card-version', String(version || 'draft').slice(0, 18));
@@ -512,7 +534,7 @@ function projectRow(project) {
   portMeta.append(document.createTextNode('Port '), element('strong', '', String(project.port || 'auto')));
   const branchMeta = element('span', 'meta-item');
   branchMeta.append(document.createTextNode('Branch '), element('strong', '', project.branch));
-  meta.append(portMeta, branchMeta);
+  meta.append(portMeta, branchMeta, element('span', `project-state ${displayStatus.tone}`, displayStatus.label));
   const details = element('details', 'project-details');
   const detailSummary = element('summary', '', 'รายละเอียดการตั้งค่า');
   const detailList = element('dl', 'project-detail-list');
@@ -532,18 +554,13 @@ function projectRow(project) {
   headline.append(cardTitle, identity);
   secondary.append(domains, details);
   copy.append(headline, repository, meta, secondary);
-  const badges = element('div', 'project-badges');
-  const syncTone = sync.status === 'synced' ? 'ready' : (sync.status === 'failed' || sync.status === 'needs_ssh_key' ? 'needs' : 'muted');
-  const syncLabel = sync.status === 'synced' ? 'source synced' : sync.status === 'needs_ssh_key' ? 'ต้องมี SSH key' : sync.status === 'failed' ? 'sync ล้มเหลว' : 'ยังไม่ sync';
-  badges.append(statusChip(syncLabel, syncTone));
-  const releaseLabel = deployment.state === 'active' ? 'release พร้อมใช้งาน' : deployment.state === 'awaiting_activation' ? 'รอ activate บน host' : deployment.state === 'failed' ? 'deploy ล้มเหลว' : 'ยังไม่ deploy';
-  badges.append(statusChip(releaseLabel, deployment.state === 'active' ? 'ready' : deployment.state === 'failed' ? 'needs' : 'muted'));
   const actions = element('div', 'card-actions project-actions');
-  const deployNow = element('button', 'btn btn-primary btn-sm', 'Deploy');
-  deployNow.type = 'button';
-  deployNow.disabled = sync.status !== 'synced';
-  deployNow.addEventListener('click', () => openDeployDialog(project).catch(showError));
-  actions.append(deployNow);
+  const primaryAction = element('button', 'btn btn-primary btn-sm', displayStatus.key === 'deploying' ? 'Deploying…' : (displayStatus.key === 'attention' && deployment.previousReleaseId ? 'Rollback' : 'Deploy'));
+  primaryAction.type = 'button';
+  primaryAction.disabled = displayStatus.key === 'deploying' || sync.status !== 'synced';
+  if (displayStatus.key === 'attention' && deployment.previousReleaseId) primaryAction.addEventListener('click', () => rollbackProject(project, primaryAction));
+  else primaryAction.addEventListener('click', () => openDeployDialog(project).catch(showError));
+  actions.append(primaryAction);
   const logsPageLink = element('a', 'btn btn-ghost btn-sm', 'Logs');
   logsPageLink.href = `/projects/${encodeURIComponent(project.slug)}/logs`;
   actions.append(logsPageLink);
@@ -555,7 +572,12 @@ function projectRow(project) {
     menu.open = false;
     return callback(...args);
   };
-  menu.addEventListener('toggle', () => row.classList.toggle('menu-open', menu.open));
+  menu.addEventListener('toggle', () => {
+    row.classList.toggle('menu-open', menu.open);
+    if (menu.open) $$('details.project-actions-menu[open]').forEach((otherMenu) => {
+      if (otherMenu !== menu) otherMenu.open = false;
+    });
+  });
   const syncLatest = element('button', 'secondary', 'Sync latest');
   syncLatest.type = 'button';
   syncLatest.addEventListener('click', closeMenu(() => syncExistingProject(project, syncLatest).catch(showError)));
@@ -575,8 +597,9 @@ function projectRow(project) {
   domain.type = 'button';
   domain.addEventListener('click', closeMenu(() => openDomainDialog(project)));
   actionList.append(domain);
-  const hooks = element('a', 'secondary button', 'แจ้งเตือน');
-  hooks.href = `/settings?project=${encodeURIComponent(project.slug)}#notifications`;
+  const hooks = element('button', 'secondary', 'แจ้งเตือน');
+  hooks.type = 'button';
+  hooks.addEventListener('click', closeMenu(() => openNotificationHookDialog(project).catch(showError)));
   actionList.append(hooks);
   const logsPage = element('a', 'secondary button', 'Logs');
   logsPage.href = `/projects/${encodeURIComponent(project.slug)}/logs`;
@@ -599,9 +622,8 @@ function projectRow(project) {
   menu.append(menuSummary, actionList);
   actions.append(menu);
   const side = element('div', 'project-side');
-  side.append(badges, actions);
+  side.append(actions);
   row.append(copy, side);
-  row.title = sync.detail || '';
   return row;
 }
 
@@ -758,44 +780,59 @@ function renderAudit() {
 function renderSettings() {
   renderSoftwareUpdate();
   renderMonitorTokens().catch(showError);
-  renderNotificationHooks().catch(showError);
   $('#settings-mode').textContent = state.mode === 'host' ? 'host' : 'sandbox';
   $('#mode-description').textContent = state.mode === 'host'
     ? 'โหมด host — คำสั่งติดตั้งและ deploy ทำงานบนเครื่องจริงผ่าน privileged helper'
     : 'โหมด sandbox — การติดตั้งถูกจำลองและไม่แก้ host จริง';
 }
 
-async function renderNotificationHooks() {
-  const root = $('#notification-hook-list');
-  const select = $('#notification-hook-project');
-  if (!root || !select) return;
+async function openNotificationHookDialog(project) {
+  state.notificationProject = project;
+  $('#notification-hook-project-label').textContent = `${project.name} · ${project.slug}`;
+  $('#project-notification-hook-form').reset();
+  $('#notification-hook-dialog').showModal();
+  await renderProjectNotificationHooks();
+}
+
+async function renderProjectNotificationHooks() {
+  const root = $('#project-notification-hook-list');
+  const project = state.notificationProject;
+  if (!root || !project) return;
+  root.replaceChildren(element('div', 'empty-state', 'กำลังโหลด webhooks…'));
   const payload = await api('/api/notification-hooks');
-  select.replaceChildren(new Option('All projects', ''), ...state.projects.map((project) => new Option(`${project.name} · ${project.slug}`, project.slug)));
-  const selectedProject = new URLSearchParams(location.search).get('project');
-  if (selectedProject && [...select.options].some((option) => option.value === selectedProject)) select.value = selectedProject;
+  if (state.notificationProject !== project) return;
+  const createPanel = $('#notification-hook-create-panel');
+  const submit = $('#notification-hook-submit');
   if (!payload.vaultReady) {
+    createPanel.hidden = true;
+    submit.hidden = true;
     root.replaceChildren(element('div', 'empty-state', 'Credential vault ยังไม่พร้อม จึงยังบันทึก webhook ไม่ได้'));
     return;
   }
-  const hooks = payload.hooks || [];
+  createPanel.hidden = false;
+  submit.hidden = false;
+  const hooks = (payload.hooks || []).filter((hook) => hook.projectSlug === project.slug);
   root.replaceChildren(...(hooks.length ? hooks.map((hook) => {
-    const row = element('article', 'credential-row');
+    const row = element('article', 'notification-hook-row');
     const copy = element('div');
-    const last = hook.lastDelivery ? ` · ล่าสุด ${hook.lastDelivery.status} ${new Date(hook.lastDelivery.at).toLocaleString('th-TH')}` : '';
-    copy.append(element('h3', '', hook.name), element('p', 'muted', `${hook.provider} · ${hook.projectSlug || 'All projects'} · ${hook.events.join(', ')}${last}`));
+    const last = hook.lastDelivery
+      ? ` · ล่าสุด ${hook.lastDelivery.status} ${new Date(hook.lastDelivery.at).toLocaleString('th-TH')}`
+      : ' · ยังไม่เคยส่ง';
+    const events = hook.events.map((event) => event === 'deployment.succeeded' ? 'success' : 'failed').join(', ');
+    copy.append(element('h3', '', hook.name), element('p', 'muted', `${hook.provider} · ${events}${last}`));
     const remove = element('button', 'secondary danger', 'ลบ');
     remove.type = 'button';
     remove.addEventListener('click', async () => {
-      if (!await confirmAction('ลบ notification hook', `ลบ ${hook.name} หรือไม่?`, 'ลบ')) return;
+      if (!await confirmAction('ลบ webhook', `ลบ ${hook.name} ออกจาก ${project.name} หรือไม่?`, 'ลบ')) return;
       await withBusy(remove, async () => {
         await api(`/api/notification-hooks/${encodeURIComponent(hook.id)}`, { method: 'DELETE', body: {} });
-        toast('ลบ notification hook แล้ว');
-        await renderNotificationHooks();
+        toast('ลบ webhook แล้ว');
+        await renderProjectNotificationHooks();
       });
     });
     row.append(copy, remove);
     return row;
-  }) : [element('div', 'empty-state', 'ยังไม่มี notification hook')]));
+  }) : [element('div', 'empty-state', 'ยังไม่มี webhook สำหรับโปรเจกต์นี้')]));
 }
 
 async function renderMonitorTokens() {
@@ -1642,11 +1679,19 @@ function bindEvents() {
     document.body.classList.toggle('nav-open', open);
     $('#mobile-menu').setAttribute('aria-expanded', String(open));
   });
+  $('#sidebar-toggle')?.addEventListener('click', () => {
+    const collapsed = !document.body.classList.contains('sidebar-collapsed');
+    localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(collapsed));
+    setSidebarCollapsed(collapsed);
+  });
   document.addEventListener('click', (event) => {
-    if (!document.body.classList.contains('nav-open')) return;
-    if (event.target.closest('.sidebar, #mobile-menu')) return;
-    document.body.classList.remove('nav-open');
-    $('#mobile-menu')?.setAttribute('aria-expanded', 'false');
+    if (document.body.classList.contains('nav-open') && !event.target.closest('.sidebar, #mobile-menu')) {
+      document.body.classList.remove('nav-open');
+      $('#mobile-menu')?.setAttribute('aria-expanded', 'false');
+    }
+    if (!event.target.closest('.project-actions-menu')) {
+      $$('details.project-actions-menu[open]').forEach((menu) => { menu.open = false; });
+    }
   });
   $('#git-form')?.addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -1689,17 +1734,19 @@ function bindEvents() {
       await renderMonitorTokens();
     } catch (error) { showError(error); }
   });
-  $('#notification-hook-form')?.addEventListener('submit', async (event) => {
+  $('#project-notification-hook-form')?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
     try {
       const data = Object.fromEntries(new FormData(form));
       data.events = $$('input[name="events"]:checked', form).map((input) => input.value);
+      data.projectSlug = state.notificationProject?.slug;
+      if (!data.projectSlug) throw new Error('ไม่พบโปรเจกต์สำหรับ webhook นี้');
       await api('/api/notification-hooks', { method: 'POST', body: data });
       resetForm(form);
       $$('input[name="events"]', form).forEach((input) => { input.checked = true; });
-      toast('บันทึก notification hook แล้ว');
-      await renderNotificationHooks();
+      toast('บันทึก webhook แล้ว');
+      await renderProjectNotificationHooks();
     } catch (error) { showError(error); }
   });
   $('#copy-update-command')?.addEventListener('click', async () => {
@@ -1773,6 +1820,8 @@ function bindEvents() {
   $('#domain-recheck')?.addEventListener('click', () => checkDomainInput().catch(showError));
   $('#domain-refresh')?.addEventListener('click', () => refreshDomainStatuses().catch(showError));
   $('#domain-form')?.addEventListener('submit', (event) => confirmAddDomain(event).catch(showError));
+  $('#notification-hook-close')?.addEventListener('click', () => $('#notification-hook-dialog').close());
+  $('#notification-hook-cancel')?.addEventListener('click', () => $('#notification-hook-dialog').close());
 }
 
 async function bootstrap() {

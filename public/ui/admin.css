@@ -627,6 +627,16 @@ label input, label select, label textarea {
 .domain-row-detail { font-size: 12px; color: var(--muted); line-height: 1.45; }
 .domain-records { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
 @media (max-width: 580px) { .domain-list-heading { align-items: stretch; flex-direction: column; } .domain-row-head { align-items: start; } }
+.notification-hook-modal { width: min(92vw, 620px); }
+.notification-hook-list-panel, .notification-hook-create-panel { display: grid; gap: 10px; }
+.notification-hook-list { display: grid; gap: 8px; max-height: 260px; overflow: auto; }
+.notification-hook-row { align-items: center; background: #fff; border: 1px solid var(--line); border-radius: 10px; display: flex; gap: 12px; justify-content: space-between; padding: 11px; }
+.notification-hook-row h3 { margin: 0 0 4px; font-size: .95rem; }
+.notification-hook-row p { font-size: 12px; overflow-wrap: anywhere; }
+.notification-hook-row button { flex: none; }
+.notification-hook-create-panel { border-top: 1px solid var(--line-soft); padding-top: 14px; }
+.notification-hook-create-panel > label { display: grid; gap: 4px; }
+@media (max-width: 580px) { .notification-hook-row { align-items: stretch; flex-direction: column; } }
 .deployment-log-events {
   margin: 0;
   padding: 0;

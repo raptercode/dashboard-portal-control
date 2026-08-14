@@ -152,6 +152,29 @@ test('dashboard URLs reload their matching application shell', async (t) => {
   assert.equal((await fetch(`${base}/app.js`)).status, 404);
 });
 
+test('an active project reports a down runtime without exposing host diagnostics', async (t) => {
+  const previousSocket = process.env.HOSTMGR_DEPLOY_HELPER_SOCKET;
+  process.env.HOSTMGR_DEPLOY_HELPER_SOCKET = '/tmp/test-project-runtime.sock';
+  t.after(() => {
+    if (previousSocket === undefined) delete process.env.HOSTMGR_DEPLOY_HELPER_SOCKET;
+    else process.env.HOSTMGR_DEPLOY_HELPER_SOCKET = previousSocket;
+  });
+  const { app, base } = await start({ mode: 'host', projectRuntimeProbe: async () => ({ state: 'down' }) });
+  t.after(() => app.close());
+  await app.store.update((state) => {
+    state.projects.push({
+      name: 'Down app', organization: 'Tests', slug: 'down-app', repository: 'https://example.test/down.git', branch: 'main', directory: '/', port: 3212,
+      healthCheckEnabled: true, healthCheckPath: '/', protocol: 'https', sync: { status: 'synced', at: new Date().toISOString(), detail: 'Source synced.' },
+      environment: { keys: [], encryptedContent: null }, domains: { hosts: ['down.example.test'] },
+      deployment: { state: 'active', activeReleaseId: 'a'.repeat(36), previousReleaseId: null, updatedAt: new Date().toISOString(), releases: [{ id: 'a'.repeat(36), revision: 'release-a', status: 'active', createdAt: new Date().toISOString(), health: { status: 'passed' }, events: [] }] }
+    });
+  });
+  const login = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'owner@local.test', password: 'correct-horse-battery-staple' }) });
+  const payload = await (await fetch(`${base}/api/projects`, { headers: { cookie: login.headers.get('set-cookie').split(';')[0] } })).json();
+  assert.equal(payload.projects[0].runtimeStatus.state, 'down');
+  assert.equal(JSON.stringify(payload.projects[0].runtimeStatus).includes('diagnostic'), false);
+});
+
 test('dashboard API authenticates, protects CSRF, and audits a sandbox install', async (t) => {
   const { app, base } = await start();
   t.after(() => app.close());
@@ -549,9 +572,15 @@ test('projects support a repository subdirectory, fetched branch choices, editin
   assert.equal(edited.name, 'Examples app renamed');
   assert.equal(edited.directory, '/apps/web');
   assert.equal(edited.port, 3200);
+  const projectHook = await fetch(`${base}/api/notification-hooks`, { method: 'POST', headers, body: JSON.stringify({ name: 'examples-deploy', provider: 'discord', endpoint: 'https://discord.com/api/webhooks/examples-secret', projectSlug: 'examples-app', events: ['deployment.succeeded'] }) });
+  assert.equal(projectHook.status, 201);
+  const allProjectsHook = await fetch(`${base}/api/notification-hooks`, { method: 'POST', headers, body: JSON.stringify({ name: 'all-deploys', provider: 'slack', endpoint: 'https://hooks.slack.com/services/all-projects-secret', projectSlug: '', events: ['deployment.failed'] }) });
+  assert.equal(allProjectsHook.status, 201);
   const removed = await fetch(`${base}/api/projects/examples-app`, { method: 'DELETE', headers, body: '{}' });
   assert.equal(removed.status, 200);
   assert.deepEqual((await (await fetch(`${base}/api/projects`, { headers: { cookie } })).json()).projects, []);
+  const remainingHooks = await fetch(`${base}/api/notification-hooks`, { headers: { cookie } });
+  assert.deepEqual((await remainingHooks.json()).hooks.map((hook) => hook.name), ['all-deploys']);
   const audit = await fetch(`${base}/api/audit`, { headers: { cookie } });
   assert.ok((await audit.json()).events.some((event) => event.action === 'project.delete'));
 });
