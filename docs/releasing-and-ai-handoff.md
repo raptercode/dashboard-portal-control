@@ -174,9 +174,9 @@ The manifest must report the version just released, an HTTPS archive URL for tha
 For an existing configured installation, no manifest reconfiguration is necessary for subsequent releases:
 
 ```bash
-sudo dashboard-portal update --channel=stable --check
-sudo dashboard-portal update --channel=stable
-sudo dashboard-portal update --channel=stable --check
+sudo dashboard-portal update --check
+sudo dashboard-portal update
+sudo dashboard-portal update --check
 sudo systemctl is-active dashboard-portal hostmgr-deploy-helper nginx
 curl -fsS https://YOUR-DOMAIN/api/health
 ```
@@ -195,12 +195,14 @@ returns `500`:
 curl -fsSI https://YOUR-DOMAIN/
 ```
 
-For a fresh host, configure the update feed once after installation, using a temporary copy of the **public** key only:
+Fresh hosts are enrolled in the signed `stable` feed by the installer. Verify
+that default after installation with:
 
 ```bash
-sudo dashboard-portal configure-update --manifest=https://github.com/raptercode/dashboard-portal-control/releases/latest/download/stable.json --public-key=/path/to/dashboard-portal-update-public.pem --channel=stable
-sudo dashboard-portal update --channel=stable --check
+sudo dashboard-portal update --check
 ```
+
+Use `configure-update` only for an intentional custom feed.
 
 ## Project repositories are a separate workflow
 

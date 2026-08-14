@@ -318,6 +318,21 @@ export function validateEnvironmentContent(content) {
   return { content, keys: [...new Set(keys)].sort() };
 }
 
+export function validateEnvironmentVariables(variables) {
+  if (!Array.isArray(variables) || variables.length > 50) throw new InputError('Environment variables are invalid.');
+  const seen = new Set();
+  return variables.map((item) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) throw new InputError('Environment variable is invalid.');
+    const key = typeof item.key === 'string' ? item.key.trim() : '';
+    if (!/^[A-Z_][A-Z0-9_]{0,127}$/.test(key) || seen.has(key)) throw new InputError('Environment variable names must be unique uppercase shell identifiers.');
+    seen.add(key);
+    const value = typeof item.value === 'string' ? item.value : '';
+    if (value.length > 4096 || value.includes('\u0000') || value.includes('\n') || value.includes('\r')) throw new InputError('Environment variable value is invalid.');
+    if (typeof item.sensitive !== 'boolean') throw new InputError('Environment variable sensitivity is invalid.');
+    return { key, value, sensitive: item.sensitive };
+  });
+}
+
 export class SecretVault {
   #key;
   constructor(encodedKey) {

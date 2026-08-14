@@ -1,14 +1,10 @@
 <section class="page" data-page="activity">
   <header class="page-header">
     <div>
-      <h1>กิจกรรม</h1>
-      <p class="subtitle">audit log ของ Dashboard และ host</p>
+      <h1 class="page-title">Activity</h1>
+      <p class="page-subtitle">Audit trail across all projects and system events</p>
     </div>
   </header>
-  <section class="panel table-panel">
-    <table>
-      <thead><tr><th>เวลา</th><th>กิจกรรม</th><th>เป้าหมาย</th><th>ผลลัพธ์</th></tr></thead>
-      <tbody id="audit"></tbody>
-    </table>
-  </section>
+  <div class="activity-filter"><span class="chip active">All events</span><span class="chip">Live audit trail</span></div>
+  <section id="audit" class="timeline" aria-live="polite"></section>
 </section>

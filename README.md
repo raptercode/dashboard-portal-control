@@ -87,12 +87,27 @@ cp .env.example .env
 npm run demo
 ```
 
-Open <http://localhost:3000>. With the `.env.example` defaults
+Open <http://127.0.0.1:3000>. This avoids an unrelated local development
+server that may already own the IPv6 `localhost` address on port 3000. With
+the `.env.example` defaults
 (`HOSTMGR_SANDBOX_CLONE=false`), project sync and deploy are simulated —
 useful for clicking through the UI with no real Git/npm activity. Set
 `HOSTMGR_SANDBOX_CLONE=true` (or remove the line) to exercise the real
 clone/build/health-check pipeline directly on your machine instead of inside
 a container.
+
+### Reset a forgotten local-demo password
+
+Stop `npm run demo`, then run:
+
+```bash
+npm run demo:reset-password
+```
+
+The command only works with `HOSTMGR_MODE=demo`. It keeps the demo projects
+and other local state, replaces the owner password with a newly generated
+password, invalidates all sessions, and prints the new password once. Start
+`npm run demo` again and sign in with the existing owner email.
 
 ## Install for real (Ubuntu 24.04 / 25.04)
 

@@ -29,6 +29,10 @@ PASSWORD_SCRIPT='/usr/local/lib/dashboard-portal/password-config.mjs'
 UPDATE_SCRIPT='/usr/local/lib/dashboard-portal/dashboard-portal-update.mjs'
 UPDATE_LIBRARY='/usr/local/lib/dashboard-portal/software-update.mjs'
 UPDATE_COMMAND='/usr/local/sbin/dashboard-portal'
+UPDATE_PUBLIC_KEY_SOURCE='scripts/dashboard-portal-update-public.pem'
+UPDATE_PUBLIC_KEY_FILE='/etc/dashboard-portal/update-public-key.pem'
+DEFAULT_UPDATE_MANIFEST_URL='https://github.com/raptercode/dashboard-portal-control/releases/latest/download/stable.json'
+DEFAULT_UPDATE_CHANNEL='stable'
 HELPER_SOCKET='/run/dashboard-portal/deploy-helper.sock'
 NGINX_SITE='/etc/nginx/sites-available/dashboard-portal'
 NGINX_ENABLED='/etc/nginx/sites-enabled/dashboard-portal'
@@ -109,7 +113,7 @@ trap rollback ERR INT TERM
 [[ $EUID -eq 0 ]] || die 'Run with sudo.'
 [[ -n "$DOMAIN" && "$DOMAIN" =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$ ]] || die 'A lower-case FQDN is required in --domain.'
 [[ -n "$EMAIL" && "$EMAIL" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]] || die 'A valid --email is required. HTTPS is mandatory for a public login.'
-[[ -f package.json && -d src && -d public && -f scripts/hostmgr-deploy-helper.mjs && -f scripts/password-config.mjs && -f scripts/dashboard-portal-update.mjs && -f scripts/software-update.mjs ]] || die 'Run this script from an extracted dashboard-portal release directory.'
+[[ -f package.json && -d src && -d public && -f scripts/hostmgr-deploy-helper.mjs && -f scripts/password-config.mjs && -f scripts/dashboard-portal-update.mjs && -f scripts/software-update.mjs && -f "$UPDATE_PUBLIC_KEY_SOURCE" ]] || die 'Run this script from an extracted dashboard-portal release directory.'
 source /etc/os-release
 [[ "${ID:-}" == 'ubuntu' && ( "${VERSION_ID:-}" == '24.04' || "${VERSION_ID:-}" == '25.04' ) ]] || die 'This installer supports Ubuntu 24.04 or 25.04 only.'
 [[ "$(dpkg --print-architecture)" == 'amd64' ]] || die 'This release currently supports amd64 only.'
@@ -242,6 +246,17 @@ set_config_value HOSTMGR_ACME_EMAIL "$EMAIL" "$CONFIG_ROOT/dashboard-portal.env"
 set_config_value HOSTMGR_PORTAL_DOMAIN "$DOMAIN" "$CONFIG_ROOT/dashboard-portal.env"
 set_config_value HOSTMGR_DEPLOY_HELPER_SOCKET "$HELPER_SOCKET" "$CONFIG_ROOT/dashboard-portal.env"
 set_config_value HOSTMGR_DATABASE_PATH "$DATA_ROOT/state.sqlite" "$CONFIG_ROOT/dashboard-portal.env"
+# A normal installation is enrolled in the signed stable channel immediately.
+# Preserve an existing custom feed so an intentional self-hosted release setup
+# does not get silently replaced during a later Portal update.
+if ! grep -q '^HOSTMGR_UPDATE_MANIFEST_URL=' "$CONFIG_ROOT/dashboard-portal.env"; then
+  install -m 0644 -o root -g root "$APP_ROOT/$UPDATE_PUBLIC_KEY_SOURCE" "$UPDATE_PUBLIC_KEY_FILE"
+  set_config_value HOSTMGR_UPDATE_MANIFEST_URL "$DEFAULT_UPDATE_MANIFEST_URL" "$CONFIG_ROOT/dashboard-portal.env"
+  set_config_value HOSTMGR_UPDATE_PUBLIC_KEY_PATH "$UPDATE_PUBLIC_KEY_FILE" "$CONFIG_ROOT/dashboard-portal.env"
+  set_config_value HOSTMGR_UPDATE_CHANNEL "$DEFAULT_UPDATE_CHANNEL" "$CONFIG_ROOT/dashboard-portal.env"
+elif ! grep -q '^HOSTMGR_UPDATE_CHANNEL=' "$CONFIG_ROOT/dashboard-portal.env"; then
+  set_config_value HOSTMGR_UPDATE_CHANNEL "$DEFAULT_UPDATE_CHANNEL" "$CONFIG_ROOT/dashboard-portal.env"
+fi
 chown root:"$APP_USER" "$CONFIG_ROOT/dashboard-portal.env"
 chmod 0640 "$CONFIG_ROOT/dashboard-portal.env"
 

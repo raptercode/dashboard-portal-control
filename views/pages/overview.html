@@ -1,105 +1,44 @@
 <section class="page" data-page="overview">
   <header class="page-header">
     <div>
-      <h1>ภาพรวม</h1>
-      <p class="subtitle">Dashboard Overview และสถานะเซิร์ฟเวอร์</p>
+      <h1 class="page-title">Dashboard</h1>
+      <p class="page-subtitle">Live overview of <span id="host-name" class="mono">—</span> <span id="host-platform" class="mono"></span></p>
     </div>
-    <button id="refresh" class="secondary" type="button">
-      <svg class="icon" aria-hidden="true"><use href="#icon-refresh"></use></svg>รีเฟรช
-    </button>
+    <button id="refresh" class="btn btn-ghost" type="button"><svg class="icon" aria-hidden="true"><use href="#icon-refresh"></use></svg>Refresh</button>
   </header>
-  <aside id="sandbox-notice" class="notice" hidden>
-    <svg class="icon" aria-hidden="true"><use href="#icon-flask"></use></svg>
-    <div><strong>Sandbox</strong><p>การติดตั้งถูกจำลองและจะไม่แก้ไข host จริง</p></div>
-  </aside>
-  <section class="status-board" aria-label="สถานะโปรเจค">
-    <a class="status-card" href="/projects" data-status-card="total">
-      <span class="status-card-label">Total Projects</span>
-      <strong id="status-total-count">0</strong>
-      <small>เปิดรายการทุกโปรเจคโดยไม่ใส่ตัวกรอง</small>
-    </a>
-    <a class="status-card is-ready" href="/projects?status=ready" data-status-card="ready">
-      <span class="status-card-label">Ready</span>
-      <strong id="status-ready-count">0</strong>
-      <small>โปรเจคที่ release พร้อมใช้งาน</small>
-    </a>
-    <a class="status-card is-down" href="/projects?status=down" data-status-card="down">
-      <span class="status-card-label">Down</span>
-      <strong id="status-down-count">0</strong>
-      <small>sync หรือ deploy ล้มเหลว</small>
-    </a>
-    <a class="status-card is-pause" href="/projects?status=pause" data-status-card="pause">
-      <span class="status-card-label">Pause</span>
-      <strong id="status-pause-count">0</strong>
-      <small>ยังไม่รัน / รอ activate</small>
-    </a>
+
+  <aside id="sandbox-notice" class="notice" hidden><svg class="icon" aria-hidden="true"><use href="#icon-flask"></use></svg><div><strong>Sandbox</strong><p>Host installation commands are simulated in this environment.</p></div></aside>
+
+  <section class="dashboard-stat-grid" aria-label="Project summary">
+    <a class="dashboard-stat" href="/projects"><span class="label">Projects</span><strong id="status-total-count" class="value">0</strong><span class="delta">all configured projects</span></a>
+    <a class="dashboard-stat" href="/projects?status=ready"><span class="label">Ready</span><strong id="status-ready-count" class="value">0</strong><span class="delta up">active releases</span></a>
+    <a class="dashboard-stat" href="/projects?status=down"><span class="label">Needs attention</span><strong id="status-down-count" class="value">0</strong><span class="delta down">sync or deploy failed</span></a>
+    <a class="dashboard-stat" href="/projects?status=pause"><span class="label">Paused</span><strong id="status-pause-count" class="value">0</strong><span class="delta">awaiting activation</span></a>
   </section>
-  <section class="resource-board" aria-label="ทรัพยากรเครื่อง">
-    <article class="resource-card is-cpu">
-      <span class="resource-label">CPU</span>
-      <strong id="resource-cpu">—</strong>
-      <div class="resource-bar"><span id="resource-cpu-bar"></span></div>
-      <small id="resource-cpu-detail">โหลดปัจจุบัน</small>
+
+  <section class="dashboard-split">
+    <article class="card history-panel">
+      <header class="history-head">
+        <div><h2>Resource history</h2><p class="card-desc">CPU, memory and disk usage over time</p></div>
+        <div class="history-controls"><span id="metrics-updated" class="text-secondary">—</span><div class="range-group" role="group" aria-label="Metric time range"><button type="button" class="btn btn-ghost btn-sm range-button" data-range="1">1d</button><button type="button" class="btn btn-ghost btn-sm range-button" data-range="3">3d</button><button type="button" class="btn btn-ghost btn-sm range-button is-active" data-range="7">7d</button><button type="button" class="btn btn-ghost btn-sm range-button" data-range="15">15d</button><button type="button" class="btn btn-ghost btn-sm range-button" data-range="30">30d</button></div></div>
+      </header>
+      <canvas id="metrics-chart" width="960" height="280" aria-label="Host resource chart"></canvas>
+      <div class="chart-legend"><span class="legend-item is-cpu">CPU</span><span class="legend-item is-memory">Memory</span><span class="legend-item is-disk">Disk</span></div>
     </article>
-    <article class="resource-card is-memory">
-      <span class="resource-label">Memory</span>
-      <strong id="resource-memory">—</strong>
-      <div class="resource-bar"><span id="resource-memory-bar"></span></div>
-      <small id="resource-memory-detail">—</small>
-    </article>
-    <article class="resource-card is-disk">
-      <span class="resource-label">Disk</span>
-      <strong id="resource-disk">—</strong>
-      <div class="resource-bar"><span id="resource-disk-bar"></span></div>
-      <small id="resource-disk-detail">—</small>
-    </article>
-    <article class="resource-card">
-      <span class="resource-label">Uptime</span>
-      <strong id="resource-uptime">—</strong>
-      <small id="resource-host-detail">—</small>
+    <article class="card system-health">
+      <h2>System health</h2><p class="card-desc">Live host metrics</p>
+      <section class="resource-board" aria-label="Host resources">
+        <div class="resource-card is-cpu"><span class="resource-label">CPU</span><strong id="resource-cpu">—</strong><div class="resource-bar"><span id="resource-cpu-bar"></span></div><small id="resource-cpu-detail">Current load</small></div>
+        <div class="resource-card is-memory"><span class="resource-label">Memory</span><strong id="resource-memory">—</strong><div class="resource-bar"><span id="resource-memory-bar"></span></div><small id="resource-memory-detail">—</small></div>
+        <div class="resource-card is-disk"><span class="resource-label">Disk</span><strong id="resource-disk">—</strong><div class="resource-bar"><span id="resource-disk-bar"></span></div><small id="resource-disk-detail">—</small></div>
+        <div class="resource-card"><span class="resource-label">Uptime</span><strong id="resource-uptime">—</strong><small id="resource-host-detail">—</small></div>
+      </section>
     </article>
   </section>
-  <section class="panel history-panel">
-    <header class="history-head">
-      <div>
-        <h2>Resource history</h2>
-        <p class="muted">เก็บทุก 5 นาที · ย้อนหลังได้สูงสุด 30 วัน</p>
-      </div>
-      <div class="history-controls">
-        <span id="metrics-updated" class="muted">—</span>
-        <div class="range-group" role="group" aria-label="ช่วงเวลา">
-          <button type="button" class="secondary range-button" data-range="1">1 วัน</button>
-          <button type="button" class="secondary range-button" data-range="3">3 วัน</button>
-          <button type="button" class="secondary range-button is-active" data-range="7">7 วัน</button>
-          <button type="button" class="secondary range-button" data-range="15">15 วัน</button>
-          <button type="button" class="secondary range-button" data-range="30">30 วัน</button>
-        </div>
-      </div>
-    </header>
-    <canvas id="metrics-chart" width="960" height="280" aria-label="กราฟการใช้ทรัพยากร"></canvas>
-    <div class="chart-legend">
-      <span class="legend-item is-cpu">CPU</span>
-      <span class="legend-item is-memory">Memory</span>
-      <span class="legend-item is-disk">Disk</span>
-    </div>
-  </section>
-  <table class="metric-table" aria-label="สถานะเครื่อง">
-    <tbody>
-      <tr><th>Host</th><td><strong id="host-name">—</strong> <span id="host-platform" class="muted">—</span></td></tr>
-      <tr><th>Node</th><td><strong id="node-version">—</strong> <span class="muted">major 24</span></td></tr>
-      <tr><th>Uptime</th><td><strong id="uptime">—</strong> <span id="memory" class="muted">—</span></td></tr>
-    </tbody>
-  </table>
-  <div class="section-head">
-    <h2>ความพร้อม</h2>
-    <span id="readiness-count" class="count">—</span>
-  </div>
+
+  <table class="metric-table" aria-label="Host details"><tbody><tr><th>Host</th><td><strong id="host-name-detail">—</strong> <span id="host-platform-detail" class="muted">—</span></td></tr><tr><th>Node</th><td><strong id="node-version">—</strong> <span class="muted">supported runtime</span></td></tr><tr><th>Uptime</th><td><strong id="uptime">—</strong> <span id="memory" class="muted">—</span></td></tr></tbody></table>
+
+  <div class="section-head"><h2>Portal readiness</h2><span id="readiness-count" class="count">—</span></div>
   <section id="readiness" class="readiness-list" aria-live="polite"></section>
-  <section class="next-action" aria-labelledby="next-action-title">
-    <div>
-      <h2 id="next-action-title">กำลังตรวจสอบความพร้อม</h2>
-      <p id="next-action-copy">กรุณารอสักครู่</p>
-    </div>
-    <button id="next-action-button" type="button" hidden></button>
-  </section>
+  <section class="next-action" aria-labelledby="next-action-title"><div><h2 id="next-action-title">Checking readiness</h2><p id="next-action-copy">Please wait a moment.</p></div><button id="next-action-button" class="btn btn-primary" type="button" hidden>Continue</button></section>
 </section>

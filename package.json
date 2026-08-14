@@ -1,6 +1,6 @@
 {
   "name": "modern-host-manager",
-  "version": "0.5.7",
+  "version": "0.5.8",
   "private": true,
   "type": "module",
   "description": "A constrained control plane for one self-managed Linux host.",
@@ -10,6 +10,7 @@
   "scripts": {
     "start": "node --env-file=.env src/server.mjs",
     "demo": "node --env-file=.env src/server.mjs",
+    "demo:reset-password": "node --env-file=.env scripts/reset-demo-password.mjs",
     "test": "node --test",
     "test:watch": "node --test --watch",
     "release:prepare": "node scripts/prepare-release.mjs",

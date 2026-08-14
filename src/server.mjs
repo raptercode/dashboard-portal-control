@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import os from 'node:os';
 import { spawn } from 'node:child_process';
-import { StateStore, TOOLS, SUPPORTED_NODE_MAJOR, SecretVault, appendAudit, validateDomain, validateEnvironmentContent, validateGitBranchRequest, validateGitIdentity, validateHttpsCredential, validateNotificationHook, validatePasswordChange, validateProjectDomains, validateProjectSync, validateTool, InputError } from './core.mjs';
+import { StateStore, TOOLS, SUPPORTED_NODE_MAJOR, SecretVault, appendAudit, validateDomain, validateEnvironmentContent, validateEnvironmentVariables, validateGitBranchRequest, validateGitIdentity, validateHttpsCredential, validateNotificationHook, validatePasswordChange, validateProjectDomains, validateProjectSync, validateTool, InputError } from './core.mjs';
 import { checkDomainDns } from './dns-check.mjs';
 import { activateRelease, appendReleaseEvent, beginDeployment, beginRollback, createRelease, defaultCandidatePort, failRelease, initialDeployment, markReleaseHealthy, markReleasePendingActivation, projectIdentity, validateDockerComposeProject, validateNativeProject, validatePackageScripts } from './native-project.mjs';
 import { callHostHelper } from './helper-client.mjs';
@@ -207,7 +207,10 @@ export async function createApplication(options = {}) {
       if (request.method === 'POST' && deployMatch) return await handleProjectDeploy(request, response, deployMatch[1]);
       const rollbackMatch = url.pathname.match(/^\/api\/projects\/([a-z][a-z0-9-]{0,62})\/rollback$/);
       if (request.method === 'POST' && rollbackMatch) return await handleProjectRollback(request, response, rollbackMatch[1]);
+      const deployConfigurationMatch = url.pathname.match(/^\/api\/projects\/([a-z][a-z0-9-]{0,62})\/deploy-configuration$/);
+      if (request.method === 'GET' && deployConfigurationMatch) return await handleProjectDeployConfiguration(request, response, deployConfigurationMatch[1]);
       const envMatch = url.pathname.match(/^\/api\/projects\/([a-z][a-z0-9-]{0,62})\/environment$/);
+      if (request.method === 'GET' && envMatch) return await handleProjectEnvironmentRead(request, response, envMatch[1]);
       if (request.method === 'POST' && envMatch) return await handleProjectEnvironment(request, response, envMatch[1]);
       const domainsCheckMatch = url.pathname.match(/^\/api\/projects\/([a-z][a-z0-9-]{0,62})\/domains\/check$/);
       if (request.method === 'POST' && domainsCheckMatch) return await handleProjectDomainCheck(request, response, domainsCheckMatch[1]);
@@ -850,15 +853,81 @@ export async function createApplication(options = {}) {
     if (!requireSession(request, response, true)) return;
     if (!vault) throw new InputError('Credential vault is not configured. Set HOSTMGR_SECRET_KEY before saving .env content.');
     const body = await readJson(request);
+    const variables = Array.isArray(body.variables) ? validateEnvironmentVariables(body.variables) : null;
     const content = typeof body.content === 'string' && body.content.trim() ? body.content : 'NODE_ENV=production\n';
-    const environment = validateEnvironmentContent(content);
     await store.update((state) => {
       const project = state.projects.find((item) => item.slug === slug);
       if (!project) throw new InputError('Project was not found.');
-      project.environment = { keys: environment.keys, updatedAt: new Date().toISOString(), encryptedContent: vault.encrypt(environment.content) };
-      appendAudit(state, { action: 'project.save_environment', outcome: 'success', actor: 'owner', target: slug, detail: `Saved .env metadata with ${environment.keys.length} keys` });
+      if (variables) {
+        const current = project.environment?.encryptedContent ? parseEnvironment(vault.decrypt(project.environment.encryptedContent)) : {};
+        const knownKeys = new Set(project.environment?.keys ?? Object.keys(current));
+        const sensitiveKeys = new Set(project.environment?.sensitiveKeys ?? knownKeys);
+        for (const variable of variables) {
+          if (!Object.hasOwn(current, variable.key) && !variable.value) throw new InputError(`A value is required for new environment variable ${variable.key}.`);
+          if (variable.value) current[variable.key] = variable.value;
+          knownKeys.add(variable.key);
+          if (variable.sensitive) sensitiveKeys.add(variable.key);
+          else sensitiveKeys.delete(variable.key);
+        }
+        const environment = validateEnvironmentContent(serializeEnvironment(current));
+        project.environment = {
+          keys: environment.keys,
+          sensitiveKeys: environment.keys.filter((key) => sensitiveKeys.has(key)),
+          updatedAt: new Date().toISOString(),
+          encryptedContent: vault.encrypt(environment.content)
+        };
+      } else {
+        const environment = validateEnvironmentContent(content);
+        // Existing textarea clients remain supported. Their values are treated as
+        // sensitive until the owner deliberately changes the row classification.
+        project.environment = { keys: environment.keys, sensitiveKeys: environment.keys, updatedAt: new Date().toISOString(), encryptedContent: vault.encrypt(environment.content) };
+      }
+      appendAudit(state, { action: 'project.save_environment', outcome: 'success', actor: 'owner', target: slug, detail: `Saved .env metadata with ${project.environment.keys.length} keys` });
     });
     return sendJson(response, 200, { ok: true, project: publicProject(store.snapshot().projects.find((item) => item.slug === slug)) });
+  }
+
+  async function handleProjectEnvironmentRead(request, response, slug) {
+    if (!requireSession(request, response)) return;
+    const project = findProject(store.snapshot(), slug);
+    const environment = project.environment ?? { keys: [] };
+    const values = environment.encryptedContent && vault ? parseEnvironment(vault.decrypt(environment.encryptedContent)) : {};
+    // Configurations created before row sensitivity existed default to masked.
+    const sensitiveKeys = new Set(environment.sensitiveKeys ?? environment.keys ?? []);
+    const variables = (environment.keys ?? Object.keys(values)).map((key) => ({
+      key,
+      sensitive: sensitiveKeys.has(key),
+      value: sensitiveKeys.has(key) ? null : (values[key] ?? '')
+    }));
+    return sendJson(response, 200, { environment: { variables, updatedAt: environment.updatedAt ?? null } });
+  }
+
+  async function handleProjectDeployConfiguration(request, response, slug) {
+    if (!requireSession(request, response)) return;
+    const project = findProject(store.snapshot(), slug);
+    if (project.runtime === 'docker-compose') {
+      return sendJson(response, 200, {
+        configuration: {
+          runtime: 'Docker Compose', packageManager: 'docker compose', lockfile: { name: 'Not applicable', valid: null },
+          nodeVersion: 'Not applicable', buildScript: `${project.composeFile || 'compose.yaml'} · ${project.composeService || 'service'}`,
+          startScript: 'docker compose up', skipBuild: false
+        }
+      });
+    }
+    const bun = project.runtime === 'bun';
+    const lockfile = await hasRuntimeLockfile(repositoryDirectory(project, projectRoot), project.runtime);
+    const command = bun ? 'bun run' : 'npm run';
+    return sendJson(response, 200, {
+      configuration: {
+        runtime: bun ? 'Bun' : 'Node.js',
+        packageManager: lockfile ? (bun ? 'bun install --frozen-lockfile' : 'npm ci') : 'npm install',
+        lockfile: { name: bun ? 'bun.lock' : 'package-lock.json', valid: lockfile },
+        nodeVersion: bun ? `Bun runtime` : process.version.replace(/^v/, ''),
+        buildScript: project.buildScript ? `${command} ${project.buildScript}` : 'Skip build step',
+        startScript: `${command} ${project.startScript || 'start'}`,
+        skipBuild: !project.buildScript
+      }
+    });
   }
 
   async function handleProjectDomainCheck(request, response, slug) {
@@ -1304,6 +1373,10 @@ function parseEnvironment(content) {
     if (separator > 0) environment[line.slice(0, separator)] = line.slice(separator + 1);
   }
   return environment;
+}
+
+function serializeEnvironment(environment) {
+  return Object.entries(environment).sort(([left], [right]) => left.localeCompare(right)).map(([key, value]) => `${key}=${value}`).join('\n') + (Object.keys(environment).length ? '\n' : '');
 }
 
 async function projectRevision(project, projectRoot) {

@@ -21,8 +21,10 @@ const state = {
   bootstrapRequired: false,
   owner: null,
   activeProject: null,
+  deployEnvironmentVariables: [],
   domainDraft: null,
-  slugManual: false
+  slugManual: false,
+  deployStep: 1
 };
 let deploymentProgressTimer = null;
 
@@ -200,6 +202,18 @@ async function refresh() {
   state.softwareUpdate = softwareUpdate;
   state.mode = doctor.mode;
   $('#mode-badge').textContent = doctor.mode === 'host' ? 'host' : 'sandbox';
+  const ownerLabel = state.owner?.email || 'owner';
+  const initials = ownerLabel.split('@')[0].split(/[._-]/).map((part) => part[0]).join('').slice(0, 2).toUpperCase() || 'OW';
+  $('#host-breadcrumb').textContent = doctor.host?.hostname || '—';
+  $('#tls-badge').lastChild.textContent = doctor.mode === 'host' ? ' Host connected' : ' Sandbox';
+  $('#owner-avatar').textContent = initials;
+  $('#sidebar-avatar').textContent = initials;
+  $('#sidebar-owner').textContent = ownerLabel.split('@')[0] || 'Owner';
+  const projectCount = $('#sidebar-project-count');
+  if (projectCount) {
+    projectCount.hidden = false;
+    projectCount.textContent = String(state.projects.length);
+  }
   const notice = $('#sandbox-notice');
   if (notice) notice.hidden = doctor.mode !== 'demo';
   if (page === 'overview') {
@@ -218,6 +232,8 @@ function renderOverview() {
   const { host, supportedNodeMajor, tools } = state.doctor;
   $('#host-name').textContent = host.hostname;
   $('#host-platform').textContent = `${host.platform} · ${host.arch}`;
+  $('#host-name-detail').textContent = host.hostname;
+  $('#host-platform-detail').textContent = `${host.platform} · ${host.arch}`;
   $('#node-version').textContent = `v${supportedNodeMajor}`;
   $('#uptime').textContent = duration(host.uptimeSeconds);
   $('#memory').textContent = `${formatBytes(host.memoryBytes)} total`;
@@ -306,14 +322,14 @@ function drawMetricsChart(samples) {
   const ctx = canvas.getContext('2d');
   ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
   ctx.clearRect(0, 0, width, height);
-  ctx.fillStyle = '#fbfcfd';
+  ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, width, height);
   const pad = { top: 16, right: 16, bottom: 28, left: 36 };
   const chartW = width - pad.left - pad.right;
   const chartH = height - pad.top - pad.bottom;
-  ctx.strokeStyle = '#d5dce2';
-  ctx.fillStyle = '#5b6775';
-  ctx.font = '11px Segoe UI, Tahoma, sans-serif';
+  ctx.strokeStyle = '#e2e8f0';
+  ctx.fillStyle = '#64748b';
+  ctx.font = '11px Inter, Segoe UI, sans-serif';
   for (let i = 0; i <= 4; i += 1) {
     const y = pad.top + (chartH * i) / 4;
     ctx.beginPath();
@@ -331,9 +347,9 @@ function drawMetricsChart(samples) {
   const maxX = Math.max(...times);
   const spanX = Math.max(1, maxX - minX);
   const series = [
-    { key: 'cpuPercent', color: '#d64545' },
-    { key: 'memoryPercent', color: '#2f9e6b' },
-    { key: 'diskPercent', color: '#2f6fed' }
+    { key: 'cpuPercent', color: '#ef4444' },
+    { key: 'memoryPercent', color: '#10b981' },
+    { key: 'diskPercent', color: '#4f46e5' }
   ];
   for (const line of series) {
     ctx.beginPath();
@@ -354,7 +370,7 @@ function drawMetricsChart(samples) {
     const label = new Date(times[index]).toLocaleString('th-TH', state.metricsRange <= 1
       ? { hour: '2-digit', minute: '2-digit' }
       : { month: 'short', day: 'numeric', hour: '2-digit' });
-    ctx.fillStyle = '#5b6775';
+    ctx.fillStyle = '#64748b';
     ctx.fillText(label, Math.min(x, width - 70), height - 8);
   }
 }
@@ -396,6 +412,7 @@ function renderSetup() {
 function renderProjects() {
   const root = $('#projects');
   if (!root) return;
+  renderProjectsHealth();
   const statusFilter = currentProjectStatusFilter();
   const filterBanner = $('#project-status-filter');
   const filterLabel = $('#project-status-filter-label');
@@ -412,7 +429,8 @@ function renderProjects() {
     if (!query) return true;
     return [project.name, project.slug, project.organization, project.repository, project.branch].join(' ').toLocaleLowerCase('th-TH').includes(query);
   });
-  $('#project-count').textContent = `${projects.length} โปรเจค`;
+  $('#project-count').textContent = `${projects.length} projects`;
+  $('#projects-subtitle').textContent = `${projects.length} projects · ${projectStatusCounts(projects).ready} running · ${projectStatusCounts(projects).pause} pending`;
   if (!projects.length) {
     const empty = statusFilter
       ? `ไม่มีโปรเจคในสถานะ ${PROJECT_STATUS[statusFilter].label}`
@@ -425,23 +443,54 @@ function renderProjects() {
     const name = project.organization || 'ไม่ระบุองค์กร';
     groups.set(name, [...(groups.get(name) || []), project]);
   });
-  root.replaceChildren(...[...groups.entries()].flatMap(([organization, items]) => {
+  const entries = [...groups.entries()];
+  root.replaceChildren(...entries.flatMap(([organization, items]) => {
     const heading = element('h2', 'organization', organization);
     const list = element('section', 'project-list');
     list.setAttribute('aria-label', organization);
     list.append(...items.map(projectRow));
-    return [heading, list];
+    return entries.length > 1 ? [heading, list] : [list];
   }));
+}
+
+function renderProjectsHealth() {
+  const root = $('#project-health-strip');
+  if (!root) return;
+  const tool = (id) => state.doctor?.tools?.find((item) => item.id === id);
+  const installed = (id) => tool(id)?.status === 'Installed';
+  const host = state.doctor?.host || {};
+  const diskTotal = host.diskTotalBytes || 0;
+  const diskPercent = diskTotal ? ((host.diskUsedBytes || 0) / diskTotal) * 100 : 0;
+  const memoryTotal = host.memoryBytes || 0;
+  const memoryUsed = host.memoryUsedBytes || 0;
+  const pill = (label, warning = false) => {
+    const item = element('span', `health-pill${warning ? ' warn' : ''}`);
+    item.append(element('span', 'check', warning ? '⚠' : '✓'), document.createTextNode(` ${label}`));
+    return item;
+  };
+  const items = [
+    pill(`Node ${state.doctor?.supportedNodeMajor ? `v${state.doctor.supportedNodeMajor}` : '—'}`),
+    pill('Bun supported'),
+    pill(installed('nginx') ? 'Nginx running' : 'Nginx not installed', !installed('nginx')),
+    pill(installed('certbot') ? 'Certbot ready' : 'Certbot not installed', !installed('certbot')),
+    pill(diskTotal ? `Disk ${formatPercent(diskPercent)}% used` : 'Disk unavailable', diskPercent >= 80),
+    pill(memoryTotal ? `Memory ${formatBytes(memoryUsed)} / ${formatBytes(memoryTotal)}` : 'Memory unavailable')
+  ];
+  root.replaceChildren(...items);
 }
 
 function projectRow(project) {
   const sync = project.sync || { status: 'unknown', detail: 'ยังไม่มีข้อมูลการ sync' };
   const deployment = project.deployment || { state: 'idle', activeReleaseId: null, previousReleaseId: null, releases: [] };
-  const row = element('article', 'project-row');
+  const row = element('article', 'project-row project-card');
   const copy = element('div', 'project-copy');
-  const headline = element('div', 'project-headline');
-  const identity = element('p', 'project-identity');
-  identity.append(element('code', '', project.slug), document.createTextNode(` · ${project.branch}`));
+  const headline = element('div', 'card-head project-headline');
+  const cardTitle = element('div', 'card-title');
+  const runtimeStatus = projectRuntimeStatus(project);
+  cardTitle.append(element('span', `status-dot ${runtimeStatus === 'ready' ? 'success' : runtimeStatus === 'down' ? 'error' : 'building'}`), element('h3', '', project.name));
+  const latestRelease = deployment.releases?.[0];
+  const version = latestRelease?.revision || deployment.activeReleaseId || (deployment.state === 'active' ? 'active' : deployment.state);
+  const identity = element('span', 'card-version', String(version || 'draft').slice(0, 18));
   const secondary = element('div', 'project-secondary');
   const domains = element('span', 'project-domain');
   if (project.domains?.hosts?.length) {
@@ -457,6 +506,13 @@ function projectRow(project) {
     domains.classList.add('muted');
     domains.textContent = 'ยังไม่ได้ตั้งค่า domain';
   }
+  const repository = element('div', 'card-repo', String(project.repository || '').replace(/^https?:\/\//, '').replace(/^git@/, '').replace(/\.git$/, ''));
+  const meta = element('div', 'card-meta');
+  const portMeta = element('span', 'meta-item');
+  portMeta.append(document.createTextNode('Port '), element('strong', '', String(project.port || 'auto')));
+  const branchMeta = element('span', 'meta-item');
+  branchMeta.append(document.createTextNode('Branch '), element('strong', '', project.branch));
+  meta.append(portMeta, branchMeta);
   const details = element('details', 'project-details');
   const detailSummary = element('summary', '', 'รายละเอียดการตั้งค่า');
   const detailList = element('dl', 'project-detail-list');
@@ -473,30 +529,42 @@ function projectRow(project) {
   ];
   values.forEach(([label, value]) => detailList.append(element('dt', '', label), element('dd', '', value)));
   details.append(detailSummary, detailList);
-  headline.append(element('h3', '', project.name), identity);
+  headline.append(cardTitle, identity);
   secondary.append(domains, details);
-  copy.append(headline, secondary);
+  copy.append(headline, repository, meta, secondary);
   const badges = element('div', 'project-badges');
   const syncTone = sync.status === 'synced' ? 'ready' : (sync.status === 'failed' || sync.status === 'needs_ssh_key' ? 'needs' : 'muted');
   const syncLabel = sync.status === 'synced' ? 'source synced' : sync.status === 'needs_ssh_key' ? 'ต้องมี SSH key' : sync.status === 'failed' ? 'sync ล้มเหลว' : 'ยังไม่ sync';
   badges.append(statusChip(syncLabel, syncTone));
   const releaseLabel = deployment.state === 'active' ? 'release พร้อมใช้งาน' : deployment.state === 'awaiting_activation' ? 'รอ activate บน host' : deployment.state === 'failed' ? 'deploy ล้มเหลว' : 'ยังไม่ deploy';
   badges.append(statusChip(releaseLabel, deployment.state === 'active' ? 'ready' : deployment.state === 'failed' ? 'needs' : 'muted'));
-  const actions = element('div', 'project-actions');
+  const actions = element('div', 'card-actions project-actions');
+  const deployNow = element('button', 'btn btn-primary btn-sm', 'Deploy');
+  deployNow.type = 'button';
+  deployNow.disabled = sync.status !== 'synced';
+  deployNow.addEventListener('click', () => openDeployDialog(project).catch(showError));
+  actions.append(deployNow);
+  const logsPageLink = element('a', 'btn btn-ghost btn-sm', 'Logs');
+  logsPageLink.href = `/projects/${encodeURIComponent(project.slug)}/logs`;
+  actions.append(logsPageLink);
   const menu = element('details', 'project-actions-menu');
-  const menuSummary = element('summary', '', 'Actions');
+  const menuSummary = element('summary', '', '⋯');
   menuSummary.setAttribute('aria-label', `จัดการ ${project.name}`);
   const actionList = element('div', 'project-action-list');
   const closeMenu = (callback) => (...args) => {
     menu.open = false;
     return callback(...args);
   };
+  menu.addEventListener('toggle', () => row.classList.toggle('menu-open', menu.open));
+  const syncLatest = element('button', 'secondary', 'Sync latest');
+  syncLatest.type = 'button';
+  syncLatest.addEventListener('click', closeMenu(() => syncExistingProject(project, syncLatest).catch(showError)));
+  actionList.append(syncLatest);
   const deploy = element('button', 'secondary', 'สร้าง release');
   deploy.type = 'button';
   deploy.disabled = sync.status !== 'synced';
-  deploy.addEventListener('click', closeMenu(() => openDeployDialog(project)));
+  deploy.addEventListener('click', closeMenu(() => openDeployDialog(project).catch(showError)));
   actionList.append(deploy);
-  const latestRelease = deployment.releases?.[0];
   if (latestRelease) {
     const logs = element('button', 'secondary', 'ดู log');
     logs.type = 'button';
@@ -535,6 +603,35 @@ function projectRow(project) {
   row.append(copy, side);
   row.title = sync.detail || '';
   return row;
+}
+
+async function syncExistingProject(project, button) {
+  const payload = {
+    organization: project.organization,
+    name: project.name,
+    slug: project.slug,
+    repository: project.repository,
+    directory: project.directory || '/',
+    branch: project.branch || 'main',
+    port: project.port ?? null,
+    runtime: project.runtime || 'node',
+    healthCheckEnabled: project.healthCheckEnabled !== false,
+    healthCheckPath: project.healthCheckPath || '/',
+    protocol: project.protocol || 'https',
+    credentialId: project.credentialId || ''
+  };
+  if (payload.runtime === 'docker-compose') {
+    payload.composeFile = project.composeFile || 'compose.yaml';
+    payload.composeService = project.composeService || '';
+  } else {
+    payload.buildScript = project.buildScript ?? '';
+    payload.startScript = project.startScript || 'start';
+  }
+  await withBusy(button, async () => {
+    const result = await api('/api/projects/sync', { method: 'POST', body: payload });
+    toast(result.project?.sync?.status === 'synced' ? `Synced latest ${payload.branch}` : (result.project?.sync?.detail || 'Project sync queued.'));
+    await refresh();
+  });
 }
 
 function renderCredentials() {
@@ -636,24 +733,26 @@ function fillCredentialSelect(selected = '') {
 }
 
 function renderAudit() {
-  const body = $('#audit');
-  body.replaceChildren(...state.audit.map((event) => {
-    const row = element('tr');
-    row.append(
-      element('td', '', new Date(event.at).toLocaleString('th-TH')),
-      element('td', '', event.action),
-      element('td', '', event.target || '—'),
-      element('td', `outcome-${event.outcome}`, event.outcome)
-    );
+  const root = $('#audit');
+  if (!root) return;
+  const toneFor = (outcome) => outcome === 'success' ? 'success' : (outcome === 'failed' || outcome === 'error' ? 'error' : outcome === 'warning' ? 'warning' : 'info');
+  if (!state.audit.length) {
+    root.replaceChildren(element('div', 'empty-state', 'No activity recorded yet.'));
+    return;
+  }
+  root.replaceChildren(...state.audit.map((event) => {
+    const row = element('article', 'tl-event');
+    const tone = toneFor(event.outcome);
+    const marker = element('div', `tl-icon ${tone}`);
+    marker.append(icon(tone === 'success' ? 'check' : tone === 'error' ? 'close' : tone === 'warning' ? 'alert' : 'clock'));
+    const title = element('div', 'tl-title', event.action);
+    if (event.target) title.append(element('span', 'tag', event.target));
+    row.append(marker, title, element('div', 'tl-desc', event.detail || `Outcome: ${event.outcome || 'recorded'}`));
+    const meta = element('div', 'tl-meta');
+    meta.append(element('span', '', event.actor || 'system'), element('span', '', '·'), element('span', '', new Date(event.at).toLocaleString('th-TH')));
+    row.append(meta);
     return row;
   }));
-  if (!state.audit.length) {
-    const row = element('tr');
-    const cell = element('td', '', 'ยังไม่มีกิจกรรม');
-    cell.colSpan = 4;
-    row.append(cell);
-    body.append(row);
-  }
 }
 
 function renderSettings() {
@@ -736,8 +835,8 @@ function renderSoftwareUpdate() {
   const command = $('#update-command');
   const copy = $('#copy-update-command');
   if (!update?.configured) {
-    root.replaceChildren(element('h2', '', 'อัปเดตซอฟต์แวร์'), element('p', '', 'ยังไม่ได้เชื่อมช่องทาง release ที่เซ็นลายเซ็นไว้ ระบบจะไม่ดาวน์โหลดหรืออัปเดตอะไรเอง'));
-    command.textContent = 'sudo dashboard-portal configure-update --manifest=https://… --public-key=/path/to/public.pem';
+    root.replaceChildren(element('h2', '', 'อัปเดตซอฟต์แวร์'), element('p', '', 'ตัวติดตั้งรุ่นปัจจุบันจะเชื่อมช่อง stable ที่เซ็นลายเซ็นให้โดยอัตโนมัติ เครื่องนี้ยังไม่มีการตั้งค่านั้น'));
+    command.textContent = 'sudo dashboard-portal update';
     copy.disabled = false;
     return;
   }
@@ -748,7 +847,9 @@ function renderSoftwareUpdate() {
       ? `v${update.currentVersion} · channel ${update.channel}`
       : update.issue || `v${update.currentVersion} · channel ${update.channel}`;
   root.replaceChildren(element('h2', '', 'อัปเดตซอฟต์แวร์'), element('p', '', status), element('small', 'update-detail', detail));
-  command.textContent = `sudo dashboard-portal update --channel=${update.channel}`;
+  command.textContent = update.channel === 'stable'
+    ? 'sudo dashboard-portal update'
+    : `sudo dashboard-portal update --channel=${update.channel}`;
   copy.disabled = false;
 }
 
@@ -819,38 +920,159 @@ async function rollbackProject(project, button) {
   finally { button.disabled = false; }
 }
 
-function openDeployDialog(project) {
+async function openDeployDialog(project) {
   state.activeProject = project;
-  $('#deploy-project-label').textContent = `${project.name} · ${project.slug}`;
-  const keys = project.environment?.keys || [];
-  const hasKeys = keys.length > 0;
-  const keyList = $('#deploy-existing-keys');
-  keyList.hidden = !hasKeys;
-  keyList.replaceChildren(...keys.map((key) => element('span', '', key)));
-  $('#deploy-environment').value = '';
-  $('#deploy-environment-update').open = !hasKeys;
-  $('#deploy-saved-env-message').textContent = hasKeys
-    ? 'release นี้จะใช้ .env ที่บันทึกและเข้ารหัสไว้โดยอัตโนมัติ ชื่อ key ด้านล่างเป็นข้อมูลสำหรับตรวจสอบเท่านั้น'
-    : 'ใส่ .env ครั้งแรก ระบบจะเก็บแบบเข้ารหัสและแสดงเฉพาะชื่อ key';
-  $('#deploy-env-hint').textContent = hasKeys
-    ? `มี ${keys.length} keys ที่บันทึกแล้ว — ไม่ต้องกรอกซ้ำ หากไม่ต้องการเปลี่ยนค่า`
-    : 'ต้องมีอย่างน้อยหนึ่งตัวแปรก่อน deploy';
-  $('#deploy-submit').textContent = hasKeys ? 'สร้าง release ด้วย .env ที่บันทึกไว้' : 'บันทึกและสร้าง release';
-  $('#deploy-dialog').showModal();
+  const latestRelease = project.deployment?.releases?.[0];
+  $('#deploy-dialog-title').textContent = `Deploy ${project.name}`;
+  $('#deploy-project-label').textContent = `Release candidate · ${latestRelease?.revision || project.branch || 'latest source'}`;
+  $('#deploy-release-project').textContent = project.name;
+  $('#deploy-release-source').textContent = `${project.branch || 'main'} · ${latestRelease?.revision || 'latest sync'}`;
+  const [payload, configurationPayload] = await Promise.all([
+    api(`/api/projects/${encodeURIComponent(project.slug)}/environment`),
+    api(`/api/projects/${encodeURIComponent(project.slug)}/deploy-configuration`)
+  ]);
+  const configuration = configurationPayload.configuration;
+  $('#deploy-runtime').textContent = configuration.runtime;
+  $('#deploy-branch').textContent = project.branch || 'main';
+  $('#deploy-start-script').textContent = configuration.startScript;
+  $('#deploy-package-manager').textContent = configuration.packageManager;
+  $('#deploy-node-version').textContent = configuration.nodeVersion;
+  $('#deploy-build-script').textContent = configuration.buildScript;
+  const lockfile = $('#deploy-lockfile');
+  lockfile.textContent = configuration.lockfile.valid === true ? `✓ ${configuration.lockfile.name} valid` : configuration.lockfile.valid === false ? `${configuration.lockfile.name} Not valid` : configuration.lockfile.name;
+  lockfile.classList.toggle('deploy-lock-valid', configuration.lockfile.valid === true);
+  lockfile.classList.toggle('deploy-lock-invalid', configuration.lockfile.valid === false);
+  $('#deploy-skip-build-toggle').classList.toggle('on', configuration.skipBuild);
+  $('#deploy-build-note').textContent = configuration.lockfile.valid === false
+    ? `No ${configuration.lockfile.name} found — deployment will use ${configuration.packageManager}, not npm ci.`
+    : configuration.skipBuild
+      ? 'Build step is skipped by this project configuration; dependencies and health checks still run.'
+      : 'The build plan uses the configuration shown in the Environment step.';
+  state.deployEnvironmentVariables = payload.environment?.variables || [];
+  renderDeployEnvironment(state.deployEnvironmentVariables);
+  const keyCount = state.deployEnvironmentVariables.length;
+  $('#deploy-saved-env-message').textContent = keyCount
+    ? 'ค่าที่ไม่ sensitive แสดงในช่องแก้ไขได้ ส่วน sensitive key จะปกปิดค่าไว้'
+    : 'เพิ่ม environment variable ก่อนสร้าง release';
+  $('#deploy-env-hint').textContent = keyCount
+    ? 'ช่องค่าที่เว้นว่างจะคงค่าเดิมไว้; key ใหม่ต้องระบุค่า'
+    : 'เพิ่มอย่างน้อยหนึ่งตัวแปรก่อน deploy';
+  $('#deploy-release-environment').textContent = keyCount ? `${keyCount} configured keys` : 'New .env required';
+  setDeployStep(1);
+  const dialog = $('#deploy-dialog');
+  dialog.showModal();
+  requestAnimationFrame(() => dialog.classList.add('open'));
+}
+
+function renderDeployEnvironment(variables) {
+  const root = $('#deploy-environment-rows');
+  root.replaceChildren(...variables.map((variable) => deployEnvironmentRow(variable)));
+}
+
+function deployEnvironmentRow(variable = { key: '', value: '', sensitive: true, isNew: true }) {
+  const row = element('div', `env-row deploy-env-row${variable.isNew ? ' deploy-env-row--new' : ''}`);
+  row.dataset.existing = variable.isNew ? 'false' : 'true';
+  const key = element('input', 'input');
+  key.value = variable.key || '';
+  key.placeholder = 'VARIABLE_NAME';
+  key.autocomplete = 'off';
+  key.spellcheck = false;
+  key.readOnly = !variable.isNew;
+  key.setAttribute('aria-label', 'Environment variable name');
+  const value = element('input', 'input');
+  const sensitive = variable.sensitive !== false;
+  value.type = sensitive ? 'password' : 'text';
+  value.value = sensitive ? '' : (variable.value || '');
+  value.placeholder = sensitive ? 'Sensitive — leave blank to keep' : 'Leave blank to keep current value';
+  value.autocomplete = 'off';
+  value.spellcheck = false;
+  value.setAttribute('aria-label', `Value for ${variable.key || 'new variable'}`);
+  const toggle = element('button', 'env-sensitivity');
+  toggle.type = 'button';
+  const refreshSensitivity = () => {
+    const isSensitive = row.dataset.sensitive === 'true';
+    value.type = isSensitive ? 'password' : 'text';
+    value.classList.toggle('secret', isSensitive);
+    value.placeholder = isSensitive ? 'Sensitive — leave blank to keep' : 'Leave blank to keep current value';
+    toggle.setAttribute('aria-pressed', String(isSensitive));
+    toggle.setAttribute('aria-label', isSensitive ? 'Sensitive value: keep masked' : 'Non-sensitive value: may be shown');
+    toggle.replaceChildren(icon(isSensitive ? 'lock' : 'unlock'));
+  };
+  row.dataset.sensitive = String(sensitive);
+  refreshSensitivity();
+  toggle.addEventListener('click', () => {
+    row.dataset.sensitive = String(row.dataset.sensitive !== 'true');
+    if (row.dataset.sensitive === 'true') value.value = '';
+    refreshSensitivity();
+  });
+  row.append(key, value, toggle);
+  if (variable.isNew) {
+    const remove = element('button', 'close-btn deploy-env-remove');
+    remove.type = 'button';
+    remove.setAttribute('aria-label', 'Remove environment variable');
+    remove.append(icon('close'));
+    remove.addEventListener('click', () => row.remove());
+    row.append(remove);
+  }
+  return row;
+}
+
+function collectDeployEnvironmentVariables() {
+  const variables = [];
+  for (const row of $$('.deploy-env-row')) {
+    const [keyInput, valueInput] = $$('input', row);
+    const key = keyInput.value.trim();
+    const value = valueInput.value;
+    const existing = row.dataset.existing === 'true';
+    if (!key && !value) continue;
+    if (!key) throw new Error('กรุณาระบุชื่อ environment variable');
+    if (!existing && !value) throw new Error(`กรุณาระบุค่าสำหรับ key ใหม่ ${key}`);
+    variables.push({ key, value, sensitive: row.dataset.sensitive === 'true' });
+  }
+  if (!variables.length) throw new Error('ต้องมีอย่างน้อยหนึ่ง environment variable ก่อน deploy');
+  return variables;
+}
+
+function setDeployStep(step) {
+  state.deployStep = step;
+  $$('[data-deploy-pane]').forEach((pane) => { pane.hidden = Number(pane.dataset.deployPane) !== step; });
+  $$('[data-deploy-step]').forEach((item) => {
+    const itemStep = Number(item.dataset.deployStep);
+    item.classList.toggle('active', itemStep === step);
+    item.classList.toggle('done', itemStep < step);
+  });
+  const back = $('#deploy-back');
+  back.hidden = step === 1;
+  $('#deploy-submit').textContent = step === 1 ? 'Next: Build' : step === 2 ? 'Next: Release' : 'Create release';
+}
+
+function closeDeployDialog() {
+  const dialog = $('#deploy-dialog');
+  dialog.classList.remove('open');
+  window.setTimeout(() => {
+    if (!dialog.classList.contains('open') && dialog.open) dialog.close();
+  }, 250);
 }
 
 async function submitDeploy(event) {
   event.preventDefault();
   const project = state.activeProject;
-  const content = $('#deploy-environment').value;
-  const hasKeys = Boolean(project.environment?.keys?.length);
-  if (!content && !hasKeys) throw new Error('ต้องมีอย่างน้อยหนึ่งตัวแปรใน .env ก่อน deploy');
+  const variables = collectDeployEnvironmentVariables();
+  if (state.deployStep === 1) {
+    $('#deploy-release-environment').textContent = `${variables.length} configured keys`;
+    setDeployStep(2);
+    return;
+  }
+  if (state.deployStep === 2) {
+    setDeployStep(3);
+    return;
+  }
   const submit = $('#deploy-submit');
   submit.disabled = true;
   try {
-    if (content || !hasKeys) await api(`/api/projects/${encodeURIComponent(project.slug)}/environment`, { method: 'POST', body: { content } });
+    await api(`/api/projects/${encodeURIComponent(project.slug)}/environment`, { method: 'POST', body: { variables } });
     const result = await api(`/api/projects/${encodeURIComponent(project.slug)}/deploy`, { method: 'POST', body: {} });
-    $('#deploy-dialog').close();
+    closeDeployDialog();
     toast(result.activation === 'queued' ? 'จัดคิว deploy แล้ว' : 'สร้าง release แล้ว');
     if (result.job?.id) showDeploymentProgress(project, result.job);
     else await refresh();
@@ -1531,8 +1753,11 @@ function bindEvents() {
   });
 
   $('#deploy-form')?.addEventListener('submit', (event) => submitDeploy(event).catch(showError));
-  $('#deploy-close')?.addEventListener('click', () => $('#deploy-dialog').close());
-  $('#deploy-cancel')?.addEventListener('click', () => $('#deploy-dialog').close());
+  $('#deploy-close')?.addEventListener('click', closeDeployDialog);
+  $('#deploy-cancel')?.addEventListener('click', closeDeployDialog);
+  $('#deploy-back')?.addEventListener('click', () => setDeployStep(Math.max(1, state.deployStep - 1)));
+  $('#deploy-add-variable')?.addEventListener('click', () => $('#deploy-environment-rows').append(deployEnvironmentRow()));
+  $('#deploy-dialog')?.addEventListener('cancel', (event) => { event.preventDefault(); closeDeployDialog(); });
   $('#deployment-log-close')?.addEventListener('click', () => $('#deployment-log-dialog').close());
   $('#deployment-log-dismiss')?.addEventListener('click', () => $('#deployment-log-dialog').close());
 

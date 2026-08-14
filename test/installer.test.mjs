@@ -109,3 +109,12 @@ test('installer provisions a checksum-verified Bun runtime for Bun projects', as
   assert.match(script, /\/usr\/local\/bin\/bun/);
   assert.match(script, /unzip git/);
 });
+
+test('installer enrolls new hosts in the signed stable update channel without a manual configure step', async () => {
+  const script = await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8');
+  assert.match(script, /UPDATE_PUBLIC_KEY_SOURCE='scripts\/dashboard-portal-update-public\.pem'/);
+  assert.match(script, /DEFAULT_UPDATE_MANIFEST_URL='https:\/\/github\.com\/raptercode\/dashboard-portal-control\/releases\/latest\/download\/stable\.json'/);
+  assert.match(script, /install -m 0644 -o root -g root "\$APP_ROOT\/\$UPDATE_PUBLIC_KEY_SOURCE" "\$UPDATE_PUBLIC_KEY_FILE"/);
+  assert.match(script, /set_config_value HOSTMGR_UPDATE_CHANNEL "\$DEFAULT_UPDATE_CHANNEL"/);
+  assert.match(script, /Preserve an existing custom feed/);
+});

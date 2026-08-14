@@ -45,7 +45,7 @@ async function update(values) {
   const config = await readConfig();
   if (options.channel) config.HOSTMGR_UPDATE_CHANNEL = options.channel;
   const updateConfig = updateConfiguration(config);
-  if (!updateConfig.configured) fatal(updateConfig.issue ?? 'Software update is not configured. Run configure-update first.');
+  if (!updateConfig.configured) fatal(updateConfig.issue ?? 'Software update is not configured. Re-run the current Dashboard Portal installer, or configure a custom feed first.');
   const currentVersion = await installedVersion();
   const manifest = await fetchVerifiedManifest(updateConfig);
   if (options.check) {
@@ -143,8 +143,8 @@ function run(command, commandArgs, options = {}) {
 }
 
 function usage() {
-  console.error('Usage: sudo dashboard-portal configure-update --manifest=https://... --public-key=/path/key.pem [--channel=stable]');
-  console.error('       sudo dashboard-portal update [--channel=stable] [--check]');
+  console.error('Usage: sudo dashboard-portal update [--check] [--channel=stable]');
+  console.error('       sudo dashboard-portal configure-update --manifest=https://... --public-key=/path/key.pem [--channel=stable]');
   process.exit(64);
 }
 

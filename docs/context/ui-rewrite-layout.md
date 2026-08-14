@@ -7,7 +7,22 @@ Greenfield UI is live; the old `public/index.html` shell is not served.
 - Templates: `views/layout.html`, `views/pages/*`, `views/partials/*`
 - Renderer: `src/render.mjs` (zero-dependency include + escape helpers)
 - Routes: `src/ui-routes.mjs`
-- Assets: `public/ui/admin.css`, `public/ui/app.js`, `public/ui/router.js`
+- Assets: `public/ui/admin.css`, `public/ui/v2-source.css`, `public/ui/v2-compat.css`, `public/ui/app.js`, `public/ui/router.js`
+
+## v2 visual system
+
+`public/ui/v2-source.css` is the supplied Dashboard Portal v2 design system,
+kept as a separate source asset so its palette, typography, layout, cards,
+timeline, and responsive rules remain traceable. `v2-compat.css` adapts the
+live server-rendered templates and data-driven controls to that system without
+changing any API, session, CSRF, deployment, or secret-handling behaviour.
+
+The visual shell now follows the supplied v2 topbar/sidebar layout. Dashboard,
+Projects, Activity, Setup, Credentials, Databases, and Settings are backed by
+the Portal's real routes. The supplied static examples for Mail, Rules, a
+standalone Nginx view, and standalone Certificates/Deploys pages are not added
+as dead routes: their relevant operations continue to live on real project,
+domain, log, and settings flows.
 
 ## Routes
 

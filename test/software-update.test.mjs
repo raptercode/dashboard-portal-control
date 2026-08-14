@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { generateKeyPairSync, sign } from 'node:crypto';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { createPublicKey, generateKeyPairSync, sign } from 'node:crypto';
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { canonicalJson, compareVersions, parseSignedManifest, softwareUpdateStatus, updateConfiguration } from '../scripts/software-update.mjs';
@@ -28,6 +28,23 @@ test('signed update manifests verify and compare semantic versions', () => {
   assert.equal(compareVersions('0.2.0', '0.2.0'), 0);
   manifest.payload.version = '0.2.2';
   assert.throws(() => parseSignedManifest(manifest, publicKey.export({ type: 'spki', format: 'pem' })), /signature/);
+});
+
+test('the stable channel is the default when an update command omits --channel', () => {
+  assert.deepEqual(updateConfiguration({
+    HOSTMGR_UPDATE_MANIFEST_URL: 'https://updates.example.test/stable.json',
+    HOSTMGR_UPDATE_PUBLIC_KEY_PATH: '/etc/dashboard-portal/update-public-key.pem'
+  }), {
+    configured: true,
+    manifestUrl: 'https://updates.example.test/stable.json',
+    publicKeyPath: '/etc/dashboard-portal/update-public-key.pem',
+    channel: 'stable'
+  });
+});
+
+test('the installer bundles a valid Ed25519 public key for the stable feed', async () => {
+  const key = await readFile(new URL('../scripts/dashboard-portal-update-public.pem', import.meta.url), 'utf8');
+  assert.equal(createPublicKey(key).asymmetricKeyType, 'ed25519');
 });
 
 test('software update status fails closed when the manifest cannot be verified', async () => {

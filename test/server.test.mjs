@@ -320,6 +320,56 @@ test('local UI demo simulates sync and activates a release without cloning', asy
   assert.ok(payload.project.deployment.activeReleaseId);
 });
 
+test('environment drawer reveals only explicitly non-sensitive values and retains blank sensitive values', async (t) => {
+  const { app, base } = await start();
+  t.after(() => app.close());
+  await app.store.update((state) => {
+    state.projects.push({ name: 'Environment app', slug: 'environment-app', environment: { keys: [] } });
+  });
+  const login = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'owner@local.test', password: 'correct-horse-battery-staple' }) });
+  const session = await login.json();
+  const headers = { cookie: login.headers.get('set-cookie').split(';')[0], 'content-type': 'application/json', 'x-csrf-token': session.csrfToken };
+  const saved = await fetch(`${base}/api/projects/environment-app/environment`, {
+    method: 'POST', headers,
+    body: JSON.stringify({ variables: [
+      { key: 'NODE_ENV', value: 'production', sensitive: false },
+      { key: 'API_KEY', value: 'never-return-this', sensitive: true }
+    ] })
+  });
+  assert.equal(saved.status, 200);
+  const firstRead = await fetch(`${base}/api/projects/environment-app/environment`, { headers: { cookie: headers.cookie } });
+  assert.equal(firstRead.status, 200);
+  const firstPayload = await firstRead.json();
+  assert.deepEqual(firstPayload.environment.variables, [
+    { key: 'API_KEY', sensitive: true, value: null },
+    { key: 'NODE_ENV', sensitive: false, value: 'production' }
+  ]);
+  assert.equal(JSON.stringify(firstPayload).includes('never-return-this'), false);
+  const retained = await fetch(`${base}/api/projects/environment-app/environment`, {
+    method: 'POST', headers,
+    body: JSON.stringify({ variables: [
+      { key: 'API_KEY', value: '', sensitive: true },
+      { key: 'NODE_ENV', value: '', sensitive: false }
+    ] })
+  });
+  assert.equal(retained.status, 200);
+  const secondPayload = await (await fetch(`${base}/api/projects/environment-app/environment`, { headers: { cookie: headers.cookie } })).json();
+  assert.deepEqual(secondPayload.environment.variables, firstPayload.environment.variables);
+});
+
+test('deploy configuration marks a missing package lock as invalid and selects npm install', async (t) => {
+  const { app, base } = await start();
+  t.after(() => app.close());
+  await app.store.update((state) => {
+    state.projects.push({ name: 'Unlocked app', slug: 'unlocked-app', runtime: 'node', branch: 'main', directory: '/', buildScript: 'build', startScript: 'start' });
+  });
+  const login = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'owner@local.test', password: 'correct-horse-battery-staple' }) });
+  const payload = await (await fetch(`${base}/api/projects/unlocked-app/deploy-configuration`, { headers: { cookie: login.headers.get('set-cookie').split(';')[0] } })).json();
+  assert.deepEqual(payload.configuration.lockfile, { name: 'package-lock.json', valid: false });
+  assert.equal(payload.configuration.packageManager, 'npm install');
+  assert.equal(payload.configuration.buildScript, 'npm run build');
+});
+
 test('host deployment returns immediately with a durable queued job instead of holding the HTTP request', async (t) => {
   const { app, base } = await start({ mode: 'host', sandboxClone: false });
   t.after(() => app.close());

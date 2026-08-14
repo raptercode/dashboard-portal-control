@@ -90,23 +90,24 @@ Do not expose port 3100 in the firewall. If the HTTPS health check fails, invest
 
 ## Software update notifications and SSH update
 
-The UI can report a signed release manifest, but it never applies a Dashboard
-Portal update. Configure the release channel once from SSH after placing the
-Ed25519 public key on the host:
+The installer enrolls every normal installation in the Dashboard Portal
+`stable` channel. It copies the bundled Ed25519 **public** verification key to
+`/etc/dashboard-portal/update-public-key.pem`; the private signing key never
+reaches the host. The UI can report a signed release manifest, but it never
+applies a Dashboard Portal update. Apply an update only over SSH:
+
+```bash
+sudo dashboard-portal update
+```
+
+`stable` is the default when `--channel` is omitted. `--channel=NAME` remains
+available for an intentional non-default channel. Only self-hosted/custom
+release feeds need one-time manual configuration:
 
 ```bash
 sudo dashboard-portal configure-update \
   --manifest=https://releases.example.com/dashboard-portal/stable.json \
   --public-key=/secure/download/dashboard-portal-update-public.pem
-```
-
-The command copies the public key to `/etc/dashboard-portal`, verifies the
-manifest immediately, and does not retain any release-host credential. The UI
-then shows the available version and a copyable command. Apply it only over
-SSH:
-
-```bash
-sudo dashboard-portal update --channel=stable
 ```
 
 After an update, verify both the API and a static page, not only

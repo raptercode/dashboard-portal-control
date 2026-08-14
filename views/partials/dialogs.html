@@ -1,29 +1,68 @@
-<dialog id="deploy-dialog" class="modal" aria-labelledby="deploy-dialog-title">
-  <form id="deploy-form" class="modal-form">
-    <header class="modal-header">
-      <div>
-        <h2 id="deploy-dialog-title">เตรียมก่อน deploy</h2>
-        <p id="deploy-project-label" class="modal-sub">—</p>
+<dialog id="deploy-dialog" class="modal drawer deploy-drawer" aria-labelledby="deploy-dialog-title">
+  <form id="deploy-form" class="modal-form deploy-drawer-form">
+    <header class="drawer-head">
+      <div class="title">
+        <div>
+          <h2 id="deploy-dialog-title">Deploy project</h2>
+          <p id="deploy-project-label" class="subtitle">—</p>
+        </div>
+        <button class="close-btn" id="deploy-close" type="button" aria-label="ปิด"><svg class="icon" aria-hidden="true"><use href="#icon-close"></use></svg></button>
       </div>
-      <button class="modal-close" id="deploy-close" type="button" aria-label="ปิด"><svg class="icon" aria-hidden="true"><use href="#icon-close"></use></svg></button>
     </header>
-    <div class="modal-body">
-      <h3>Project secrets</h3>
-      <p id="deploy-saved-env-message">บันทึก <code>.env</code> ของโปรเจคนี้ก่อนสร้าง release ระบบเก็บแบบเข้ารหัสและแสดงเฉพาะชื่อ key</p>
-      <div id="deploy-existing-keys" class="env-key-list" hidden></div>
-      <details id="deploy-environment-update">
-        <summary>อัปเดต <code>.env</code> ก่อนสร้าง release</summary>
-        <label for="deploy-environment">ค่า <code>.env</code> ใหม่
-          <textarea id="deploy-environment" name="content" rows="8" placeholder="NODE_ENV=production&#10;DATABASE_URL=...&#10;API_KEY=..." spellcheck="false"></textarea>
-        </label>
-      </details>
-      <p id="deploy-env-hint" class="field-hint">ต้องมีอย่างน้อยหนึ่งตัวแปรก่อน deploy</p>
-      <aside class="notice"><svg class="icon" aria-hidden="true"><use href="#icon-info"></use></svg><p>ระบบจะ build และ health-check candidate ก่อน activate — release ปัจจุบันจะไม่ถูกเปลี่ยนหากขั้นตอนใดล้มเหลว</p></aside>
+    <div class="stepper" aria-label="Deployment steps">
+      <div class="step active" data-deploy-step="1"><div class="step-num">1</div><div class="step-label">Environment</div></div>
+      <div class="step-line"></div>
+      <div class="step" data-deploy-step="2"><div class="step-num">2</div><div class="step-label">Build</div></div>
+      <div class="step-line"></div>
+      <div class="step" data-deploy-step="3"><div class="step-num">3</div><div class="step-label">Release</div></div>
     </div>
-    <footer class="modal-footer">
-      <button class="secondary" id="deploy-cancel" type="button">ยกเลิก</button>
+    <div class="drawer-body">
+      <section class="field-group" data-deploy-pane="1">
+        <h3>Environment Variables</h3>
+        <p id="deploy-saved-env-message">ค่าที่ไม่ sensitive จะแสดงให้แก้ไขได้ ส่วนค่า sensitive จะไม่ถูกส่งออกจากเซิร์ฟเวอร์</p>
+        <div id="deploy-environment-rows" class="deploy-env-rows" aria-live="polite"></div>
+        <button id="deploy-add-variable" class="btn btn-ghost btn-sm" type="button"><svg class="icon" aria-hidden="true"><use href="#icon-plus"></use></svg>Add variable</button>
+        <p id="deploy-env-hint" class="field-hint">ช่องค่าที่เว้นว่างจะคงค่าเดิมไว้</p>
+        <aside class="notice"><svg class="icon" aria-hidden="true"><use href="#icon-info"></use></svg><p>กดไอคอนกุญแจเพื่อกำหนดว่า key นั้นเป็น sensitive หรือไม่ ค่าเดิมของ sensitive key จะถูกปกปิดเสมอ</p></aside>
+        <div class="deploy-configuration">
+          <h3>Build Configuration</h3>
+          <div class="info-card deploy-build-info">
+            <div><div class="k">Package manager</div><div id="deploy-package-manager" class="v mono">—</div></div>
+            <div><div class="k">Lockfile</div><div id="deploy-lockfile" class="v">—</div></div>
+            <div><div class="k">Node version</div><div id="deploy-node-version" class="v mono">—</div></div>
+            <div><div class="k">Build script</div><div id="deploy-build-script" class="v mono">—</div></div>
+          </div>
+          <div class="toggle-row deploy-skip-build">
+            <div><div style="font-weight:500;">Skip build step</div><div class="text-secondary" style="font-size:12px;">Configured in project settings.</div></div>
+            <div id="deploy-skip-build-toggle" class="toggle" role="img" aria-label="Skip build step setting" aria-disabled="true"></div>
+          </div>
+        </div>
+      </section>
+      <section class="field-group" data-deploy-pane="2" hidden>
+        <h3>Build plan</h3>
+        <div class="info-card deploy-build-info">
+          <div><div class="k">Runtime</div><div id="deploy-runtime" class="v">—</div></div>
+          <div><div class="k">Branch</div><div id="deploy-branch" class="v mono">—</div></div>
+          <div><div class="k">Start step</div><div id="deploy-start-script" class="v mono">—</div></div>
+        </div>
+        <aside class="notice"><svg class="icon" aria-hidden="true"><use href="#icon-info"></use></svg><p id="deploy-build-note">การตั้งค่า build เปลี่ยนได้จากหน้าแก้ไขโปรเจคเท่านั้น</p></aside>
+      </section>
+      <section class="field-group" data-deploy-pane="3" hidden>
+        <h3>Release</h3>
+        <div class="info-card deploy-release-info">
+          <div><div class="k">Project</div><div id="deploy-release-project" class="v">—</div></div>
+          <div><div class="k">Source</div><div id="deploy-release-source" class="v mono">—</div></div>
+          <div><div class="k">Environment</div><div id="deploy-release-environment" class="v">—</div></div>
+          <div><div class="k">Safety check</div><div class="v deploy-safe">Candidate health check</div></div>
+        </div>
+        <aside class="notice"><svg class="icon" aria-hidden="true"><use href="#icon-info"></use></svg><p>ระบบจะสร้าง candidate, build และตรวจสุขภาพก่อน activate เสมอ หากขั้นตอนใดล้มเหลว release ปัจจุบันจะยังทำงานต่อไป</p></aside>
+      </section>
+    </div>
+    <footer class="drawer-foot">
+      <button class="btn btn-ghost" id="deploy-cancel" type="button">Cancel</button>
+      <button class="btn btn-ghost" id="deploy-back" type="button" hidden>Back</button>
       <span class="modal-spacer"></span>
-      <button id="deploy-submit" type="submit">บันทึกและสร้าง release</button>
+      <button id="deploy-submit" class="btn btn-primary" type="submit">Next: Build</button>
     </footer>
   </form>
 </dialog>

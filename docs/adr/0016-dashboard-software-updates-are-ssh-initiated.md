@@ -19,7 +19,7 @@ apply an update.
 The owner applies an update through:
 
 ```bash
-sudo dashboard-portal update --channel=stable
+sudo dashboard-portal update
 ```
 
 The root-only command verifies an Ed25519-signed manifest, downloads the
@@ -27,9 +27,12 @@ HTTPS-only archive, verifies its SHA-256 digest, stages it in `/tmp`, and runs
 the existing transactional installer. The installer retains its health check
 and rollback behavior.
 
-The public verification key is stored at
+The installer enrolls a standard installation in the signed `stable` channel
+and stores the bundled public verification key at
 `/etc/dashboard-portal/update-public-key.pem`; the signing private key stays
-outside the repository and is supplied to the release CI only.
+outside the repository and is supplied to the release CI only. An optional
+`--channel` flag and `configure-update` command remain for intentional custom
+feeds.
 
 ## Consequences
 

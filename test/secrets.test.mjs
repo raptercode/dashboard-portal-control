@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { SecretVault, validateEnvironmentContent, validateHttpsCredential } from '../src/core.mjs';
+import { SecretVault, validateEnvironmentContent, validateEnvironmentVariables, validateHttpsCredential } from '../src/core.mjs';
 
 const vault = new SecretVault(Buffer.alloc(32, 9).toString('base64'));
 
@@ -15,4 +15,16 @@ test('environment content exposes keys only and rejects malformed values', () =>
   assert.deepEqual(environment.keys, ['API_KEY', 'DATABASE_URL']);
   assert.throws(() => validateEnvironmentContent('export API_KEY=value'), /KEY=value/);
   assert.deepEqual(validateHttpsCredential({ name: 'github-personal', token: 'ghp_token_value' }), { name: 'github-personal', token: 'ghp_token_value' });
+});
+
+test('environment row updates retain blank values and require an explicit sensitivity choice', () => {
+  assert.deepEqual(validateEnvironmentVariables([
+    { key: 'NODE_ENV', value: '', sensitive: false },
+    { key: 'API_KEY', value: 'new-value', sensitive: true }
+  ]), [
+    { key: 'NODE_ENV', value: '', sensitive: false },
+    { key: 'API_KEY', value: 'new-value', sensitive: true }
+  ]);
+  assert.throws(() => validateEnvironmentVariables([{ key: 'API_KEY', value: 'x' }]), /sensitivity/i);
+  assert.throws(() => validateEnvironmentVariables([{ key: 'bad-key', value: 'x', sensitive: true }]), /uppercase/i);
 });
