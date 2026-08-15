@@ -46,6 +46,9 @@ export function matchUiRoute(pathname) {
   if (logs) {
     return { page: 'projects', view: 'project-logs', params: { slug: logs[1] } };
   }
+  if (pathname === '/mail/setup') {
+    return { page: 'mail', view: 'mail-setup', params: {} };
+  }
   const databaseConsole = pathname.match(/^\/databases\/([a-f0-9-]{36})\/console$/i);
   if (databaseConsole) {
     return { page: 'databases', view: 'database-console', params: { slug: databaseConsole[1] } };

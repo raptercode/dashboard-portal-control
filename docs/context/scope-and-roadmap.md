@@ -260,7 +260,6 @@ boundary see [docs/adr/](../adr/).
 
 ## Non-goals for v1
 
-- Mail server
 - DNS server
 - FTP server
 - Shared hosting and multi-tenant isolation
@@ -272,6 +271,18 @@ boundary see [docs/adr/](../adr/).
 - Supporting every Linux distribution
 
 Cutting these keeps v1 suitable for single-owner use and low-spec machines.
+
+## Mail service (in progress)
+
+Self-hosted mail moved out of the non-goals by owner decision (2026-08). The
+step-by-step Mail Setup Wizard (design: `docs/design/mail-setup-wizard.md`)
+ships in phases: Phase 1 delivers the full wizard (outbound check, hostname +
+domains, DNS record generation/verification incl. DKIM, outbound mode with
+encrypted relay credentials, install/configure flow, mailboxes, real SMTP
+outbound test) working end-to-end in demo mode with real DNS/SMTP checks;
+host-mode Postfix/Dovecot/OpenDKIM provisioning through the helper
+(`configure-mail` and related allowlisted operations) is the next tranche and
+fails closed until it lands.
 
 ## Roadmap
 

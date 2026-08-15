@@ -138,6 +138,118 @@ export async function checkDomainDns(input, options = {}) {
   }
 }
 
+async function resolveMxRecords(hostname, options = {}) {
+  const timeoutMs = Number.isInteger(options.timeoutMs) && options.timeoutMs > 0 ? options.timeoutMs : DEFAULT_DNS_TIMEOUT_MS;
+  const resolveMx = options.resolveMx ?? ((name, opts) => dns.resolveMx(name, opts));
+  const records = await resolveMx(hostname, { signal: AbortSignal.timeout(timeoutMs) });
+  if (!Array.isArray(records)) return [];
+  return records.filter((item) => item && typeof item.exchange === 'string');
+}
+
+// Node returns TXT records as string chunks per record; join each record so
+// long values (DKIM keys) compare as one string.
+async function resolveTxtRecords(hostname, options = {}) {
+  const timeoutMs = Number.isInteger(options.timeoutMs) && options.timeoutMs > 0 ? options.timeoutMs : DEFAULT_DNS_TIMEOUT_MS;
+  const resolveTxt = options.resolveTxt ?? ((name, opts) => dns.resolveTxt(name, opts));
+  const records = await resolveTxt(hostname, { signal: AbortSignal.timeout(timeoutMs) });
+  if (!Array.isArray(records)) return [];
+  return records.map((chunks) => (Array.isArray(chunks) ? chunks.join('') : String(chunks ?? ''))).filter(Boolean);
+}
+
+function recordResult(status, detail = null) {
+  return { status, checkedAt: new Date().toISOString(), detail };
+}
+
+function unresolvedOrError(error, notFoundDetail) {
+  if (isUnresolvedDnsError(error)) return recordResult('not_found', notFoundDetail);
+  return recordResult('error', 'DNS check failed. Verify network/DNS settings and try again.');
+}
+
+const stripDot = (value) => String(value ?? '').toLowerCase().replace(/\.$/, '');
+
+export async function checkMailMx(mailDomain, expectedHostname, options = {}) {
+  try {
+    const records = await resolveMxRecords(mailDomain, options);
+    if (!records.length) return recordResult('not_found', 'No MX record was found.');
+    const expected = stripDot(expectedHostname);
+    if (records.some((item) => stripDot(item.exchange) === expected)) return recordResult('verified');
+    return recordResult('mismatch', `MX points to ${records.map((item) => stripDot(item.exchange)).join(', ')} instead of ${expected}.`);
+  } catch (error) {
+    return unresolvedOrError(error, 'No MX record was found.');
+  }
+}
+
+export async function checkSpfRecord(mailDomain, expectedToken, options = {}) {
+  try {
+    const records = (await resolveTxtRecords(mailDomain, options)).filter((value) => /^v=spf1(\s|$)/i.test(value.trim()));
+    if (!records.length) return recordResult('not_found', 'No SPF (v=spf1) TXT record was found.');
+    // More than one v=spf1 record is a spec violation most receivers treat as
+    // a permanent SPF failure, so surface it even when the token is present.
+    if (records.length > 1) return recordResult('mismatch', `Found ${records.length} v=spf1 records; SPF allows exactly one.`);
+    const tokens = records[0].trim().split(/\s+/).map((token) => token.toLowerCase());
+    if (tokens.includes(String(expectedToken).toLowerCase())) return recordResult('verified');
+    return recordResult('mismatch', `SPF record exists but is missing "${expectedToken}".`);
+  } catch (error) {
+    return unresolvedOrError(error, 'No SPF (v=spf1) TXT record was found.');
+  }
+}
+
+export async function checkDkimRecord(selector, mailDomain, expectedPublicKey, options = {}) {
+  try {
+    const records = await resolveTxtRecords(`${selector}._domainkey.${mailDomain}`, options);
+    if (!records.length) return recordResult('not_found', 'No DKIM TXT record was found at the selector.');
+    const published = records.map((value) => value.match(/(?:^|;)\s*p=([^;\s]*)/)?.[1]).filter(Boolean);
+    if (!published.length) return recordResult('mismatch', 'A TXT record exists at the selector but has no p= public key.');
+    if (published.some((key) => key === expectedPublicKey)) return recordResult('verified');
+    return recordResult('mismatch', 'The published DKIM public key does not match the key this Portal generated.');
+  } catch (error) {
+    return unresolvedOrError(error, 'No DKIM TXT record was found at the selector.');
+  }
+}
+
+export async function checkDmarcRecord(mailDomain, options = {}) {
+  try {
+    const records = (await resolveTxtRecords(`_dmarc.${mailDomain}`, options)).filter((value) => /^v=DMARC1(\s*;|$)/i.test(value.trim()));
+    if (!records.length) return recordResult('not_found', 'No DMARC TXT record was found at _dmarc.');
+    if (!/(?:^|;)\s*p=/.test(records[0])) return recordResult('mismatch', 'DMARC record exists but has no p= policy tag.');
+    return recordResult('verified');
+  } catch (error) {
+    return unresolvedOrError(error, 'No DMARC TXT record was found at _dmarc.');
+  }
+}
+
+export async function checkPtrRecord(mailHostname, options = {}) {
+  const timeoutMs = Number.isInteger(options.timeoutMs) && options.timeoutMs > 0 ? options.timeoutMs : DEFAULT_DNS_TIMEOUT_MS;
+  const reverse = options.reverse ?? ((ip) => dns.reverse(ip));
+  const addresses = Array.isArray(options.addresses) ? options.addresses : hostExpectedAddresses(options.env, options.networkInterfaces);
+  if (!addresses.length) return recordResult('error', 'No public host address is known. Set HOSTMGR_PUBLIC_IP to check PTR.');
+  const expected = stripDot(mailHostname);
+  const details = [];
+  for (const address of addresses) {
+    try {
+      const names = asAddressList(await Promise.race([
+        reverse(address),
+        new Promise((_, reject) => setTimeout(() => reject(Object.assign(new Error('timeout'), { code: 'ETIMEOUT' })), timeoutMs))
+      ]));
+      if (names.some((name) => stripDot(name) === expected)) return recordResult('verified');
+      details.push(`${address} → ${names.length ? names.map(stripDot).join(', ') : '(no PTR)'}`);
+    } catch (error) {
+      if (isUnresolvedDnsError(error)) details.push(`${address} → (no PTR)`);
+      else details.push(`${address} → (lookup failed)`);
+    }
+  }
+  return recordResult('mismatch', `No PTR resolves to ${expected}. ${details.join('; ')}`.slice(0, 240));
+}
+
+/**
+ * A proxied (orange-cloud) mail hostname breaks SMTP entirely — CDNs only
+ * proxy HTTP(S). This checks the hostname's A/AAAA and flags Cloudflare IPs.
+ */
+export async function checkMailHostnameDns(hostname, options = {}) {
+  const result = await checkDomainDns(hostname, options);
+  return { ...result, proxied: result.status === 'proxied' };
+}
+
 function parseIpv4Cidr(value) {
   const [address, length] = value.split('/');
   const prefix = Number(length);

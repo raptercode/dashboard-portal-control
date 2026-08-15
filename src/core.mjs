@@ -8,8 +8,22 @@ export const TOOLS = {
   nginx: { label: 'Nginx', package: 'nginx', required: true, purpose: 'Reverse proxy และรับ traffic จาก domain' },
   certbot: { label: 'Certbot', package: 'certbot', required: true, purpose: 'ออกและต่ออายุ Let’s Encrypt certificate' },
   git: { label: 'Git', package: 'git', required: true, purpose: 'Clone และ pull source code' },
-  docker: { label: 'Docker Engine + Compose', package: 'docker.io docker-compose-v2', required: false, purpose: 'ใช้งาน Docker mode' }
+  docker: { label: 'Docker Engine + Compose', package: 'docker.io docker-compose-v2', required: false, purpose: 'ใช้งาน Docker mode' },
+  mail: { label: 'Mail server (Postfix + Dovecot)', package: 'postfix dovecot-imapd dovecot-lmtpd opendkim opendkim-tools', required: false, purpose: 'รับ/ส่งอีเมลด้วยโดเมนของคุณเอง — ตั้งค่าผ่าน Mail Setup Wizard' }
 };
+
+export function initialMailState() {
+  return {
+    hostname: null,
+    outboundMode: null,
+    relay: null,
+    configure: null,
+    ptr: { status: 'pending', checkedAt: null, detail: null },
+    domains: [],
+    mailboxes: [],
+    lastTest: null
+  };
+}
 
 export function createInitialState() {
   return {
@@ -32,7 +46,8 @@ export function createInitialState() {
     monitorTokens: [],
     owner: null,
     databaseConnections: [],
-    notificationHooks: []
+    notificationHooks: [],
+    mail: initialMailState()
   };
 }
 
@@ -166,6 +181,7 @@ export class StateStore {
       jobs: readPayloads('SELECT payload FROM jobs ORDER BY created_at ASC'),
       monitorTokens: JSON.parse(meta('monitor_tokens', '[]')),
       notificationHooks: JSON.parse(meta('notification_hooks', '[]')),
+      mail: JSON.parse(meta('mail', 'null')),
       owner: JSON.parse(meta('owner', 'null')),
       databaseConnections: readPayloads('SELECT payload FROM database_connections')
     };
@@ -195,7 +211,8 @@ function persistedSections(state) {
       metaRow('git', JSON.stringify(state.git ?? { identity: null })),
       metaRow('owner', JSON.stringify(state.owner ?? null)),
       metaRow('monitor_tokens', JSON.stringify(state.monitorTokens ?? [])),
-      metaRow('notification_hooks', JSON.stringify(state.notificationHooks ?? []))
+      metaRow('notification_hooks', JSON.stringify(state.notificationHooks ?? [])),
+      metaRow('mail', JSON.stringify(state.mail ?? initialMailState()))
     ] }
   ];
 }
@@ -438,5 +455,8 @@ function migrateState(state) {
   state.owner ??= null;
   state.databaseConnections ??= [];
   state.notificationHooks ??= [];
+  state.mail ??= initialMailState();
+  // Databases created before the mail tool existed lack its tools entry.
+  state.tools.mail ??= { id: 'mail', status: 'Missing', version: null, simulated: true, updatedAt: new Date().toISOString(), ...TOOLS.mail };
   return state;
 }

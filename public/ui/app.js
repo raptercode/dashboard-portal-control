@@ -265,7 +265,8 @@ async function refresh() {
   if (page === 'credentials') renderCredentials();
   if (page === 'databases' && view !== 'database-console') await renderDatabases();
   if (view === 'database-console') await renderDatabaseConsole();
-  if (page === 'mail') renderMail();
+  if (page === 'mail' && view !== 'mail-setup') renderMail();
+  if (view === 'mail-setup') await renderMailSetup();
   if (page === 'activity') renderAudit();
   if (page === 'settings') renderSettings();
 }
@@ -1005,6 +1006,7 @@ function renderMail() {
   renderMailNav();
   renderMailRows();
   renderMailReader();
+  void renderMailSetupNotice();
   const search = $('#mail-search');
   if (!search.dataset.bound) {
     search.dataset.bound = '1';
@@ -1021,6 +1023,28 @@ function renderMail() {
       toast('ตัวอย่าง UI — ยังไม่ได้ส่งอีเมลจริง');
     });
   }
+}
+
+async function renderMailSetupNotice() {
+  const notice = $('#mail-setup-notice');
+  if (!notice) return;
+  try {
+    const settings = await api('/api/mail');
+    const configured = settings.mail.configure?.status === 'configured';
+    const text = element('span');
+    const link = element('a', 'secondary button', configured ? 'จัดการ Mail Setup' : 'เริ่มติดตั้ง →');
+    link.href = '/mail/setup';
+    if (configured) {
+      text.append(
+        statusChip(settings.mail.configure.simulated ? 'ติดตั้งแล้ว (จำลอง)' : 'ติดตั้งแล้ว', 'ready'),
+        element('span', '', ` ${settings.mail.hostname} · ${settings.mail.domains.length} โดเมน · ${settings.mail.mailboxes.length} mailbox — ข้อมูลรายการอีเมลด้านล่างยังเป็นตัวอย่าง UI (inbox จริงมาใน Phase 3)`)
+      );
+    } else {
+      text.append(element('span', '', 'ยังไม่ได้ติดตั้ง mail service — ข้อมูลด้านล่างเป็นตัวอย่าง UI ติดตั้งจริงได้ทีละขั้นผ่าน Mail Setup Wizard'));
+    }
+    notice.replaceChildren(text, link);
+    notice.hidden = false;
+  } catch { notice.hidden = true; }
 }
 
 function toggleMailCompose(open) {
@@ -1113,6 +1137,593 @@ function renderMailReader() {
     }
     root.append(related);
   }
+}
+
+// ---- Mail Setup Wizard (7 steps per docs/design/mail-setup-wizard.md) ----
+const MAIL_OUTBOUND_STORAGE = 'hostmgr.mailOutbound';
+const wizard = { step: 1, settings: null, outbound: null, newDomain: '' };
+
+const WIZARD_STEPS = Object.freeze([
+  { id: 1, label: 'ตรวจ outbound' },
+  { id: 2, label: 'Hostname + Domain' },
+  { id: 3, label: 'DNS records' },
+  { id: 4, label: 'โหมดส่งออก' },
+  { id: 5, label: 'ติดตั้ง' },
+  { id: 6, label: 'Mailbox' },
+  { id: 7, label: 'ทดสอบส่ง' }
+]);
+
+const MAIL_DNS_STATUS = Object.freeze({
+  pending: { label: 'ยังไม่ตรวจ', variant: 'muted' },
+  checking: { label: 'กำลังตรวจ', variant: 'muted' },
+  verified: { label: 'ตรวจผ่าน', variant: 'ready' },
+  mismatch: { label: 'ค่าไม่ตรง', variant: 'needs' },
+  not_found: { label: 'ไม่พบ record', variant: 'needs' },
+  error: { label: 'ตรวจไม่สำเร็จ', variant: 'needs' },
+  proxied: { label: 'โดน proxy', variant: 'needs' },
+  ok: { label: 'ตรวจผ่าน', variant: 'ready' }
+});
+
+function wizardStepDone(step) {
+  const mail = wizard.settings?.mail;
+  if (!mail) return false;
+  if (step === 1) return Boolean(wizard.outbound);
+  if (step === 2) return Boolean(mail.hostname && mail.domains.length);
+  if (step === 3) return mail.domains.length > 0 && mail.domains.every((domain) => ['mx', 'spf', 'dkim', 'dmarc'].every((kind) => domain.dns?.[kind]?.status === 'verified'));
+  if (step === 4) return Boolean(mail.outboundMode && (mail.outboundMode === 'direct' || mail.relay?.hasPassword));
+  if (step === 5) return mail.configure?.status === 'configured';
+  if (step === 6) return mail.mailboxes.length > 0;
+  if (step === 7) return mail.lastTest?.status === 'passed';
+  return false;
+}
+
+function wizardStepUnlocked(step) {
+  if (step === 1) return true;
+  if (step === 2) return wizardStepDone(1) || wizardStepDone(2);
+  if (step === 3 || step === 4) return wizardStepDone(2);
+  if (step === 5) return wizardStepDone(2) && wizardStepDone(4);
+  if (step === 6) return wizardStepDone(5);
+  if (step === 7) return wizardStepDone(5);
+  return false;
+}
+
+async function reloadWizardSettings() {
+  wizard.settings = await api('/api/mail');
+}
+
+async function renderMailSetup() {
+  if (!$('#wizard-body')) return;
+  try { wizard.outbound = JSON.parse(sessionStorage.getItem(MAIL_OUTBOUND_STORAGE) || 'null'); } catch { wizard.outbound = null; }
+  await reloadWizardSettings();
+  const firstOpen = WIZARD_STEPS.find((step) => wizardStepUnlocked(step.id) && !wizardStepDone(step.id));
+  wizard.step = firstOpen?.id ?? 7;
+  paintWizard();
+}
+
+function paintWizard() {
+  const nav = $('#wizard-steps');
+  nav.replaceChildren(...WIZARD_STEPS.map((step) => {
+    const chip = element('button', 'wizard-step-chip');
+    chip.type = 'button';
+    if (step.id === wizard.step) chip.classList.add('active');
+    if (wizardStepDone(step.id)) chip.classList.add('done');
+    chip.disabled = !wizardStepUnlocked(step.id);
+    chip.append(element('span', 'wizard-step-number', wizardStepDone(step.id) ? '✓' : String(step.id)), element('span', '', step.label));
+    chip.addEventListener('click', () => { wizard.step = step.id; paintWizard(); });
+    return chip;
+  }));
+  const body = $('#wizard-body');
+  const renderers = { 1: wizardStepOutbound, 2: wizardStepIdentity, 3: wizardStepDns, 4: wizardStepMode, 5: wizardStepInstall, 6: wizardStepMailbox, 7: wizardStepTest };
+  body.replaceChildren(renderers[wizard.step]());
+}
+
+function wizardPanel(step, title, subtitle) {
+  const panel = element('section', 'panel');
+  const head = element('header', 'panel-head');
+  head.append(element('h2', '', `ขั้นตอนที่ ${step}/7 — ${title}`), element('p', '', subtitle));
+  panel.append(head);
+  return panel;
+}
+
+function wizardNav(panel, { back = true, next = true, nextLabel = 'ถัดไป →', nextEnabled = true, onNext = null } = {}) {
+  const actions = element('div', 'form-actions wizard-actions');
+  if (back && wizard.step > 1) {
+    const backButton = element('button', 'secondary', '← ย้อนกลับ');
+    backButton.type = 'button';
+    backButton.addEventListener('click', () => { wizard.step -= 1; paintWizard(); });
+    actions.append(backButton);
+  }
+  if (next) {
+    const nextButton = element('button', '', nextLabel);
+    nextButton.type = 'button';
+    nextButton.disabled = !nextEnabled;
+    nextButton.addEventListener('click', () => {
+      if (onNext) return onNext(nextButton);
+      wizard.step = Math.min(7, wizard.step + 1);
+      paintWizard();
+    });
+    actions.append(nextButton);
+  }
+  panel.append(actions);
+  return panel;
+}
+
+function wizardStepOutbound() {
+  const panel = wizardPanel(1, 'ตรวจ outbound SMTP', 'ตรวจว่า host นี้ส่งอีเมลขาออกได้ทางพอร์ตไหน');
+  const results = element('section', 'tool-list');
+  if (wizard.outbound) {
+    for (const entry of wizard.outbound.ports ?? []) {
+      const row = element('article', 'tool-row');
+      const copy = element('div');
+      const status = MAIL_PORT_STATUS[entry.status] ?? { label: entry.status, variant: 'muted' };
+      copy.append(element('h3', '', `พอร์ต ${entry.port}`), element('p', 'muted', entry.status === 'open' ? `ตอบกลับจาก ${entry.target} · ${entry.latencyMs} ms` : (entry.detail || 'ไม่สามารถเชื่อมต่อได้')));
+      const side = element('div');
+      side.append(statusChip(status.label, status.variant));
+      row.append(copy, side);
+      results.append(row);
+    }
+    const plan = MAIL_PLAN_GUIDE[wizard.outbound.recommendation?.mode];
+    const advice = element('article', 'tool-row');
+    const adviceCopy = element('div');
+    adviceCopy.append(element('h3', '', `คำแนะนำ: ${plan?.label ?? '—'}`), element('p', 'muted', plan?.detail ?? ''), element('small', '', `ตรวจเมื่อ ${new Date(wizard.outbound.checkedAt).toLocaleString()}`));
+    advice.append(adviceCopy);
+    results.append(advice);
+    if ((wizard.outbound.ports ?? []).find((entry) => entry.port === 25)?.status !== 'open') {
+      results.append(element('p', 'muted', '⚠ พอร์ต 25 ขาออกถูกบล็อค — มักแปลว่า inbound 25 อาจถูกบล็อคด้วย หากต้องการรับเมลเข้า ติดต่อผู้ให้บริการเครือข่ายของ host นี้'));
+    }
+  } else {
+    results.append(element('p', 'muted', 'ยังไม่เคยตรวจ — กดปุ่มด้านล่างเพื่อทดสอบพอร์ต 25, 587 และ 2525'));
+  }
+  panel.append(results);
+  const check = element('button', 'secondary', 'ตรวจสอบ outbound SMTP');
+  check.type = 'button';
+  check.addEventListener('click', async () => {
+    try {
+      await withBusy(check, async () => {
+        wizard.outbound = await api('/api/mail/outbound-check', { method: 'POST', body: {} });
+        sessionStorage.setItem(MAIL_OUTBOUND_STORAGE, JSON.stringify(wizard.outbound));
+        paintWizard();
+      });
+    } catch (error) { showError(error); }
+  });
+  const checkRow = element('div', 'form-actions');
+  checkRow.append(check);
+  panel.append(checkRow);
+  return wizardNav(panel, { nextEnabled: Boolean(wizard.outbound) });
+}
+
+function wizardStepIdentity() {
+  const mail = wizard.settings.mail;
+  const suggestions = wizard.settings.suggestions ?? { hostname: null, domains: [] };
+  const panel = wizardPanel(2, 'Mail hostname และ Mail domain', 'hostname มีค่าเดียวต่อ host (PTR/HELO/TLS) ส่วน mail domain ใช้เป็น @domain ของอีเมล เพิ่มได้หลายโดเมน');
+  const form = element('form', 'form-grid');
+  const hostLabel = element('label', '', 'Mail hostname (เช่น mail.example.com)');
+  const hostInput = element('input');
+  hostInput.value = mail.hostname ?? suggestions.hostname ?? '';
+  hostInput.placeholder = 'mail.example.com';
+  hostInput.maxLength = 253;
+  hostLabel.append(hostInput);
+  const saveHost = element('button', '', mail.hostname ? 'บันทึก hostname ใหม่' : 'บันทึก hostname');
+  saveHost.type = 'submit';
+  form.append(hostLabel);
+  if (mail.hostnameCheck) {
+    const status = MAIL_DNS_STATUS[mail.hostnameCheck.status] ?? { label: mail.hostnameCheck.status, variant: 'muted' };
+    const line = element('p', 'muted');
+    line.append(statusChip(status.label, status.variant), element('span', '', ` A/AAAA ของ hostname ${mail.hostnameCheck.detail ? `— ${mail.hostnameCheck.detail}` : ''}`));
+    form.append(line);
+  }
+  const hostActions = element('div', 'form-actions');
+  hostActions.append(saveHost);
+  form.append(hostActions);
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    try {
+      await withBusy(saveHost, async () => {
+        wizard.settings = await api('/api/mail/hostname', { method: 'POST', body: { hostname: hostInput.value.trim() } });
+        toast('บันทึก mail hostname แล้ว');
+        paintWizard();
+      });
+    } catch (error) { showError(error); }
+  });
+  panel.append(form);
+
+  const domainsHead = element('h3', 'wizard-subhead', `Mail domain(s) — เลือกแล้ว ${mail.domains.length}/${wizard.settings.maxDomains}`);
+  panel.append(domainsHead);
+  const list = element('section', 'tool-list');
+  for (const entry of mail.domains) {
+    const row = element('article', 'tool-row');
+    const copy = element('div');
+    copy.append(element('h3', '', entry.domain), element('p', 'muted', `DKIM selector: ${entry.dkimSelector ?? '—'}`));
+    const side = element('div');
+    const remove = element('button', 'secondary danger', 'ลบ');
+    remove.type = 'button';
+    remove.addEventListener('click', async () => {
+      if (!await confirmAction('ลบ mail domain', `ลบ ${entry.domain} ออกจาก mail service หรือไม่?`, 'ลบ')) return;
+      try {
+        wizard.settings = await api(`/api/mail/domains/${encodeURIComponent(entry.domain)}`, { method: 'DELETE', body: {} });
+        paintWizard();
+      } catch (error) { showError(error); }
+    });
+    side.append(statusChip('พร้อม', 'ready'), remove);
+    row.append(copy, side);
+    list.append(row);
+  }
+  const known = new Set(mail.domains.map((entry) => entry.domain));
+  for (const suggestion of (suggestions.domains ?? []).filter((domain) => !known.has(domain)).slice(0, 5)) {
+    const row = element('article', 'tool-row');
+    const copy = element('div');
+    copy.append(element('h3', '', suggestion), element('p', 'muted', 'แนะนำจากโดเมนโปรเจคที่มีอยู่'));
+    const add = element('button', 'secondary', 'ใช้โดเมนนี้');
+    add.type = 'button';
+    add.addEventListener('click', () => addMailDomain(suggestion, add));
+    const side = element('div');
+    side.append(add);
+    row.append(copy, side);
+    list.append(row);
+  }
+  panel.append(list);
+
+  const addForm = element('form', 'form-grid');
+  const addLabel = element('label', '', 'เพิ่มโดเมนใหม่ (พิมพ์เองได้ ไม่ต้องมีโปรเจค)');
+  const addInput = element('input');
+  addInput.placeholder = 'example.com';
+  addInput.maxLength = 253;
+  addLabel.append(addInput);
+  const addButton = element('button', 'secondary', '+ เพิ่มโดเมน');
+  addButton.type = 'submit';
+  const addActions = element('div', 'form-actions');
+  addActions.append(addButton);
+  addForm.append(addLabel, addActions);
+  addForm.addEventListener('submit', (event) => {
+    event.preventDefault();
+    if (addInput.value.trim()) addMailDomain(addInput.value.trim(), addButton);
+  });
+  panel.append(addForm);
+  return wizardNav(panel, { nextEnabled: wizardStepDone(2) });
+}
+
+async function addMailDomain(domain, button) {
+  try {
+    await withBusy(button, async () => {
+      wizard.settings = await api('/api/mail/domains', { method: 'POST', body: { domain } });
+      toast(`เพิ่ม ${domain} พร้อม DKIM key แล้ว`);
+      paintWizard();
+    });
+  } catch (error) { showError(error); }
+}
+
+function dnsRecordRow(domainName, kind, title, record, state) {
+  const row = element('article', 'tool-row wizard-record');
+  const copy = element('div', 'wizard-record-copy');
+  const status = MAIL_DNS_STATUS[state?.status ?? 'pending'] ?? MAIL_DNS_STATUS.pending;
+  copy.append(element('h3', '', title), element('p', 'muted', `${record.type} @ ${record.name}`), element('code', 'wizard-record-value', record.value));
+  if (state?.detail) copy.append(element('p', 'muted', state.detail));
+  const side = element('div', 'wizard-record-side');
+  const copyButton = element('button', 'secondary', 'Copy');
+  copyButton.type = 'button';
+  copyButton.addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(record.value); toast('คัดลอกแล้ว'); }
+    catch { toast('คัดลอกไม่สำเร็จ — เลือกข้อความเองได้', true); }
+  });
+  const verify = element('button', 'secondary', 'ตรวจสอบ');
+  verify.type = 'button';
+  verify.addEventListener('click', async () => {
+    try {
+      await withBusy(verify, async () => {
+        wizard.settings = await api(`/api/mail/domains/${encodeURIComponent(domainName)}/dns-check`, { method: 'POST', body: { record: kind } });
+        paintWizard();
+      });
+    } catch (error) { showError(error); }
+  });
+  side.append(statusChip(status.label, status.variant), copyButton, verify);
+  row.append(copy, side);
+  return row;
+}
+
+function wizardStepDns() {
+  const mail = wizard.settings.mail;
+  const panel = wizardPanel(3, 'DNS records', 'copy ค่าไปวางที่ DNS provider ของโดเมน แล้วกดตรวจสอบทีละรายการ — DNS ใหม่อาจใช้เวลา propagate เป็นชั่วโมง ข้ามไปก่อนแล้วกลับมาตรวจทีหลังได้');
+  for (const entry of mail.domains) {
+    panel.append(element('h3', 'wizard-subhead', entry.domain));
+    const list = element('section', 'tool-list');
+    if (entry.records) {
+      list.append(
+        dnsRecordRow(entry.domain, 'mx', 'MX', entry.records.mx, entry.dns.mx),
+        dnsRecordRow(entry.domain, 'spf', 'SPF', entry.records.spf, entry.dns.spf),
+        dnsRecordRow(entry.domain, 'dkim', `DKIM (${entry.dkimSelector})`, entry.records.dkim, entry.dns.dkim),
+        dnsRecordRow(entry.domain, 'dmarc', 'DMARC', entry.records.dmarc, entry.dns.dmarc)
+      );
+    }
+    const checkAll = element('button', 'secondary', `ตรวจสอบทั้งหมดของ ${entry.domain}`);
+    checkAll.type = 'button';
+    checkAll.addEventListener('click', async () => {
+      try {
+        await withBusy(checkAll, async () => {
+          wizard.settings = await api(`/api/mail/domains/${encodeURIComponent(entry.domain)}/dns-check`, { method: 'POST', body: { record: 'all' } });
+          paintWizard();
+        });
+      } catch (error) { showError(error); }
+    });
+    const actions = element('div', 'form-actions');
+    actions.append(checkAll);
+    panel.append(list, actions);
+  }
+
+  panel.append(element('h3', 'wizard-subhead', 'แนะนำเพิ่มเติม — PTR / rDNS (ตั้งที่ผู้ให้บริการ IP ไม่ใช่ DNS ของโดเมน)'));
+  const ptrList = element('section', 'tool-list');
+  const ptrRow = element('article', 'tool-row');
+  const ptrCopy = element('div');
+  const ptrStatus = MAIL_DNS_STATUS[mail.ptr?.status ?? 'pending'] ?? MAIL_DNS_STATUS.pending;
+  ptrCopy.append(element('h3', '', 'PTR / rDNS'), element('p', 'muted', mail.ptr?.detail || `IP ของ host ต้องชี้กลับมาที่ ${mail.hostname ?? 'mail hostname'} — ไม่บังคับ แต่ช่วยเรื่อง deliverability มาก`));
+  const ptrSide = element('div');
+  const ptrCheck = element('button', 'secondary', 'ตรวจสอบ');
+  ptrCheck.type = 'button';
+  ptrCheck.addEventListener('click', async () => {
+    try {
+      await withBusy(ptrCheck, async () => {
+        wizard.settings = await api('/api/mail/ptr-check', { method: 'POST', body: {} });
+        paintWizard();
+      });
+    } catch (error) { showError(error); }
+  });
+  ptrSide.append(statusChip(ptrStatus.label, ptrStatus.variant), ptrCheck);
+  ptrRow.append(ptrCopy, ptrSide);
+  ptrList.append(ptrRow);
+  panel.append(ptrList);
+  return wizardNav(panel, { nextLabel: wizardStepDone(3) ? 'ถัดไป →' : 'ข้ามไปก่อน →' });
+}
+
+function wizardStepMode() {
+  const mail = wizard.settings.mail;
+  const recommended = wizard.outbound?.recommendation?.mode ?? null;
+  const port25Open = (wizard.outbound?.ports ?? []).find((entry) => entry.port === 25)?.status === 'open';
+  const panel = wizardPanel(4, 'เลือกโหมดส่งออก', recommended ? `ผลตรวจ step 1 แนะนำ: ${MAIL_PLAN_GUIDE[recommended]?.label ?? recommended}` : 'เลือกวิธีส่งอีเมลขาออกของ host นี้');
+  const form = element('form', 'form-grid');
+  const modes = [
+    { id: 'direct', label: 'Direct MX', detail: port25Open ? 'ส่งตรงถึงปลายทาง (พอร์ต 25 เปิด)' : 'ต้องพอร์ต 25 เปิด — ผลตรวจล่าสุดยังถูกบล็อค เลือกได้แต่มีความเสี่ยงส่งไม่ออก' },
+    { id: 'relay-587', label: 'Relay :587', detail: 'ส่งผ่าน relay ด้วย SMTP AUTH + STARTTLS' },
+    { id: 'relay-2525', label: 'Relay :2525', detail: 'สำหรับเครือข่ายที่เหลือแค่พอร์ต 2525 (SMTP2GO, Mailgun, SendGrid)' }
+  ];
+  let selected = mail.outboundMode ?? recommended ?? 'relay-587';
+  const relayWrap = element('div', 'form-grid wizard-relay');
+  const radios = element('div', 'wizard-mode-list');
+  const paintRelayVisibility = () => { relayWrap.hidden = selected === 'direct'; };
+  for (const modeOption of modes) {
+    const card = element('label', 'wizard-mode-card');
+    const radio = element('input');
+    radio.type = 'radio';
+    radio.name = 'outbound-mode';
+    radio.value = modeOption.id;
+    radio.checked = selected === modeOption.id;
+    radio.addEventListener('change', () => { selected = modeOption.id; paintRelayVisibility(); });
+    const copy = element('span');
+    const title = element('b', '', modeOption.label);
+    copy.append(title, element('small', '', modeOption.detail));
+    if (recommended === modeOption.id) title.append(element('span', 'mail-chip info wizard-recommend', 'แนะนำ'));
+    card.append(radio, copy);
+    radios.append(card);
+  }
+  form.append(radios);
+
+  const relayHost = element('input');
+  relayHost.placeholder = 'mail.smtp2go.com';
+  relayHost.value = mail.relay?.host ?? '';
+  const relayPort = element('input');
+  relayPort.type = 'number';
+  relayPort.min = '1';
+  relayPort.max = '65535';
+  relayPort.value = mail.relay?.port ?? '';
+  const relayUser = element('input');
+  relayUser.value = mail.relay?.username ?? '';
+  const relayPass = element('input');
+  relayPass.type = 'password';
+  relayPass.placeholder = mail.relay?.hasPassword ? '(ใช้รหัสผ่านเดิม — พิมพ์ใหม่เพื่อเปลี่ยน)' : '';
+  const labelled = (text, input) => { const label = element('label', '', text); label.append(input); return label; };
+  relayWrap.append(labelled('Relay host', relayHost), labelled('Port', relayPort), labelled('Username', relayUser), labelled('Password', relayPass));
+  form.append(relayWrap);
+  paintRelayVisibility();
+
+  const save = element('button', '', 'บันทึกโหมดส่งออก');
+  save.type = 'submit';
+  const actions = element('div', 'form-actions');
+  actions.append(save);
+  form.append(actions);
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const body = { mode: selected };
+    if (selected !== 'direct') {
+      body.relay = {
+        host: relayHost.value.trim(),
+        port: Number(relayPort.value || (selected === 'relay-587' ? 587 : 2525)),
+        username: relayUser.value.trim(),
+        password: relayPass.value
+      };
+    }
+    try {
+      await withBusy(save, async () => {
+        wizard.settings = await api('/api/mail/outbound-mode', { method: 'POST', body });
+        toast('บันทึกโหมดส่งออกแล้ว');
+        paintWizard();
+      });
+    } catch (error) { showError(error); }
+  });
+  panel.append(form);
+  return wizardNav(panel, { nextEnabled: wizardStepDone(4) });
+}
+
+function wizardStepInstall() {
+  const mail = wizard.settings.mail;
+  const tool = wizard.settings.tool;
+  const panel = wizardPanel(5, 'ติดตั้ง Mail Server', 'mail service ผูกพอร์ตของตัวเอง (25/587/993) ไม่ผ่าน Nginx — ไม่กระทบเว็บโปรเจคที่รันอยู่');
+  panel.append(element('p', 'muted', `สรุป: ${mail.hostname} · ${mail.domains.length} โดเมน (${mail.domains.map((entry) => entry.domain).join(', ')}) · โหมด ${mail.outboundMode}`));
+  const list = element('section', 'tool-list');
+  const stepRow = (title, done, detail) => {
+    const row = element('article', 'tool-row');
+    const copy = element('div');
+    copy.append(element('h3', '', title), element('p', 'muted', detail));
+    const side = element('div');
+    side.append(statusChip(done ? 'พร้อม' : 'รอดำเนินการ', done ? 'ready' : 'muted'));
+    row.append(copy, side);
+    return row;
+  };
+  const installed = tool?.status === 'Installed';
+  const configured = mail.configure?.status === 'configured';
+  list.append(
+    stepRow('Package: Postfix + Dovecot + OpenDKIM', installed, installed ? (tool.version ?? 'ติดตั้งแล้ว') : 'ติดตั้งผ่าน allowlisted installer'),
+    stepRow('Configure: hostname, โดเมน, DKIM, TLS, โหมดส่งออก', configured, configured ? mail.configure.detail : 'เขียน config + เปิด services หลังติดตั้ง package')
+  );
+  panel.append(list);
+  if (wizard.settings.mode === 'demo') panel.append(element('p', 'muted', '⚠ DEMO MODE — การติดตั้งถูกจำลอง ไม่เปลี่ยนแปลงเครื่องจริง'));
+  const unverified = mail.domains.filter((entry) => ['mx', 'spf', 'dkim'].some((kind) => entry.dns?.[kind]?.status !== 'verified'));
+  if (unverified.length) panel.append(element('p', 'muted', `⚠ ${unverified.map((entry) => entry.domain).join(', ')} ยังมี DNS record ที่ไม่ผ่าน — ติดตั้งได้ แต่ step 7 จะยังส่งไม่ผ่านจนกว่า DNS จะพร้อม`));
+
+  const actions = element('div', 'form-actions');
+  if (!installed) {
+    const install = element('button', '', 'ติดตั้ง package');
+    install.type = 'button';
+    install.addEventListener('click', async () => {
+      if (!await confirmAction('ติดตั้ง Mail Server', 'จะติดตั้ง Postfix, Dovecot และ OpenDKIM ผ่าน allowlisted installer', 'ยืนยัน')) return;
+      try {
+        await withBusy(install, async () => {
+          await api('/api/tools/mail/install', { method: 'POST', body: { confirm: true } });
+          await reloadWizardSettings();
+          toast('ติดตั้ง package แล้ว');
+          paintWizard();
+        });
+      } catch (error) { showError(error); }
+    });
+    actions.append(install);
+  } else if (!configured) {
+    const configure = element('button', '', 'Configure mail service');
+    configure.type = 'button';
+    configure.addEventListener('click', async () => {
+      if (!await confirmAction('ยืนยันการตั้งค่า Mail Server', 'จะเขียน config ของ Postfix/Dovecot/OpenDKIM และเปิดพอร์ต 25/587/993 ให้ทำงาน', 'ยืนยัน')) return;
+      try {
+        await withBusy(configure, async () => {
+          wizard.settings = await api('/api/mail/configure', { method: 'POST', body: { confirm: true } });
+          toast('ตั้งค่า mail service แล้ว');
+          paintWizard();
+        });
+      } catch (error) { showError(error); }
+    });
+    actions.append(configure);
+  }
+  panel.append(actions);
+  return wizardNav(panel, { nextEnabled: configured });
+}
+
+function wizardStepMailbox() {
+  const mail = wizard.settings.mail;
+  const panel = wizardPanel(6, 'สร้าง mailbox แรก', 'สร้างกล่องจดหมายแรกของ mail service — ข้ามได้ แล้วมาสร้างทีหลัง');
+  const list = element('section', 'tool-list');
+  for (const mailbox of mail.mailboxes) {
+    const row = element('article', 'tool-row');
+    const copy = element('div');
+    copy.append(element('h3', '', `${mailbox.localPart}@${mailbox.domain}`), element('p', 'muted', mailbox.displayName || '—'));
+    const side = element('div');
+    const remove = element('button', 'secondary danger', 'ลบ');
+    remove.type = 'button';
+    remove.addEventListener('click', async () => {
+      if (!await confirmAction('ลบ mailbox', `ลบ ${mailbox.localPart}@${mailbox.domain} หรือไม่?`, 'ลบ')) return;
+      try {
+        await api(`/api/mail/mailboxes/${encodeURIComponent(mailbox.id)}`, { method: 'DELETE', body: {} });
+        await reloadWizardSettings();
+        paintWizard();
+      } catch (error) { showError(error); }
+    });
+    side.append(statusChip('พร้อมใช้งาน', 'ready'), remove);
+    row.append(copy, side);
+    list.append(row);
+  }
+  if (!mail.mailboxes.length) list.append(element('p', 'muted', 'ยังไม่มี mailbox'));
+  panel.append(list);
+
+  const form = element('form', 'form-grid');
+  const domainSelect = element('select');
+  for (const entry of mail.domains) domainSelect.append(new Option(`@${entry.domain}`, entry.domain));
+  const localInput = element('input');
+  localInput.placeholder = 'portal';
+  localInput.maxLength = 63;
+  const nameInput = element('input');
+  nameInput.placeholder = 'Portal Ops';
+  nameInput.maxLength = 100;
+  const passwordInput = element('input');
+  passwordInput.type = 'password';
+  passwordInput.autocomplete = 'new-password';
+  const labelled = (text, input) => { const label = element('label', '', text); label.append(input); return label; };
+  form.append(labelled('Local part', localInput), labelled('Mail domain', domainSelect), labelled('ชื่อที่แสดง', nameInput), labelled('Password (อย่างน้อย 12 ตัว มีตัวใหญ่/เล็ก/เลข/สัญลักษณ์)', passwordInput));
+  const create = element('button', '', 'สร้าง mailbox');
+  create.type = 'submit';
+  const actions = element('div', 'form-actions');
+  actions.append(create);
+  form.append(actions);
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    try {
+      await withBusy(create, async () => {
+        await api('/api/mail/mailboxes', { method: 'POST', body: { domain: domainSelect.value, localPart: localInput.value.trim(), displayName: nameInput.value.trim(), password: passwordInput.value } });
+        await reloadWizardSettings();
+        toast('สร้าง mailbox แล้ว');
+        paintWizard();
+      });
+    } catch (error) { showError(error); }
+  });
+  panel.append(form);
+  return wizardNav(panel, { nextLabel: mail.mailboxes.length ? 'ถัดไป →' : 'ข้ามตอนนี้ →' });
+}
+
+function wizardStepTest() {
+  const mail = wizard.settings.mail;
+  const panel = wizardPanel(7, 'ทดสอบส่งจริง', 'ส่งอีเมลทดสอบไปที่อีเมลภายนอกของคุณ (เช่น Gmail) — การทดสอบรับเข้าอัตโนมัติจะมาใน Phase 2');
+  if (!mail.mailboxes.length) {
+    panel.append(element('p', 'muted', 'ต้องมี mailbox อย่างน้อย 1 กล่องก่อน — ย้อนกลับไป step 6'));
+    return wizardNav(panel, { next: false });
+  }
+  const form = element('form', 'form-grid');
+  const fromSelect = element('select');
+  for (const mailbox of mail.mailboxes) fromSelect.append(new Option(`${mailbox.localPart}@${mailbox.domain}`, mailbox.id));
+  const toInput = element('input');
+  toInput.type = 'email';
+  toInput.placeholder = 'you@gmail.com';
+  const labelled = (text, input) => { const label = element('label', '', text); label.append(input); return label; };
+  form.append(labelled('ส่งจาก', fromSelect), labelled('ส่งถึง (อีเมลภายนอกของคุณ)', toInput));
+  const send = element('button', '', 'ส่งอีเมลทดสอบ');
+  send.type = 'submit';
+  const actions = element('div', 'form-actions');
+  actions.append(send);
+  form.append(actions);
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    try {
+      await withBusy(send, async () => {
+        const result = await api('/api/mail/test/send', { method: 'POST', body: { mailboxId: fromSelect.value, to: toInput.value.trim() } });
+        wizard.settings.mail.lastTest = result.test;
+        paintWizard();
+      });
+    } catch (error) {
+      showError(error);
+      await reloadWizardSettings();
+      paintWizard();
+    }
+  });
+  panel.append(form);
+  if (mail.lastTest) {
+    const status = mail.lastTest.status === 'passed' ? { label: 'ผ่าน', variant: 'ready' } : mail.lastTest.status === 'simulated' ? { label: 'จำลอง', variant: 'muted' } : { label: 'ไม่ผ่าน', variant: 'needs' };
+    const line = element('p', '');
+    line.append(statusChip(status.label, status.variant), element('span', 'muted', ` ${mail.lastTest.from} → ${mail.lastTest.to} · ${mail.lastTest.detail}`));
+    panel.append(line);
+    if (mail.lastTest.status === 'passed') panel.append(element('p', 'muted', '☑ อย่าลืมเช็คใน inbox ปลายทางว่า SPF/DKIM/DMARC = PASS (ดูใน "Show original" ของ Gmail)'));
+  }
+  const finish = element('div', 'form-actions wizard-actions');
+  const backButton = element('button', 'secondary', '← ย้อนกลับ');
+  backButton.type = 'button';
+  backButton.addEventListener('click', () => { wizard.step = 6; paintWizard(); });
+  const done = element('button', '', 'เสร็จสิ้น — ไปหน้า Mail');
+  done.type = 'button';
+  done.addEventListener('click', () => { location.href = '/mail'; });
+  finish.append(backButton, done);
+  panel.append(finish);
+  return panel;
 }
 
 function fillCredentialSelect(selected = '') {

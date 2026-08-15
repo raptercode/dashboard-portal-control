@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import os from 'node:os';
 import { spawn } from 'node:child_process';
-import { StateStore, TOOLS, SUPPORTED_NODE_MAJOR, SecretVault, appendAudit, validateDomain, validateEnvironmentContent, validateEnvironmentVariables, validateGitBranchRequest, validateGitIdentity, validateHttpsCredential, validateNotificationHook, validatePasswordChange, validateProjectDomains, validateProjectSync, validateTool, InputError } from './core.mjs';
+import { StateStore, TOOLS, SUPPORTED_NODE_MAJOR, SecretVault, appendAudit, initialMailState, validateDomain, validateEnvironmentContent, validateEnvironmentVariables, validateGitBranchRequest, validateGitIdentity, validateHttpsCredential, validateNotificationHook, validatePasswordChange, validateProjectDomains, validateProjectSync, validateTool, InputError } from './core.mjs';
 import { checkDomainDns } from './dns-check.mjs';
 import { activateRelease, appendReleaseEvent, beginDeployment, beginRollback, createRelease, defaultCandidatePort, failRelease, initialDeployment, markReleaseHealthy, markReleasePendingActivation, projectIdentity, validateDockerComposeProject, validateNativeProject, validatePackageScripts } from './native-project.mjs';
 import { callHostHelper } from './helper-client.mjs';
@@ -15,9 +15,11 @@ import { passwordFromEnvironment } from '../scripts/password-config.mjs';
 import { createRenderer } from './render.mjs';
 import { matchUiRoute } from './ui-routes.mjs';
 import { METRIC_INTERVAL_MS, METRIC_RANGE_DAYS, METRIC_RETENTION_DAYS, collectHostMetrics, publicCurrentMetrics, publicMetricSample, validateMetricRangeDays } from './metrics.mjs';
-import { hashPassword, publicOwner, validateOwnerBootstrap, validateOwnerLogin, verifyPassword } from './auth.mjs';
+import { hashPassword, publicOwner, validateEmail, validateOwnerBootstrap, validateOwnerLogin, validateStrongPassword, verifyPassword } from './auth.mjs';
 import { checkSmtpOutbound } from './mail-check.mjs';
 import { driverAvailability, runDatabaseQuery } from './db-query.mjs';
+import { checkDkimRecord, checkDmarcRecord, checkMailHostnameDns, checkMailMx, checkPtrRecord, checkSpfRecord } from './dns-check.mjs';
+import { MAIL_MAX_DOMAINS, dkimSelector, generateDkimKeyPair, mailDnsRecords, smtpSubmit, spfExpectedToken, suggestMailDefaults, validateLocalPart, validateMailHostname, validateOutboundMode } from './mail-service.mjs';
 import { DATABASE_PROVIDERS, probeDatabaseConnection, publicDatabaseConnection, validateDatabaseConnectionInput } from './db-connectors.mjs';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
@@ -39,7 +41,8 @@ const pageTitles = {
   'projects-new-review': 'สร้างโปรเจค',
   'project-logs': 'Logs',
   'database-console': 'Database Console',
-  mail: 'Mail'
+  mail: 'Mail',
+  'mail-setup': 'Mail Setup'
 };
 const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
 const MONITOR_TOKEN_PREFIX = 'dpm_';
@@ -47,7 +50,8 @@ const HOST_TOOL_COMMANDS = {
   nginx: [['/usr/sbin/nginx', ['-v']]],
   certbot: [['/usr/bin/certbot', ['--version']]],
   git: [['/usr/bin/git', ['--version']]],
-  docker: [['/usr/bin/docker', ['--version']], ['/usr/bin/docker', ['compose', 'version']]]
+  docker: [['/usr/bin/docker', ['--version']], ['/usr/bin/docker', ['compose', 'version']]],
+  mail: [['/usr/sbin/postconf', ['mail_version']], ['/usr/bin/doveadm', ['--version']]]
 };
 
 export async function createApplication(options = {}) {
@@ -67,6 +71,15 @@ export async function createApplication(options = {}) {
   const softwareVersion = options.softwareVersion ?? await installedSoftwareVersion();
   const domainDnsCheck = options.domainDnsCheck ?? checkDomainDns;
   const mailOutboundCheck = options.mailOutboundCheck ?? checkSmtpOutbound;
+  const mailDns = {
+    hostname: options.mailHostnameCheck ?? checkMailHostnameDns,
+    mx: options.mailMxCheck ?? checkMailMx,
+    spf: options.mailSpfCheck ?? checkSpfRecord,
+    dkim: options.mailDkimCheck ?? checkDkimRecord,
+    dmarc: options.mailDmarcCheck ?? checkDmarcRecord,
+    ptr: options.mailPtrCheck ?? checkPtrRecord
+  };
+  const mailSend = options.mailSend ?? smtpSubmit;
   const databaseQuery = options.databaseQuery ?? runDatabaseQuery;
   const databaseDrivers = options.databaseDrivers ?? driverAvailability;
   // Installing a driver requires a service restart anyway, so probe once.
@@ -266,9 +279,30 @@ export async function createApplication(options = {}) {
       if (request.method === 'POST' && databaseQueryMatch) return await handleDatabaseQuery(request, response, databaseQueryMatch[1]);
       const databaseDeleteMatch = url.pathname.match(/^\/api\/databases\/([a-f0-9-]{36})$/i);
       if (request.method === 'DELETE' && databaseDeleteMatch) return await handleDatabaseDelete(request, response, databaseDeleteMatch[1]);
-      const toolMatch = url.pathname.match(/^\/api\/tools\/(nginx|certbot|git|docker)\/install$/);
+      const toolMatch = url.pathname.match(/^\/api\/tools\/(nginx|certbot|git|docker|mail)\/install$/);
       if (request.method === 'POST' && toolMatch) return await handleInstall(request, response, toolMatch[1]);
       if (request.method === 'POST' && url.pathname === '/api/mail/outbound-check') return await handleMailOutboundCheck(request, response);
+      if (request.method === 'GET' && url.pathname === '/api/mail') {
+        if (!requireSession(request, response)) return;
+        return sendJson(response, 200, mailSettingsView());
+      }
+      if (request.method === 'POST' && url.pathname === '/api/mail/hostname') return await handleMailHostname(request, response);
+      if (request.method === 'POST' && url.pathname === '/api/mail/domains') return await handleMailDomainAdd(request, response);
+      const mailDomainMatch = url.pathname.match(/^\/api\/mail\/domains\/([a-z0-9.-]{1,253})$/);
+      if (request.method === 'DELETE' && mailDomainMatch) return await handleMailDomainDelete(request, response, mailDomainMatch[1], url);
+      const mailDnsMatch = url.pathname.match(/^\/api\/mail\/domains\/([a-z0-9.-]{1,253})\/dns-check$/);
+      if (request.method === 'POST' && mailDnsMatch) return await handleMailDnsCheck(request, response, mailDnsMatch[1]);
+      if (request.method === 'POST' && url.pathname === '/api/mail/ptr-check') return await handleMailPtrCheck(request, response);
+      if (request.method === 'POST' && url.pathname === '/api/mail/outbound-mode') return await handleMailOutboundMode(request, response);
+      if (request.method === 'POST' && url.pathname === '/api/mail/configure') return await handleMailConfigure(request, response);
+      if (request.method === 'GET' && url.pathname === '/api/mail/mailboxes') {
+        if (!requireSession(request, response)) return;
+        return sendJson(response, 200, { mailboxes: (store.snapshot().mail?.mailboxes ?? []) });
+      }
+      if (request.method === 'POST' && url.pathname === '/api/mail/mailboxes') return await handleMailboxCreate(request, response);
+      const mailboxMatch = url.pathname.match(/^\/api\/mail\/mailboxes\/([a-f0-9-]{36})$/i);
+      if (request.method === 'DELETE' && mailboxMatch) return await handleMailboxDelete(request, response, mailboxMatch[1]);
+      if (request.method === 'POST' && url.pathname === '/api/mail/test/send') return await handleMailTestSend(request, response);
       if (url.pathname.startsWith('/api/')) return sendJson(response, 404, { error: 'API endpoint not found.' });
       return await serveStatic(url.pathname, response);
     } catch (error) {
@@ -459,6 +493,281 @@ export async function createApplication(options = {}) {
       detail: `Outbound SMTP: ${report.ports.map((item) => `${item.port}=${item.status}`).join(', ')} → ${report.recommendation.mode}`
     }));
     return sendJson(response, 200, report);
+  }
+
+  function pendingDnsRecord() {
+    return { status: 'pending', checkedAt: null, detail: null };
+  }
+
+  function mailSettingsView() {
+    const snapshot = store.snapshot();
+    const mail = snapshot.mail ?? initialMailState();
+    const relayHost = mail.relay?.host ?? null;
+    return {
+      mail: {
+        hostname: mail.hostname,
+        hostnameCheck: mail.hostnameCheck ?? null,
+        outboundMode: mail.outboundMode,
+        relay: mail.relay ? { host: mail.relay.host, port: mail.relay.port, username: mail.relay.username, hasPassword: Boolean(mail.relay.encryptedSecret) } : null,
+        configure: mail.configure,
+        ptr: mail.ptr,
+        lastTest: mail.lastTest,
+        domains: (mail.domains ?? []).map((entry) => {
+          const selector = entry.dkim?.selectors?.find((item) => item.state === 'active') ?? entry.dkim?.selectors?.[0] ?? null;
+          return {
+            domain: entry.domain,
+            createdAt: entry.createdAt,
+            dns: entry.dns,
+            dkimSelector: selector?.selector ?? null,
+            records: mail.hostname && selector
+              ? mailDnsRecords({ hostname: mail.hostname, domain: entry.domain, mode: mail.outboundMode, relayHost, selector: selector.selector, publicKey: selector.publicKey })
+              : null
+          };
+        }),
+        mailboxes: mail.mailboxes ?? []
+      },
+      tool: snapshot.tools.mail ?? null,
+      suggestions: suggestMailDefaults(snapshot.projects),
+      vaultReady: Boolean(vault),
+      maxDomains: MAIL_MAX_DOMAINS,
+      dkimSelectorDefault: dkimSelector(),
+      mode
+    };
+  }
+
+  async function handleMailHostname(request, response) {
+    if (!requireSession(request, response, true)) return;
+    const hostname = validateMailHostname((await readJson(request)).hostname);
+    let check = null;
+    try { check = await mailDns.hostname(hostname); } catch { /* The A/AAAA check is advisory at this step. */ }
+    await store.update((state) => {
+      state.mail ??= initialMailState();
+      state.mail.hostname = hostname;
+      state.mail.hostnameCheck = check ? {
+        status: check.proxied ? 'proxied' : check.status,
+        checkedAt: new Date().toISOString(),
+        detail: check.proxied ? 'Mail hostname must be DNS-only: CDN proxies cannot carry SMTP.' : (check.detail ?? null)
+      } : null;
+      state.mail.ptr = pendingDnsRecord();
+      appendAudit(state, { action: 'mail.hostname_configure', outcome: 'success', actor: 'owner', target: hostname, detail: 'Mail hostname configured' });
+    });
+    return sendJson(response, 200, mailSettingsView());
+  }
+
+  async function handleMailDomainAdd(request, response) {
+    if (!requireSession(request, response, true)) return;
+    if (!vault) throw new InputError('Credential vault is not configured. Set HOSTMGR_SECRET_KEY before adding a mail domain.');
+    const domain = validateDomain({ hostname: (await readJson(request)).domain });
+    const keyPair = generateDkimKeyPair();
+    const encryptedPrivateKey = vault.encrypt(keyPair.privateKeyPem);
+    await store.update((state) => {
+      state.mail ??= initialMailState();
+      if (state.mail.domains.some((item) => item.domain === domain)) throw new InputError('This mail domain is already configured.');
+      if (state.mail.domains.length >= MAIL_MAX_DOMAINS) throw new InputError(`A host supports at most ${MAIL_MAX_DOMAINS} mail domains.`);
+      state.mail.domains.push({
+        domain,
+        dkim: { selectors: [{ selector: keyPair.selector, publicKey: keyPair.publicKey, encryptedPrivateKey, state: 'active' }] },
+        dns: { mx: pendingDnsRecord(), spf: pendingDnsRecord(), dkim: pendingDnsRecord(), dmarc: pendingDnsRecord() },
+        createdAt: new Date().toISOString()
+      });
+      appendAudit(state, { action: 'mail.domain_add', outcome: 'success', actor: 'owner', target: domain, detail: `DKIM selector ${keyPair.selector} generated (RSA 2048); private key stored encrypted` });
+    });
+    return sendJson(response, 200, mailSettingsView());
+  }
+
+  async function handleMailDomainDelete(request, response, domainName, url) {
+    if (!requireSession(request, response, true)) return;
+    const force = url.searchParams.get('force') === 'true';
+    const snapshot = store.snapshot();
+    const entry = (snapshot.mail?.domains ?? []).find((item) => item.domain === domainName);
+    if (!entry) throw new NotFoundError('Mail domain was not found.');
+    const attached = (snapshot.mail?.mailboxes ?? []).filter((item) => item.domain === domainName);
+    if (attached.length && !force) throw new InputError(`This domain still has ${attached.length} mailbox(es). Delete them first or pass force=true.`);
+    if (mode === 'host' && snapshot.mail?.configure?.status === 'configured') {
+      const socketPath = process.env.HOSTMGR_DEPLOY_HELPER_SOCKET;
+      if (!socketPath) throw new InputError('Host mail cleanup is not configured. Re-run the Dashboard Portal installer.');
+      const result = await callHostHelper(socketPath, { operation: 'remove-mail-domain', domain: domainName, force });
+      if (!result.ok) throw new InputError(result.error || 'Host mail domain cleanup was rejected.');
+    }
+    await store.update((state) => {
+      state.mail.domains = state.mail.domains.filter((item) => item.domain !== domainName);
+      state.mail.mailboxes = (state.mail.mailboxes ?? []).filter((item) => item.domain !== domainName);
+      appendAudit(state, { action: 'mail.domain_remove', outcome: 'success', actor: 'owner', target: domainName, detail: force && attached.length ? `Removed with ${attached.length} mailbox(es)` : 'Removed mail domain' });
+    });
+    return sendJson(response, 200, mailSettingsView());
+  }
+
+  async function handleMailDnsCheck(request, response, domainName) {
+    if (!requireSession(request, response, true)) return;
+    const record = String((await readJson(request)).record ?? 'all');
+    if (!['mx', 'spf', 'dkim', 'dmarc', 'all'].includes(record)) throw new InputError('Record must be mx, spf, dkim, dmarc, or all.');
+    const snapshot = store.snapshot();
+    const mail = snapshot.mail ?? initialMailState();
+    const entry = (mail.domains ?? []).find((item) => item.domain === domainName);
+    if (!entry) throw new NotFoundError('Mail domain was not found.');
+    if (!mail.hostname) throw new InputError('Configure the mail hostname before checking DNS records.');
+    const selector = entry.dkim?.selectors?.find((item) => item.state === 'active') ?? entry.dkim?.selectors?.[0] ?? null;
+    const relayHost = mail.relay?.host ?? null;
+    const wanted = record === 'all' ? ['mx', 'spf', 'dkim', 'dmarc'] : [record];
+    const results = {};
+    await Promise.all(wanted.map(async (kind) => {
+      if (kind === 'mx') results.mx = await mailDns.mx(entry.domain, mail.hostname);
+      else if (kind === 'spf') results.spf = await mailDns.spf(entry.domain, spfExpectedToken({ mode: mail.outboundMode, hostname: mail.hostname, relayHost }));
+      else if (kind === 'dkim') results.dkim = selector
+        ? await mailDns.dkim(selector.selector, entry.domain, selector.publicKey)
+        : { status: 'error', checkedAt: new Date().toISOString(), detail: 'No DKIM key exists for this domain.' };
+      else if (kind === 'dmarc') results.dmarc = await mailDns.dmarc(entry.domain);
+    }));
+    await store.update((state) => {
+      const target = (state.mail?.domains ?? []).find((item) => item.domain === domainName);
+      if (!target) return;
+      for (const [kind, value] of Object.entries(results)) target.dns[kind] = value;
+      appendAudit(state, { action: 'mail.dns_check', outcome: 'success', actor: 'owner', target: `${record}:${domainName}`, detail: Object.entries(results).map(([kind, value]) => `${kind}=${value.status}`).join(', ') });
+    });
+    return sendJson(response, 200, mailSettingsView());
+  }
+
+  async function handleMailPtrCheck(request, response) {
+    if (!requireSession(request, response, true)) return;
+    const mail = store.snapshot().mail ?? initialMailState();
+    if (!mail.hostname) throw new InputError('Configure the mail hostname before checking PTR.');
+    const result = await mailDns.ptr(mail.hostname);
+    await store.update((state) => {
+      state.mail.ptr = result;
+      appendAudit(state, { action: 'mail.dns_check', outcome: 'success', actor: 'owner', target: `ptr:${mail.hostname}`, detail: `ptr=${result.status}` });
+    });
+    return sendJson(response, 200, mailSettingsView());
+  }
+
+  async function handleMailOutboundMode(request, response) {
+    if (!requireSession(request, response, true)) return;
+    const input = validateOutboundMode(await readJson(request));
+    if (input.relay && !vault) throw new InputError('Credential vault is not configured. Set HOSTMGR_SECRET_KEY before saving relay credentials.');
+    await store.update((state) => {
+      state.mail ??= initialMailState();
+      state.mail.outboundMode = input.mode;
+      state.mail.relay = input.relay
+        ? { host: input.relay.host, port: input.relay.port, username: input.relay.username, encryptedSecret: vault.encrypt(input.relay.password) }
+        : null;
+      appendAudit(state, { action: 'mail.outbound_mode_configure', outcome: 'success', actor: 'owner', target: input.mode, detail: input.relay ? `Relay ${input.relay.host}:${input.relay.port} saved without exposing its password` : 'Direct MX delivery selected' });
+    });
+    return sendJson(response, 200, mailSettingsView());
+  }
+
+  async function handleMailConfigure(request, response) {
+    if (!requireSession(request, response, true)) return;
+    if ((await readJson(request)).confirm !== true) throw new InputError('Explicit confirmation is required.');
+    const snapshot = store.snapshot();
+    const mail = snapshot.mail ?? initialMailState();
+    if (snapshot.tools.mail?.status !== 'Installed') throw new InputError('Install the mail server packages before configuring.');
+    if (!mail.hostname) throw new InputError('Configure the mail hostname first.');
+    if (!mail.domains?.length) throw new InputError('Add at least one mail domain first.');
+    if (!mail.outboundMode) throw new InputError('Choose an outbound mode first.');
+    if (mail.outboundMode !== 'direct' && !mail.relay?.encryptedSecret) throw new InputError('Save the relay credentials before configuring.');
+    if (mode === 'host') {
+      const socketPath = process.env.HOSTMGR_DEPLOY_HELPER_SOCKET;
+      if (!socketPath) throw new InputError('Host mail configuration is not available. Re-run the Dashboard Portal installer.');
+      const result = await callHostHelper(socketPath, { operation: 'configure-mail' });
+      if (!result.ok) throw new InputError(result.error || 'Host mail configuration was rejected.');
+    }
+    await store.update((state) => {
+      state.mail.configure = {
+        status: 'configured',
+        simulated: mode === 'demo',
+        at: new Date().toISOString(),
+        detail: mode === 'demo' ? 'Simulated: Postfix/Dovecot/OpenDKIM configuration was not applied to this machine.' : 'Host mail services configured and enabled.'
+      };
+      appendAudit(state, { action: 'mail.configure', outcome: 'success', actor: 'owner', target: state.mail.hostname, detail: `${state.mail.domains.length} domain(s), mode ${state.mail.outboundMode}${mode === 'demo' ? ' (simulated)' : ''}` });
+    });
+    return sendJson(response, 200, mailSettingsView());
+  }
+
+  async function handleMailboxCreate(request, response) {
+    if (!requireSession(request, response, true)) return;
+    const body = await readJson(request);
+    const snapshot = store.snapshot();
+    const mail = snapshot.mail ?? initialMailState();
+    if (mail.configure?.status !== 'configured') throw new InputError('Complete the mail installation step before creating mailboxes.');
+    const domain = validateDomain({ hostname: body.domain });
+    if (!mail.domains.some((item) => item.domain === domain)) throw new InputError('Selected mail domain is not configured.');
+    const localPart = validateLocalPart(body.localPart);
+    const password = validateStrongPassword(body.password, 'Mailbox password');
+    const displayName = typeof body.displayName === 'string' ? body.displayName.trim().slice(0, 100) : '';
+    if (mail.mailboxes.some((item) => item.domain === domain && item.localPart === localPart)) throw new InputError('This mailbox address already exists.');
+    if (mode === 'host') {
+      const socketPath = process.env.HOSTMGR_DEPLOY_HELPER_SOCKET;
+      if (!socketPath) throw new InputError('Host mailbox provisioning is not available. Re-run the Dashboard Portal installer.');
+      const result = await callHostHelper(socketPath, { operation: 'create-mailbox', domain, localPart, password });
+      if (!result.ok) throw new InputError(result.error || 'Host mailbox provisioning was rejected.');
+    }
+    const created = { id: randomUUID(), domain, localPart, displayName, createdAt: new Date().toISOString(), simulated: mode === 'demo' };
+    await store.update((state) => {
+      state.mail.mailboxes.push(created);
+      appendAudit(state, { action: 'mail.mailbox_create', outcome: 'success', actor: 'owner', target: `${localPart}@${domain}`, detail: 'Mailbox created without storing its password' });
+    });
+    return sendJson(response, 201, { ok: true, mailbox: created });
+  }
+
+  async function handleMailboxDelete(request, response, id) {
+    if (!requireSession(request, response, true)) return;
+    const snapshot = store.snapshot();
+    const mailbox = (snapshot.mail?.mailboxes ?? []).find((item) => item.id === id);
+    if (!mailbox) throw new NotFoundError('Mailbox was not found.');
+    if (mode === 'host' && snapshot.mail?.configure?.status === 'configured') {
+      const socketPath = process.env.HOSTMGR_DEPLOY_HELPER_SOCKET;
+      if (!socketPath) throw new InputError('Host mailbox removal is not available. Re-run the Dashboard Portal installer.');
+      const result = await callHostHelper(socketPath, { operation: 'delete-mailbox', domain: mailbox.domain, localPart: mailbox.localPart });
+      if (!result.ok) throw new InputError(result.error || 'Host mailbox removal was rejected.');
+    }
+    await store.update((state) => {
+      state.mail.mailboxes = state.mail.mailboxes.filter((item) => item.id !== id);
+      appendAudit(state, { action: 'mail.mailbox_delete', outcome: 'success', actor: 'owner', target: `${mailbox.localPart}@${mailbox.domain}`, detail: 'Mailbox removed' });
+    });
+    return sendJson(response, 200, { ok: true });
+  }
+
+  async function handleMailTestSend(request, response) {
+    if (!requireSession(request, response, true)) return;
+    const body = await readJson(request);
+    const snapshot = store.snapshot();
+    const mail = snapshot.mail ?? initialMailState();
+    if (mail.configure?.status !== 'configured') throw new InputError('Complete the mail installation step before sending a test email.');
+    const mailbox = (mail.mailboxes ?? []).find((item) => item.id === body.mailboxId);
+    if (!mailbox) throw new InputError('Select a mailbox to send from.');
+    const to = validateEmail(body.to, 'Test recipient');
+    const from = `${mailbox.localPart}@${mailbox.domain}`;
+    let outcome;
+    if (mail.outboundMode !== 'direct' && mail.relay?.encryptedSecret && vault) {
+      try {
+        const result = await mailSend({
+          host: mail.relay.host,
+          port: mail.relay.port,
+          username: mail.relay.username,
+          password: vault.decrypt(mail.relay.encryptedSecret),
+          from,
+          to,
+          subject: 'Dashboard Portal mail test',
+          body: `Test message from ${from} sent through ${mail.relay.host}:${mail.relay.port} at ${new Date().toISOString()}.`
+        });
+        outcome = { status: 'passed', detail: result.reply };
+      } catch (error) {
+        outcome = { status: 'failed', detail: String(error?.message ?? 'SMTP submission failed.').slice(0, 240) };
+      }
+    } else if (mode === 'host') {
+      try {
+        const result = await mailSend({ host: '127.0.0.1', port: 25, username: null, password: null, from, to, subject: 'Dashboard Portal mail test', body: `Test message from ${from} at ${new Date().toISOString()}.` });
+        outcome = { status: 'passed', detail: result.reply };
+      } catch (error) {
+        outcome = { status: 'failed', detail: String(error?.message ?? 'SMTP submission failed.').slice(0, 240) };
+      }
+    } else {
+      outcome = { status: 'simulated', detail: 'Simulated: direct MX delivery only runs on a real host. Configure a relay to test real sending from the sandbox.' };
+    }
+    await store.update((state) => {
+      state.mail.lastTest = { at: new Date().toISOString(), from, to, ...outcome };
+      appendAudit(state, { action: 'mail.test_send', outcome: outcome.status === 'failed' ? 'failure' : 'success', actor: 'owner', target: from, detail: `${outcome.status}: ${outcome.detail}`.slice(0, 240) });
+    });
+    return sendJson(response, outcome.status === 'failed' ? 422 : 200, { ok: outcome.status !== 'failed', test: store.snapshot().mail.lastTest });
   }
 
   async function handleInstall(request, response, tool) {

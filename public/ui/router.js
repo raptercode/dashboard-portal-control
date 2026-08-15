@@ -15,6 +15,7 @@ export function pageForPathname(pathname) {
   if (routePages.has(pathname)) return routePages.get(pathname);
   if (pathname.startsWith('/projects/')) return 'projects';
   if (pathname.startsWith('/databases/')) return 'databases';
+  if (pathname.startsWith('/mail/')) return 'mail';
   return 'overview';
 }
 

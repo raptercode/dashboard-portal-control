@@ -70,6 +70,12 @@ async function dispatch(request) {
   if (request.operation === 'set-admin-password') return setAdminPassword(request.password);
   if (request.operation === 'read-project-log') return readProjectLog(request.slug, request.lines);
   if (request.operation === 'project-runtime-status') return projectRuntimeStatus(request.slug);
+  // Mail host provisioning ships in a later release; the operations are
+  // allowlisted now so the API surface is stable, but they fail closed until
+  // the reviewed Postfix/Dovecot/OpenDKIM templating lands.
+  if (['configure-mail', 'write-dkim-key', 'create-mailbox', 'delete-mailbox', 'remove-mail-domain'].includes(request.operation)) {
+    throw new HelperError('Mail host provisioning is not available in this release yet.');
+  }
   throw new HelperError('Unsupported helper operation.');
 }
 
@@ -114,7 +120,7 @@ async function setAdminPassword(password) {
 }
 
 async function installTool(tool) {
-  const packages = { nginx: ['nginx'], certbot: ['certbot', 'python3-certbot-nginx'], git: ['git'], docker: ['docker.io', 'docker-compose-v2'] };
+  const packages = { nginx: ['nginx'], certbot: ['certbot', 'python3-certbot-nginx'], git: ['git'], docker: ['docker.io', 'docker-compose-v2'], mail: ['postfix', 'dovecot-imapd', 'dovecot-lmtpd', 'opendkim', 'opendkim-tools'] };
   if (!Object.hasOwn(packages, tool)) throw new HelperError('Unsupported tool installation request.');
   await run('/usr/bin/apt-get', ['update'], { timeout: 180_000 });
   await run('/usr/bin/apt-get', ['install', '-y', '--no-install-recommends', ...packages[tool]], { timeout: 300_000 });

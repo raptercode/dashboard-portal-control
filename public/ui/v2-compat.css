@@ -96,8 +96,8 @@ body[data-shell="dashboard"] .sidebar {
 .form-grid label, .form-field label { color: var(--text-secondary); font-size: 12px; font-weight: 500; }
 .form-grid input, .form-grid select, .form-grid textarea, .form-field input, .input, .search-field input { color: var(--text-primary); background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--r-md); padding: 8px 10px; box-shadow: none; }
 .form-grid input:focus, .form-grid select:focus, .form-grid textarea:focus, .input:focus, .search-field:focus-within { border-color: var(--brand-primary); box-shadow: 0 0 0 3px var(--brand-primary-soft); outline: 0; }
-button:not(.close-btn):not(.icon-button):not(.secondary):not(.btn):not(.project-action-danger):not(.env-sensitivity):not(.mail-nav-item), .button:not(.secondary):not(.btn) { background: var(--brand-primary); border-color: var(--brand-primary); color: #fff; border-radius: var(--r-md); }
-button:not(.close-btn):not(.icon-button):not(.secondary):not(.btn):not(.project-action-danger):not(.env-sensitivity):not(.mail-nav-item):hover, .button:not(.secondary):not(.btn):hover { background: var(--brand-primary-hover); border-color: var(--brand-primary-hover); box-shadow: none; transform: none; }
+button:not(.close-btn):not(.icon-button):not(.secondary):not(.btn):not(.project-action-danger):not(.env-sensitivity):not(.mail-nav-item):not(.wizard-step-chip), .button:not(.secondary):not(.btn) { background: var(--brand-primary); border-color: var(--brand-primary); color: #fff; border-radius: var(--r-md); }
+button:not(.close-btn):not(.icon-button):not(.secondary):not(.btn):not(.project-action-danger):not(.env-sensitivity):not(.mail-nav-item):not(.wizard-step-chip):hover, .button:not(.secondary):not(.btn):hover { background: var(--brand-primary-hover); border-color: var(--brand-primary-hover); box-shadow: none; transform: none; }
 button.secondary, .button.secondary, a.secondary { background: transparent; border-color: var(--border); color: var(--text-secondary); }
 button.danger, .button.danger { background: var(--status-error); border-color: var(--status-error); color: #fff; }
 .section-head { margin: 24px 0 12px; }
