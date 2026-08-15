@@ -70,3 +70,32 @@ test('SQLite state store writes transactionally and preserves a tool update', as
   await reopened.load();
   assert.equal(reopened.snapshot().tools.nginx.status, 'Installed');
 });
+
+test('diffed persistence keeps reloads identical across row edits, removals, and fresh processes', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'hostmgr-core-'));
+  const path = join(directory, 'state.sqlite');
+  const project = (slug, name) => ({ slug, name, directory: '/', runtime: 'node', deployment: { state: 'idle', activeReleaseId: null, previousReleaseId: null, releases: [], updatedAt: '2026-01-01T00:00:00.000Z' } });
+  const store = new StateStore(path);
+  await store.load();
+  await store.update((state) => {
+    state.sessions.push({ idHash: 'a'.repeat(43), csrf: 'b'.repeat(43), expiresAt: Date.now() + 60_000 });
+    state.sessions.push({ idHash: 'c'.repeat(43), csrf: 'd'.repeat(43), expiresAt: Date.now() + 60_000 });
+    state.credentials.push({ id: '11111111-1111-1111-1111-111111111111', name: 'token-a', type: 'https_token' });
+    state.projects.push(project('demo-app', 'Demo'), project('second-app', 'Second'));
+    state.audit.unshift({ id: '33333333-3333-3333-3333-333333333333', at: '2026-01-02T00:00:00.000Z', action: 'test.event' });
+    state.owner = { email: 'owner@example.test', createdAt: '2026-01-01T00:00:00.000Z' };
+  });
+  await store.update((state) => {
+    state.sessions = state.sessions.slice(0, 1);
+    state.credentials = [];
+    state.projects = state.projects.filter((item) => item.slug !== 'second-app');
+    state.projects[0].name = 'Demo renamed';
+    state.audit = [];
+  });
+  const reopened = new StateStore(path);
+  assert.deepEqual(await reopened.load(), store.snapshot());
+  // A fresh process has no diff cache; its first persist must still converge.
+  await reopened.update((state) => { state.sessions = []; });
+  const third = new StateStore(path);
+  assert.deepEqual(await third.load(), reopened.snapshot());
+});

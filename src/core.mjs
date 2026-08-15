@@ -41,6 +41,10 @@ export class StateStore {
   #database;
   #state;
   #queue = Promise.resolve();
+  // Serialized rows from the last successful persist, keyed per table. Null
+  // until the first persist of this process, which rewrites every table and
+  // seeds the cache; later persists diff against it and only touch changed rows.
+  #persisted = null;
 
   constructor(path) {
     this.#path = path;
@@ -117,39 +121,30 @@ export class StateStore {
 
   async #persist(state) {
     const database = this.#database;
+    const sections = persistedSections(state);
+    const previous = this.#persisted;
+    const next = new Map(sections.map((section) => [section.table, new Map(section.rows.map((row) => [row.key, row.payload]))]));
     database.exec('BEGIN IMMEDIATE');
     try {
-      database.prepare('DELETE FROM tools').run();
-      database.prepare('DELETE FROM sessions').run();
-      database.prepare('DELETE FROM credentials').run();
-      database.prepare('DELETE FROM projects').run();
-      database.prepare('DELETE FROM audit_events').run();
-      database.prepare('DELETE FROM jobs').run();
-      database.prepare('DELETE FROM database_connections').run();
-      const insertTool = database.prepare('INSERT INTO tools (id, payload) VALUES (?, ?)');
-      const insertSession = database.prepare('INSERT INTO sessions (id_hash, payload) VALUES (?, ?)');
-      const insertCredential = database.prepare('INSERT INTO credentials (id, payload) VALUES (?, ?)');
-      const insertProject = database.prepare('INSERT INTO projects (slug, payload) VALUES (?, ?)');
-      const insertAudit = database.prepare('INSERT INTO audit_events (id, occurred_at, payload) VALUES (?, ?, ?)');
-      const insertJob = database.prepare('INSERT INTO jobs (id, project_slug, status, created_at, started_at, finished_at, payload) VALUES (?, ?, ?, ?, ?, ?, ?)');
-      const insertDatabaseConnection = database.prepare('INSERT INTO database_connections (id, payload) VALUES (?, ?)');
-      for (const [id, tool] of Object.entries(state.tools)) insertTool.run(id, JSON.stringify(tool));
-      for (const session of state.sessions) insertSession.run(session.idHash, JSON.stringify(session));
-      for (const credential of state.credentials) insertCredential.run(credential.id, JSON.stringify(credential));
-      for (const project of state.projects) insertProject.run(project.slug, JSON.stringify(project));
-      for (const event of state.audit) insertAudit.run(event.id, event.at, JSON.stringify(event));
-      for (const job of state.jobs ?? []) insertJob.run(job.id, job.projectSlug, job.status, job.createdAt, job.startedAt ?? null, job.finishedAt ?? null, JSON.stringify(job));
-      for (const connection of state.databaseConnections ?? []) insertDatabaseConnection.run(connection.id, JSON.stringify(connection));
-      const setMeta = database.prepare('INSERT OR REPLACE INTO portal_meta (key, value) VALUES (?, ?)');
-      setMeta.run('initialized', 'true');
-      setMeta.run('schema_version', String(state.schemaVersion ?? 2));
-      setMeta.run('created_at', state.createdAt ?? new Date().toISOString());
-      setMeta.run('git', JSON.stringify(state.git ?? { identity: null }));
-      setMeta.run('owner', JSON.stringify(state.owner ?? null));
-      setMeta.run('monitor_tokens', JSON.stringify(state.monitorTokens ?? []));
-      setMeta.run('notification_hooks', JSON.stringify(state.notificationHooks ?? []));
+      for (const section of sections) {
+        const before = previous?.get(section.table);
+        if (!before && section.sweep) database.prepare(`DELETE FROM ${section.table}`).run();
+        const upsert = database.prepare(section.upsertSql);
+        for (const row of section.rows) {
+          if (before && before.get(row.key) === row.payload) continue;
+          upsert.run(...row.params);
+        }
+        if (before && section.sweep) {
+          const current = next.get(section.table);
+          const remove = database.prepare(`DELETE FROM ${section.table} WHERE ${section.keyColumn} = ?`);
+          for (const key of before.keys()) if (!current.has(key)) remove.run(key);
+        }
+      }
       database.exec('COMMIT');
+      this.#persisted = next;
     } catch (error) {
+      // ROLLBACK restores the pre-transaction rows, which is exactly what the
+      // untouched #persisted cache still describes.
       database.exec('ROLLBACK');
       throw error;
     }
@@ -175,6 +170,34 @@ export class StateStore {
       databaseConnections: readPayloads('SELECT payload FROM database_connections')
     };
   }
+}
+
+function persistedSections(state) {
+  const row = (key, value, extra = []) => {
+    const payload = JSON.stringify(value);
+    return { key, payload, params: [key, ...extra, payload] };
+  };
+  const metaRow = (key, value) => ({ key, payload: value, params: [key, value] });
+  return [
+    { table: 'tools', keyColumn: 'id', sweep: true, upsertSql: 'INSERT OR REPLACE INTO tools (id, payload) VALUES (?, ?)', rows: Object.entries(state.tools).map(([id, tool]) => row(id, tool)) },
+    { table: 'sessions', keyColumn: 'id_hash', sweep: true, upsertSql: 'INSERT OR REPLACE INTO sessions (id_hash, payload) VALUES (?, ?)', rows: (state.sessions ?? []).map((session) => row(session.idHash, session)) },
+    { table: 'credentials', keyColumn: 'id', sweep: true, upsertSql: 'INSERT OR REPLACE INTO credentials (id, payload) VALUES (?, ?)', rows: (state.credentials ?? []).map((credential) => row(credential.id, credential)) },
+    { table: 'projects', keyColumn: 'slug', sweep: true, upsertSql: 'INSERT OR REPLACE INTO projects (slug, payload) VALUES (?, ?)', rows: (state.projects ?? []).map((project) => row(project.slug, project)) },
+    { table: 'audit_events', keyColumn: 'id', sweep: true, upsertSql: 'INSERT OR REPLACE INTO audit_events (id, occurred_at, payload) VALUES (?, ?, ?)', rows: (state.audit ?? []).map((event) => row(event.id, event, [event.at])) },
+    { table: 'jobs', keyColumn: 'id', sweep: true, upsertSql: 'INSERT OR REPLACE INTO jobs (id, project_slug, status, created_at, started_at, finished_at, payload) VALUES (?, ?, ?, ?, ?, ?, ?)', rows: (state.jobs ?? []).map((job) => row(job.id, job, [job.projectSlug, job.status, job.createdAt, job.startedAt ?? null, job.finishedAt ?? null])) },
+    { table: 'database_connections', keyColumn: 'id', sweep: true, upsertSql: 'INSERT OR REPLACE INTO database_connections (id, payload) VALUES (?, ?)', rows: (state.databaseConnections ?? []).map((connection) => row(connection.id, connection)) },
+    // portal_meta is never swept: unknown keys written by other tooling (for
+    // example the demo password reset script) must survive a portal persist.
+    { table: 'portal_meta', keyColumn: 'key', sweep: false, upsertSql: 'INSERT OR REPLACE INTO portal_meta (key, value) VALUES (?, ?)', rows: [
+      metaRow('initialized', 'true'),
+      metaRow('schema_version', String(state.schemaVersion ?? 2)),
+      metaRow('created_at', state.createdAt ?? new Date().toISOString()),
+      metaRow('git', JSON.stringify(state.git ?? { identity: null })),
+      metaRow('owner', JSON.stringify(state.owner ?? null)),
+      metaRow('monitor_tokens', JSON.stringify(state.monitorTokens ?? [])),
+      metaRow('notification_hooks', JSON.stringify(state.notificationHooks ?? []))
+    ] }
+  ];
 }
 
 export function validateTool(tool) {
