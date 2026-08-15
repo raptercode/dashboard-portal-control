@@ -16,6 +16,8 @@ import { createRenderer } from './render.mjs';
 import { matchUiRoute } from './ui-routes.mjs';
 import { METRIC_INTERVAL_MS, METRIC_RANGE_DAYS, METRIC_RETENTION_DAYS, collectHostMetrics, publicCurrentMetrics, publicMetricSample, validateMetricRangeDays } from './metrics.mjs';
 import { hashPassword, publicOwner, validateOwnerBootstrap, validateOwnerLogin, verifyPassword } from './auth.mjs';
+import { checkSmtpOutbound } from './mail-check.mjs';
+import { driverAvailability, runDatabaseQuery } from './db-query.mjs';
 import { DATABASE_PROVIDERS, probeDatabaseConnection, publicDatabaseConnection, validateDatabaseConnectionInput } from './db-connectors.mjs';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
@@ -35,7 +37,9 @@ const pageTitles = {
   'projects-new': 'สร้างโปรเจค',
   'projects-new-repository': 'สร้างโปรเจค',
   'projects-new-review': 'สร้างโปรเจค',
-  'project-logs': 'Logs'
+  'project-logs': 'Logs',
+  'database-console': 'Database Console',
+  mail: 'Mail'
 };
 const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
 const MONITOR_TOKEN_PREFIX = 'dpm_';
@@ -62,6 +66,11 @@ export async function createApplication(options = {}) {
   const softwareUpdateFetcher = options.updateFetcher ?? fetch;
   const softwareVersion = options.softwareVersion ?? await installedSoftwareVersion();
   const domainDnsCheck = options.domainDnsCheck ?? checkDomainDns;
+  const mailOutboundCheck = options.mailOutboundCheck ?? checkSmtpOutbound;
+  const databaseQuery = options.databaseQuery ?? runDatabaseQuery;
+  const databaseDrivers = options.databaseDrivers ?? driverAvailability;
+  // Installing a driver requires a service restart anyway, so probe once.
+  let databaseDriverStatus = null;
   const branchFetcher = options.branchFetcher ?? listRemoteBranches;
   const portAvailability = options.portAvailability ?? isTcpPortAvailable;
   const portRandom = options.portRandom ?? randomProjectPort;
@@ -242,19 +251,24 @@ export async function createApplication(options = {}) {
       if (request.method === 'DELETE' && notificationHookMatch) return await handleNotificationHookDelete(request, response, notificationHookMatch[1]);
       if (request.method === 'GET' && url.pathname === '/api/databases') {
         if (!requireSession(request, response)) return;
+        databaseDriverStatus ??= await databaseDrivers();
         return sendJson(response, 200, {
           providers: Object.values(DATABASE_PROVIDERS),
           connections: store.snapshot().databaseConnections.map(publicDatabaseConnection),
-          vaultReady: Boolean(vault)
+          vaultReady: Boolean(vault),
+          drivers: databaseDriverStatus
         });
       }
       if (request.method === 'POST' && url.pathname === '/api/databases') return await handleDatabaseCreate(request, response);
       const databaseCheckMatch = url.pathname.match(/^\/api\/databases\/([a-f0-9-]{36})\/check$/i);
       if (request.method === 'POST' && databaseCheckMatch) return await handleDatabaseCheck(request, response, databaseCheckMatch[1]);
+      const databaseQueryMatch = url.pathname.match(/^\/api\/databases\/([a-f0-9-]{36})\/query$/i);
+      if (request.method === 'POST' && databaseQueryMatch) return await handleDatabaseQuery(request, response, databaseQueryMatch[1]);
       const databaseDeleteMatch = url.pathname.match(/^\/api\/databases\/([a-f0-9-]{36})$/i);
       if (request.method === 'DELETE' && databaseDeleteMatch) return await handleDatabaseDelete(request, response, databaseDeleteMatch[1]);
       const toolMatch = url.pathname.match(/^\/api\/tools\/(nginx|certbot|git|docker)\/install$/);
       if (request.method === 'POST' && toolMatch) return await handleInstall(request, response, toolMatch[1]);
+      if (request.method === 'POST' && url.pathname === '/api/mail/outbound-check') return await handleMailOutboundCheck(request, response);
       if (url.pathname.startsWith('/api/')) return sendJson(response, 404, { error: 'API endpoint not found.' });
       return await serveStatic(url.pathname, response);
     } catch (error) {
@@ -405,6 +419,24 @@ export async function createApplication(options = {}) {
     }
   }
 
+  async function handleDatabaseQuery(request, response, id) {
+    if (!requireSession(request, response, true)) return;
+    const connection = store.snapshot().databaseConnections.find((item) => item.id === id);
+    if (!connection) throw new NotFoundError('Database connection was not found.');
+    const body = await readJson(request);
+    const secret = connection.encryptedSecret && vault ? vault.decrypt(connection.encryptedSecret) : '';
+    let result;
+    try {
+      result = await databaseQuery({ connection, secret, statement: body.statement, allowWrite: body.allowWrite === true });
+    } catch (error) {
+      if (error instanceof InputError) throw error;
+      throw new InputError(String(error?.message || 'Database query failed.').slice(0, 300));
+    }
+    // The query text can contain secrets, so the audit trail records only metadata.
+    await store.update((state) => appendAudit(state, { action: 'database.query', outcome: 'success', actor: 'owner', target: connection.name, detail: `${connection.provider} query returned ${result.rowCount} row(s) in ${result.durationMs} ms` }));
+    return sendJson(response, 200, { ok: true, result });
+  }
+
   async function handleDatabaseDelete(request, response, id) {
     if (!requireSession(request, response, true)) return;
     await store.update((state) => {
@@ -414,6 +446,19 @@ export async function createApplication(options = {}) {
       appendAudit(state, { action: 'database.delete', outcome: 'success', actor: 'owner', target: target.name, detail: 'Database connector removed' });
     });
     return sendJson(response, 200, { ok: true });
+  }
+
+  async function handleMailOutboundCheck(request, response) {
+    if (!requireSession(request, response, true)) return;
+    const report = await mailOutboundCheck();
+    await store.update((state) => appendAudit(state, {
+      action: 'mail.outbound_check',
+      outcome: 'success',
+      actor: 'owner',
+      target: 'smtp-egress',
+      detail: `Outbound SMTP: ${report.ports.map((item) => `${item.port}=${item.status}`).join(', ')} → ${report.recommendation.mode}`
+    }));
+    return sendJson(response, 200, report);
   }
 
   async function handleInstall(request, response, tool) {

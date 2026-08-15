@@ -1,0 +1,37 @@
+<section class="page" data-page="databases">
+  <header class="page-header">
+    <div>
+      <h1 class="page-title" id="console-title">Database Console</h1>
+      <p class="page-subtitle" id="console-subtitle">กำลังโหลดข้อมูล connector…</p>
+    </div>
+    <a class="secondary button" href="/databases">กลับไป Databases</a>
+  </header>
+  <section class="panel" id="console-driver-warning" hidden>
+    <header class="panel-head">
+      <h2>Driver ยังไม่ติดตั้ง</h2>
+      <p id="console-driver-detail">Console นี้ต้องการ driver แบบ optional dependency</p>
+    </header>
+    <p class="muted">รันคำสั่งนี้ในโฟลเดอร์ติดตั้งของ Dashboard Portal แล้วรีสตาร์ตบริการ:</p>
+    <p><code id="console-driver-command" class="mono"></code></p>
+  </section>
+  <section class="panel" id="console-editor-panel">
+    <header class="panel-head">
+      <h2>Query</h2>
+      <p id="console-hint">เขียนคำสั่งแล้วกด Run หรือ Ctrl+Enter</p>
+    </header>
+    <form id="console-form" class="form-grid">
+      <label for="console-statement">คำสั่ง<textarea id="console-statement" rows="7" spellcheck="false" required></textarea></label>
+      <label class="check-row"><input id="console-allow-write" type="checkbox"><span><b>อนุญาตคำสั่งเขียน</b><small>ค่าเริ่มต้นรันได้เฉพาะคำสั่งอ่าน (SELECT / find / GET ฯลฯ)</small></span></label>
+      <div class="form-actions"><button type="submit" id="console-run">Run (Ctrl+Enter)</button></div>
+    </form>
+  </section>
+  <section class="panel">
+    <header class="panel-head">
+      <h2>ผลลัพธ์</h2>
+      <p id="console-meta">ยังไม่มีผลลัพธ์</p>
+    </header>
+    <div id="console-results" aria-live="polite">
+      <p class="muted">รันคำสั่งเพื่อดูผลลัพธ์ที่นี่ (แสดงสูงสุด 200 แถวต่อครั้ง)</p>
+    </div>
+  </section>
+</section>

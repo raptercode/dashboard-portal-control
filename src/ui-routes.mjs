@@ -2,6 +2,7 @@ export const pageRoutes = Object.freeze({
   overview: '/',
   setup: '/setup',
   projects: '/projects',
+  mail: '/mail',
   credentials: '/credentials',
   databases: '/databases',
   activity: '/activity',
@@ -44,6 +45,10 @@ export function matchUiRoute(pathname) {
   const logs = pathname.match(/^\/projects\/([a-z][a-z0-9-]{0,62})\/logs$/);
   if (logs) {
     return { page: 'projects', view: 'project-logs', params: { slug: logs[1] } };
+  }
+  const databaseConsole = pathname.match(/^\/databases\/([a-f0-9-]{36})\/console$/i);
+  if (databaseConsole) {
+    return { page: 'databases', view: 'database-console', params: { slug: databaseConsole[1] } };
   }
   return null;
 }

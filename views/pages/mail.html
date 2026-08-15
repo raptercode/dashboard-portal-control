@@ -1,0 +1,63 @@
+<section class="page mail-page" data-page="mail">
+  <header class="page-header">
+    <div>
+      <h1 class="page-title">Mail</h1>
+      <p class="page-subtitle">กล่องจดหมายของ host · ตัวอย่าง UI — ข้อมูลจำลองหลังติดตั้ง mail service แล้ว</p>
+    </div>
+    <span class="status-chip ready">IMAP · SMTP · connected</span>
+  </header>
+  <div class="mail-shell">
+    <aside class="mail-nav">
+      <button id="mail-compose-open" class="mail-compose-button" type="button">
+        <svg class="icon" aria-hidden="true"><use href="#icon-plus"></use></svg>
+        <span>เขียนอีเมล</span>
+      </button>
+      <div class="mail-nav-section">Inboxes</div>
+      <nav id="mail-categories" aria-label="Mail categories"></nav>
+      <div class="mail-nav-section">Groups <small class="muted">อัตโนมัติ</small></div>
+      <nav id="mail-groups" aria-label="Mail groups"></nav>
+      <div class="mail-mailbox-card">
+        <small>MAILBOX</small>
+        <p>portal@ops.example.com</p>
+        <small class="mail-mailbox-ok">● เชื่อมต่อแล้ว · ส่งออกผ่าน relay :587</small>
+      </div>
+    </aside>
+    <section class="mail-list">
+      <div class="mail-list-head">
+        <div>
+          <strong id="mail-list-title">Inbox</strong>
+          <span id="mail-list-count" class="count">0</span>
+        </div>
+        <input id="mail-search" type="search" placeholder="ค้นหาอีเมล…" autocomplete="off">
+      </div>
+      <div id="mail-rows" class="mail-rows" aria-live="polite"></div>
+    </section>
+    <section id="mail-reader" class="mail-reader" aria-live="polite"></section>
+  </div>
+  <div id="mail-compose-overlay" class="mail-compose-overlay" hidden></div>
+  <div id="mail-compose" class="mail-compose-window" hidden>
+    <header class="mail-compose-head">
+      <strong>เขียนอีเมลใหม่</strong>
+      <button id="mail-compose-close" class="close-btn" type="button" aria-label="ปิด">
+        <svg class="icon" aria-hidden="true"><use href="#icon-close"></use></svg>
+      </button>
+    </header>
+    <form id="mail-compose-form" class="form-grid">
+      <label>From
+        <select>
+          <option>portal@ops.example.com (ค่าเริ่มต้น)</option>
+          <option>alerts@ops.example.com</option>
+        </select>
+      </label>
+      <label>To<input type="email" placeholder="recipient@example.com" required></label>
+      <label>Subject<input maxlength="200" placeholder="หัวข้อ" required></label>
+      <label>ข้อความ<textarea rows="6" placeholder="เขียนข้อความ…"></textarea></label>
+      <div class="form-actions">
+        <button type="submit">
+          <svg class="icon" aria-hidden="true"><use href="#icon-send"></use></svg>
+          ส่ง
+        </button>
+      </div>
+    </form>
+  </div>
+</section>

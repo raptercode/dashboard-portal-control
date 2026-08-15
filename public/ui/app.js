@@ -2,6 +2,9 @@ import { pageForPathname } from './router.js';
 
 const DRAFT_KEY = 'hostmgr.projectDraft';
 const SIDEBAR_COLLAPSED_KEY = 'hostmgr.sidebarCollapsed';
+const THEME_KEY = 'hostmgr.theme';
+const THEME_COLOR_LIGHT = '#f8fafc';
+const THEME_COLOR_DARK = '#0b1220';
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 
@@ -211,6 +214,21 @@ function setSidebarCollapsed(collapsed) {
   toggle.title = label;
 }
 
+function applyTheme(theme) {
+  const isDark = theme === 'dark';
+  document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', isDark ? THEME_COLOR_DARK : THEME_COLOR_LIGHT);
+  const toggle = $('#theme-toggle');
+  if (toggle) {
+    const label = isDark ? 'สลับเป็นโหมดสว่าง' : 'สลับเป็นโหมดมืด';
+    toggle.setAttribute('aria-label', label);
+    toggle.title = label;
+    const use = toggle.querySelector('use');
+    if (use) use.setAttribute('href', isDark ? '#icon-sun' : '#icon-moon');
+  }
+}
+
 async function refresh() {
   const [doctor, audit, git, projects, credentials, softwareUpdate] = await Promise.all([
     api('/api/doctor'), api('/api/audit'), api('/api/git-config'), api('/api/projects'), api('/api/credentials'), api('/api/software-update')
@@ -245,7 +263,9 @@ async function refresh() {
   if (page === 'setup') renderSetup();
   if (view === 'projects') renderProjects();
   if (page === 'credentials') renderCredentials();
-  if (page === 'databases') await renderDatabases();
+  if (page === 'databases' && view !== 'database-console') await renderDatabases();
+  if (view === 'database-console') await renderDatabaseConsole();
+  if (page === 'mail') renderMail();
   if (page === 'activity') renderAudit();
   if (page === 'settings') renderSettings();
 }
@@ -333,6 +353,11 @@ async function loadMetrics(rangeDays = state.metricsRange) {
   drawMetricsChart(state.metrics.samples || []);
 }
 
+function cssVar(name, fallback) {
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return value || fallback;
+}
+
 function drawMetricsChart(samples) {
   const canvas = $('#metrics-chart');
   if (!canvas) return;
@@ -344,13 +369,16 @@ function drawMetricsChart(samples) {
   const ctx = canvas.getContext('2d');
   ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
   ctx.clearRect(0, 0, width, height);
-  ctx.fillStyle = '#ffffff';
+  const bgColor = cssVar('--panel', '#ffffff');
+  const gridColor = cssVar('--line-soft', '#e2e8f0');
+  const textColor = cssVar('--muted', '#64748b');
+  ctx.fillStyle = bgColor;
   ctx.fillRect(0, 0, width, height);
   const pad = { top: 16, right: 16, bottom: 28, left: 36 };
   const chartW = width - pad.left - pad.right;
   const chartH = height - pad.top - pad.bottom;
-  ctx.strokeStyle = '#e2e8f0';
-  ctx.fillStyle = '#64748b';
+  ctx.strokeStyle = gridColor;
+  ctx.fillStyle = textColor;
   ctx.font = '11px Inter, Segoe UI, sans-serif';
   for (let i = 0; i <= 4; i += 1) {
     const y = pad.top + (chartH * i) / 4;
@@ -369,9 +397,9 @@ function drawMetricsChart(samples) {
   const maxX = Math.max(...times);
   const spanX = Math.max(1, maxX - minX);
   const series = [
-    { key: 'cpuPercent', color: '#ef4444' },
-    { key: 'memoryPercent', color: '#10b981' },
-    { key: 'diskPercent', color: '#4f46e5' }
+    { key: 'cpuPercent', color: cssVar('--danger', '#ef4444') },
+    { key: 'memoryPercent', color: cssVar('--ok', '#10b981') },
+    { key: 'diskPercent', color: cssVar('--accent', '#4f46e5') }
   ];
   for (const line of series) {
     ctx.beginPath();
@@ -392,7 +420,7 @@ function drawMetricsChart(samples) {
     const label = new Date(times[index]).toLocaleString('th-TH', state.metricsRange <= 1
       ? { hour: '2-digit', minute: '2-digit' }
       : { month: 'short', day: 'numeric', hour: '2-digit' });
-    ctx.fillStyle = '#64748b';
+    ctx.fillStyle = textColor;
     ctx.fillText(label, Math.min(x, width - 70), height - 8);
   }
 }
@@ -429,6 +457,47 @@ function renderSetup() {
     $('#git-name').value = state.git.identity.name || '';
     $('#git-email').value = state.git.identity.email || '';
   }
+}
+
+const MAIL_PORT_STATUS = Object.freeze({
+  open: { label: 'เปิด', variant: 'ready' },
+  filtered: { label: 'ถูกกรอง', variant: 'needs' },
+  blocked: { label: 'ถูกบล็อค', variant: 'needs' }
+});
+
+const MAIL_PLAN_GUIDE = Object.freeze({
+  direct: { label: 'ส่งตรงแบบ Direct MX ได้', detail: 'พอร์ต 25 เปิด: โฮสต์นี้รัน mail server ส่งตรงถึงปลายทางได้ — ก่อนใช้งานจริงต้องตั้ง Reverse DNS (PTR), SPF, DKIM และ DMARC' },
+  'relay-587': { label: 'ใช้ relay พอร์ต 587', detail: 'พอร์ต 25 ถูกบล็อค: ให้ส่งออกผ่าน relay (smarthost) พอร์ต 587 ด้วย SMTP AUTH + STARTTLS และใส่ relay ไว้ใน SPF record' },
+  'relay-2525': { label: 'ใช้ relay พอร์ต 2525', detail: 'เหลือเฉพาะพอร์ต 2525: สมัคร relay ที่รองรับ 2525 (เช่น SMTP2GO, Mailgun, SendGrid) แล้วตั้ง smarthost เป็น [โฮสต์ relay]:2525 พร้อม SMTP AUTH และใช้ SPF/DKIM ของผู้ให้บริการ relay' },
+  'api-only': { label: 'ต้องส่งผ่าน HTTPS API', detail: 'พอร์ต SMTP ขาออกถูกบล็อคทั้งหมด: ส่งอีเมลผ่าน HTTPS API (เช่น Resend, Amazon SES, Mailgun API) หรือขอผู้ให้บริการเครือข่ายเปิดพอร์ต' }
+});
+
+function renderMailOutboundReport(report) {
+  const root = $('#mail-check-results');
+  if (!root) return;
+  const rows = (report.ports ?? []).map((entry) => {
+    const row = element('article', 'tool-row');
+    const status = MAIL_PORT_STATUS[entry.status] ?? { label: entry.status, variant: 'muted' };
+    const copy = element('div');
+    copy.append(
+      element('h3', '', `พอร์ต ${entry.port}`),
+      element('p', 'muted', entry.status === 'open' ? `ตอบกลับจาก ${entry.target} · ${entry.latencyMs} ms` : (entry.detail || 'ไม่สามารถเชื่อมต่อได้'))
+    );
+    const side = element('div');
+    side.append(statusChip(status.label, status.variant));
+    row.append(copy, side);
+    return row;
+  });
+  const plan = MAIL_PLAN_GUIDE[report.recommendation?.mode];
+  const advice = element('article', 'tool-row');
+  const adviceCopy = element('div');
+  adviceCopy.append(
+    element('h3', '', `คำแนะนำ: ${plan?.label ?? report.recommendation?.mode ?? '—'}`),
+    element('p', 'muted', plan?.detail ?? report.recommendation?.summary ?? ''),
+    element('small', '', `ตรวจเมื่อ ${new Date(report.checkedAt).toLocaleString()}`)
+  );
+  advice.append(adviceCopy);
+  root.replaceChildren(...rows, advice);
 }
 
 function renderProjects() {
@@ -741,10 +810,309 @@ async function renderDatabases() {
       toast('ลบ connector แล้ว');
       await renderDatabases();
     });
-    side.append(check, remove);
+    const console_ = element('button', 'secondary', 'Console');
+    console_.type = 'button';
+    console_.addEventListener('click', () => { location.href = `/databases/${encodeURIComponent(connection.id)}/console`; });
+    side.append(console_, check, remove);
     row.append(copy, side);
     return row;
   }));
+}
+
+const CONSOLE_HINTS = Object.freeze({
+  postgresql: { hint: 'SQL เช่น SELECT * FROM users LIMIT 10 — กด Run หรือ Ctrl+Enter', placeholder: 'SELECT now();' },
+  mysql: { hint: 'SQL เช่น SHOW TABLES หรือ SELECT * FROM users LIMIT 10 — กด Run หรือ Ctrl+Enter', placeholder: 'SELECT version();' },
+  mongodb: { hint: 'Command JSON เช่น {"find":"users","limit":10} หรือ {"listCollections":1}', placeholder: '{"listCollections": 1}' },
+  redis: { hint: 'คำสั่ง Redis เช่น GET mykey, SCAN 0, HGETALL user:1', placeholder: 'PING' }
+});
+const CONSOLE_DESTRUCTIVE = /\b(drop|truncate|flushall|flushdb|dropdatabase|deletemany)\b/i;
+
+async function renderDatabaseConsole() {
+  const payload = await api('/api/databases');
+  state.databases = payload.connections || [];
+  const connection = state.databases.find((item) => item.id === editSlug);
+  if (!connection) {
+    $('#console-title').textContent = 'ไม่พบ connector';
+    $('#console-subtitle').textContent = 'connector นี้อาจถูกลบไปแล้ว — กลับไปหน้า Databases';
+    $('#console-editor-panel').hidden = true;
+    return;
+  }
+  const driver = payload.drivers?.[connection.provider];
+  const hints = CONSOLE_HINTS[connection.provider] ?? { hint: '', placeholder: '' };
+  $('#console-title').textContent = connection.name;
+  $('#console-subtitle').textContent = `${connection.provider} · ${connection.host}:${connection.port}${connection.database ? ` · ${connection.database}` : ''}${connection.username ? ` · ${connection.username}` : ''}`;
+  $('#console-hint').textContent = hints.hint;
+  $('#console-statement').placeholder = hints.placeholder;
+  if (driver && !driver.installed) {
+    $('#console-driver-warning').hidden = false;
+    $('#console-driver-detail').textContent = `Console ของ ${connection.provider} ต้องติดตั้ง driver "${driver.package}" ก่อน (optional dependency — core ของ Portal ไม่ต้องมีก็ทำงานได้)`;
+    $('#console-driver-command').textContent = `npm install ${driver.package}`;
+    $('#console-run').disabled = true;
+    return;
+  }
+  const form = $('#console-form');
+  if (form.dataset.bound) return;
+  form.dataset.bound = '1';
+  $('#console-statement').addEventListener('keydown', (event) => {
+    if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+      event.preventDefault();
+      form.requestSubmit();
+    }
+  });
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const statement = $('#console-statement').value.trim();
+    if (!statement) return;
+    const allowWrite = $('#console-allow-write').checked;
+    if (allowWrite && CONSOLE_DESTRUCTIVE.test(statement)) {
+      if (!await confirmAction('คำสั่งอันตราย', 'คำสั่งนี้อาจลบหรือแก้ข้อมูลถาวร รันต่อหรือไม่?', 'รันเลย')) return;
+    }
+    const run = $('#console-run');
+    try {
+      await withBusy(run, async () => {
+        const outcome = await api(`/api/databases/${encodeURIComponent(connection.id)}/query`, { method: 'POST', body: { statement, allowWrite } });
+        renderConsoleResult(outcome.result);
+      });
+    } catch (error) {
+      $('#console-meta').textContent = 'คำสั่งล้มเหลว';
+      $('#console-results').replaceChildren(element('p', 'form-error', error.message || String(error)));
+    }
+  });
+}
+
+function renderConsoleResult(result) {
+  const meta = [`${result.rowCount} แถว`, `${result.durationMs} ms`];
+  if (result.command) meta.push(result.command);
+  if (result.truncated) meta.push('แสดงเฉพาะ 200 แถวแรก');
+  $('#console-meta').textContent = meta.join(' · ');
+  const root = $('#console-results');
+  if (!result.rows?.length) {
+    root.replaceChildren(element('p', 'muted', result.notice || 'คำสั่งสำเร็จ — ไม่มีแถวข้อมูลส่งกลับ'));
+    return;
+  }
+  const table = element('table', 'console-table');
+  const head = element('thead');
+  const headRow = element('tr');
+  (result.columns ?? []).forEach((name) => headRow.append(element('th', '', name)));
+  head.append(headRow);
+  const body = element('tbody');
+  for (const cells of result.rows) {
+    const tr = element('tr');
+    cells.forEach((cell) => tr.append(element('td', cell === null ? 'muted' : '', cell === null ? 'NULL' : String(cell))));
+    body.append(tr);
+  }
+  table.append(head, body);
+  const wrap = element('div', 'console-table-wrap');
+  wrap.append(table);
+  root.replaceChildren(wrap);
+  if (result.notice) root.append(element('p', 'muted', result.notice));
+}
+
+// Mail UI preview: simulated "after setup" data. Categories are fixed lanes;
+// groups are created automatically from the sender domain (*@github.com).
+const MAIL_CATEGORIES = Object.freeze([
+  { id: 'inbox', label: 'Inbox', icon: 'mail' },
+  { id: 'alerts', label: 'Alerts', icon: 'alert' },
+  { id: 'deploys', label: 'Deploys', icon: 'zap' },
+  { id: 'certs', label: 'Certificates', icon: 'shield' },
+  { id: 'human', label: 'Human', icon: 'users' }
+]);
+const MAIL_GROUPS = Object.freeze([
+  { id: 'github', label: 'GitHub', icon: 'github', match: '*@github.com' }
+]);
+const MAIL_DEMO = [
+  {
+    id: 'm1', category: 'certs', level: 'warning', chip: { text: 'CERT', tone: 'warn' }, avatar: '🔒', unread: true,
+    from: "Let's Encrypt", address: 'noreply@letsencrypt.org', time: 'เมื่อสักครู่',
+    subject: 'TLS certificate จะหมดอายุใน 7 วัน — docs.example.com',
+    preview: 'Certificate ของ docs.example.com จะหมดอายุวันที่ 2026-08-23 ต่ออายุก่อนเพื่อเลี่ยง downtime…',
+    body: [
+      'สวัสดีครับ',
+      'Certificate ของโดเมนด้านล่างจะหมดอายุภายใน 7 วัน (2026-08-23) กรุณาต่ออายุก่อนถึงกำหนด ไม่เช่นนั้นผู้เข้าชมเว็บไซต์จะพบข้อผิดพลาดด้านความปลอดภัย',
+      'โดเมนที่ได้รับผลกระทบ: docs.example.com',
+      '— The Let’s Encrypt Team'
+    ],
+    related: [
+      { badge: 'renewed', tone: 'ready', text: 'ต่ออายุครั้งก่อน — docs.example.com', when: '2026-05-22' },
+      { badge: 'nginx', tone: 'muted', text: 'Server block ใช้งานอยู่ → 127.0.0.1:3214', when: 'stable' }
+    ]
+  },
+  {
+    id: 'm2', category: 'alerts', level: 'critical', chip: { text: 'ALERT', tone: 'danger' }, avatar: '⚠️', unread: true,
+    from: 'Uptime Monitor', address: 'alerts@ops.example.com', time: '4 นาที',
+    subject: '[CRITICAL] auth-gateway error rate สูง — 5xx เกิน 12%',
+    preview: 'Instance 127.0.0.1:3213 ตอบ HTTP 5xx จำนวน 34 จาก 60 requests ล่าสุด เริ่มตั้งแต่ 22:15…',
+    body: ['Instance 127.0.0.1:3213 ตอบ HTTP 5xx จำนวน 34 จาก 60 requests ล่าสุด (12.4%)', 'เริ่ม firing ตั้งแต่ 22:15 — ตรวจสอบ log ของ service auth-gateway'],
+    related: [{ badge: 'logs', tone: 'muted', text: 'ดู runtime log ของ auth-gateway ได้จากหน้า Projects', when: 'ตอนนี้' }]
+  },
+  {
+    id: 'm3', category: 'deploys', level: 'info', chip: { text: 'DEPLOY', tone: 'info' }, avatar: '🚀', unread: true,
+    from: 'Dashboard Portal', address: 'portal@ops.example.com', time: '18 นาที',
+    subject: 'Deploy สำเร็จ — my-api v1.4.2 · health check ผ่านใน 4.2s',
+    preview: 'Release a3f4c21 ถูก activate บนพอร์ต 3210 เก็บ release เดิม v1.4.1 ไว้สำหรับ rollback…',
+    body: ['Release a3f4c21 ถูก activate บนพอร์ต 3210', 'Release เดิม v1.4.1 ยังเก็บไว้สำหรับ rollback หนึ่งคลิก'],
+    related: [{ badge: 'deploy', tone: 'ready', text: 'Job สำเร็จ — candidate health check ผ่าน', when: '18 นาที' }]
+  },
+  {
+    id: 'm4', category: 'github', level: 'info', chip: { text: 'GITHUB', tone: 'github' }, avatar: '🐙', unread: true,
+    from: 'github.com', address: 'notifications@github.com', time: '1 ชม.',
+    subject: '[rapter/my-api] PR #42 — Add rate limiting middleware',
+    preview: 'alice เปิด pull request · 3 files changed · +142 −18 · CI ผ่าน…',
+    body: ['alice เปิด pull request ใน rapter/my-api', '3 files changed · +142 −18 · CI ผ่านทุกขั้น', 'Review ได้ที่ github.com/rapter/my-api/pull/42']
+  },
+  {
+    id: 'm5', category: 'human', level: 'normal', chip: { text: 'HUMAN', tone: 'human' }, avatar: 'AL', unread: false,
+    from: 'alice@example.com', address: 'alice@example.com', time: '2 ชม.',
+    subject: 'ขอเลื่อนเปิดตัว API ใหม่เป็นวันพฤหัสได้ไหม?',
+    preview: 'ทีม frontend พร้อมแล้ว คิดว่าไปวันพฤหัส 14:00 UTC สำหรับ go-live…',
+    body: ['สวัสดีค่ะ ทีม frontend พร้อมแล้ว', 'คิดว่าไปวันพฤหัส 14:00 UTC สำหรับ go-live ดีไหมคะ?']
+  },
+  {
+    id: 'm6', category: 'deploys', level: 'info', chip: { text: 'DEPLOY', tone: 'info' }, avatar: '↩️', unread: false,
+    from: 'Dashboard Portal', address: 'portal@ops.example.com', time: '3 ชม.',
+    subject: 'Rollback สำเร็จ — landing-page → v0.8.9',
+    preview: 'Candidate v0.9.1 ไม่ผ่าน health check 3 ครั้งติด ระบบย้อนกลับให้เรียบร้อย…',
+    body: ['Candidate v0.9.1 ไม่ผ่าน health check 3 ครั้งติด', 'ระบบย้อนกลับเป็น v0.8.9 โดย release ที่ใช้งานอยู่ไม่สะดุด']
+  },
+  {
+    id: 'm7', category: 'github', level: 'normal', chip: { text: 'GITHUB', tone: 'github' }, avatar: '🐙', unread: false,
+    from: 'github.com', address: 'notifications@github.com', time: 'เมื่อวาน',
+    subject: '[rapter/worker] Issue #17 — Memory leak in queue processor',
+    preview: 'bob commented: reproduce ได้บน staging แนบ heap dump มาให้…',
+    body: ['bob commented: reproduce ได้บน staging', 'แนบ heap dump ไว้ใน issue แล้ว']
+  },
+  {
+    id: 'm8', category: 'human', level: 'normal', chip: { text: 'HUMAN', tone: 'human' }, avatar: 'SM', unread: false,
+    from: 'sam@partner.io', address: 'sam@partner.io', time: 'เมื่อวาน',
+    subject: 'Integration webhook — แนบ sample payload มาให้',
+    preview: 'นี่คือ payload format ที่เราจะส่ง สังเกต signature header ด้วยนะครับ…',
+    body: ['นี่คือ payload format ที่เราจะส่งครับ', 'สังเกต signature header X-Partner-Signature สำหรับ verify ด้วย']
+  }
+];
+const mailState = { category: 'inbox', selected: 'm1', search: '' };
+
+function mailMessagesFor(category) {
+  const all = MAIL_DEMO.filter((message) => {
+    const query = mailState.search.toLowerCase();
+    if (query && !`${message.subject} ${message.preview} ${message.from}`.toLowerCase().includes(query)) return false;
+    return category === 'inbox' || message.category === category;
+  });
+  return all;
+}
+
+function renderMail() {
+  if (!$('#mail-rows')) return;
+  renderMailNav();
+  renderMailRows();
+  renderMailReader();
+  const search = $('#mail-search');
+  if (!search.dataset.bound) {
+    search.dataset.bound = '1';
+    search.addEventListener('input', () => {
+      mailState.search = search.value.trim();
+      renderMailRows();
+    });
+    $('#mail-compose-open').addEventListener('click', () => toggleMailCompose(true));
+    $('#mail-compose-close').addEventListener('click', () => toggleMailCompose(false));
+    $('#mail-compose-overlay').addEventListener('click', () => toggleMailCompose(false));
+    $('#mail-compose-form').addEventListener('submit', (event) => {
+      event.preventDefault();
+      toggleMailCompose(false);
+      toast('ตัวอย่าง UI — ยังไม่ได้ส่งอีเมลจริง');
+    });
+  }
+}
+
+function toggleMailCompose(open) {
+  $('#mail-compose').hidden = !open;
+  $('#mail-compose-overlay').hidden = !open;
+}
+
+function renderMailNav() {
+  const unreadIn = (category) => MAIL_DEMO.filter((m) => m.unread && (category === 'inbox' || m.category === category)).length;
+  const item = (entry, isGroup = false) => {
+    const button = element('button', `mail-nav-item${mailState.category === entry.id ? ' active' : ''}`);
+    button.type = 'button';
+    button.append(icon(entry.icon), element('span', '', entry.label));
+    const unread = unreadIn(entry.id);
+    if (unread) button.append(element('span', `count${entry.id === 'alerts' ? ' danger' : ''}`, String(unread)));
+    if (isGroup) button.title = `กลุ่มอัตโนมัติจาก ${entry.match}`;
+    button.addEventListener('click', () => {
+      mailState.category = entry.id;
+      const first = mailMessagesFor(entry.id)[0];
+      mailState.selected = first?.id ?? null;
+      renderMail();
+    });
+    return button;
+  };
+  $('#mail-categories').replaceChildren(...MAIL_CATEGORIES.map((entry) => item(entry)));
+  $('#mail-groups').replaceChildren(...MAIL_GROUPS.map((entry) => item(entry, true)));
+}
+
+function renderMailRows() {
+  const messages = mailMessagesFor(mailState.category);
+  const active = [...MAIL_CATEGORIES, ...MAIL_GROUPS].find((entry) => entry.id === mailState.category);
+  $('#mail-list-title').textContent = active?.label ?? 'Inbox';
+  $('#mail-list-count').textContent = `${messages.filter((m) => m.unread).length} ยังไม่อ่าน`;
+  const root = $('#mail-rows');
+  if (!messages.length) {
+    root.replaceChildren(element('div', 'empty-state', 'ไม่พบอีเมลที่ตรงกับเงื่อนไข'));
+    return;
+  }
+  root.replaceChildren(...messages.map((message) => {
+    const row = element('article', `mail-row level-${message.level}${message.unread ? ' unread' : ''}${mailState.selected === message.id ? ' selected' : ''}`);
+    row.tabIndex = 0;
+    const body = element('div', 'mail-row-body');
+    const meta = element('div', 'mail-row-meta');
+    meta.append(element('span', `mail-chip ${message.chip.tone}`, message.chip.text), element('span', 'mail-from', message.from), element('span', 'mail-time', message.time));
+    body.append(meta, element('div', 'mail-row-subject', message.subject), element('div', 'mail-row-preview', message.preview));
+    row.append(element('div', 'mail-row-avatar', message.avatar), body);
+    const select = () => {
+      mailState.selected = message.id;
+      message.unread = false;
+      renderMail();
+    };
+    row.addEventListener('click', select);
+    row.addEventListener('keydown', (event) => { if (event.key === 'Enter') select(); });
+    return row;
+  }));
+}
+
+function renderMailReader() {
+  const root = $('#mail-reader');
+  const message = MAIL_DEMO.find((item) => item.id === mailState.selected);
+  if (!message) {
+    root.replaceChildren(element('div', 'mail-reader-empty', 'เลือกอีเมลจากรายการเพื่ออ่าน'));
+    return;
+  }
+  const demoAction = (label, iconName) => {
+    const button = element('button', 'secondary');
+    button.type = 'button';
+    button.append(icon(iconName), element('span', '', label));
+    button.addEventListener('click', () => toast('ตัวอย่าง UI — ปุ่มนี้ยังไม่ทำงานจริง'));
+    return button;
+  };
+  const actions = element('div', 'mail-reader-actions');
+  actions.append(demoAction('Archive', 'archive'), demoAction('Snooze', 'clock'), demoAction('สร้าง rule', 'sliders'), demoAction('ตอบกลับ', 'send'));
+  const subject = element('h2', 'mail-reader-subject');
+  subject.append(element('span', `mail-chip ${message.chip.tone}`, message.chip.text), element('span', '', message.subject));
+  const fromLine = element('div', 'mail-reader-from');
+  const fromCopy = element('div');
+  fromCopy.append(element('strong', '', message.from), element('small', '', `${message.address} · ถึง portal@ops.example.com · ${message.time}`));
+  fromLine.append(element('div', 'mail-row-avatar', message.avatar), fromCopy);
+  const content = element('article', 'mail-content');
+  content.append(...message.body.map((paragraph) => element('p', '', paragraph)));
+  root.replaceChildren(actions, subject, fromLine, content);
+  if (message.related?.length) {
+    const related = element('div', 'mail-related');
+    related.append(element('h3', '', '🔗 เหตุการณ์ที่เกี่ยวข้องจาก Dashboard Portal'));
+    for (const entry of message.related) {
+      const row = element('div', 'mail-related-item');
+      row.append(statusChip(entry.badge, entry.tone), element('span', '', entry.text), element('span', 'when', entry.when));
+      related.append(row);
+    }
+    root.append(related);
+  }
 }
 
 function fillCredentialSelect(selected = '') {
@@ -1684,6 +2052,13 @@ function bindEvents() {
     localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(collapsed));
     setSidebarCollapsed(collapsed);
   });
+  applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light');
+  $('#theme-toggle')?.addEventListener('click', () => {
+    const next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+    localStorage.setItem(THEME_KEY, next);
+    applyTheme(next);
+    if (state.metrics?.samples) drawMetricsChart(state.metrics.samples);
+  });
   document.addEventListener('click', (event) => {
     if (document.body.classList.contains('nav-open') && !event.target.closest('.sidebar, #mobile-menu')) {
       document.body.classList.remove('nav-open');
@@ -1691,6 +2066,19 @@ function bindEvents() {
     }
     if (!event.target.closest('.project-actions-menu')) {
       $$('details.project-actions-menu[open]').forEach((menu) => { menu.open = false; });
+    }
+  });
+  $('#mail-check-run')?.addEventListener('click', async (event) => {
+    const button = event.currentTarget;
+    const root = $('#mail-check-results');
+    root?.replaceChildren(element('p', 'muted', 'กำลังทดสอบการเชื่อมต่อขาออก… (อาจใช้เวลาราว 10 วินาที)'));
+    try {
+      await withBusy(button, async () => {
+        renderMailOutboundReport(await api('/api/mail/outbound-check', { method: 'POST', body: {} }));
+      });
+    } catch (error) {
+      root?.replaceChildren(element('p', 'muted', 'ตรวจสอบไม่สำเร็จ — ลองใหม่อีกครั้ง'));
+      showError(error);
     }
   });
   $('#git-form')?.addEventListener('submit', async (event) => {

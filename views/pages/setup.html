@@ -12,6 +12,18 @@
     </header>
     <section id="tools" class="tool-list" aria-live="polite"></section>
   </section>
+  <section class="panel">
+    <header class="panel-head">
+      <h2>Mail server — ความพร้อมก่อนติดตั้ง</h2>
+      <p>ตรวจว่า host นี้ส่งอีเมลขาออก (SMTP) ได้ทางพอร์ตไหน ก่อนเปิดใช้ mail service</p>
+    </header>
+    <section id="mail-check-results" class="tool-list" aria-live="polite">
+      <p class="muted">ยังไม่เคยตรวจ — กดปุ่มด้านล่างเพื่อทดสอบพอร์ต 25, 587 และ 2525 จากเครื่องนี้</p>
+    </section>
+    <div class="form-actions">
+      <button id="mail-check-run" type="button">ตรวจสอบ outbound SMTP</button>
+    </div>
+  </section>
   <section class="panel narrow">
     <header class="panel-head">
       <h2>Git identity</h2>

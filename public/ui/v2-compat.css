@@ -16,6 +16,26 @@
   --accent-ink: #fff;
   --danger: var(--status-error);
 }
+/* These tokens already resolve to the dark v2-source values once
+   html[data-theme="dark"] is set (custom properties re-cascade live), but
+   they're restated here with matching specificity so this file is correct
+   even read on its own. */
+html[data-theme="dark"] {
+  --bg: var(--bg-app);
+  --surface: var(--bg-app);
+  --panel: var(--bg-surface);
+  --ink: var(--text-primary);
+  --muted: var(--text-secondary);
+  --line: var(--border);
+  --line-strong: var(--border-strong);
+  --line-soft: var(--slate-100);
+  --sidebar: var(--bg-sidebar);
+  --sidebar-ink: var(--text-primary);
+  --sidebar-muted: var(--text-secondary);
+  --accent: var(--brand-primary);
+  --accent-ink: #fff;
+  --danger: var(--status-error);
+}
 body { background: var(--bg-app); color: var(--text-primary); font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
 /* The source layout scrolls inside .main on desktop.  Give that grid a real
    viewport height; min-height alone lets the grid grow and body is locked. */
@@ -50,6 +70,8 @@ body[data-shell="dashboard"] .sidebar {
 .nav-item .count { margin-left: auto; }
 .sidebar-toggle { color: var(--text-on-dark); }
 .sidebar-toggle:hover { background: var(--slate-800); color: var(--text-on-dark); }
+.theme-toggle { color: var(--text-on-dark); }
+.theme-toggle:hover { background: var(--slate-800); color: var(--text-on-dark); }
 .nav-link.nav-item:hover { background: var(--slate-50); color: var(--text-primary); }
 .nav-link.nav-item.active { background: var(--brand-primary-soft); border-left-color: var(--brand-primary); color: var(--brand-primary); }
 .close-btn, .icon-button { background: transparent; border-color: transparent; color: var(--text-secondary); }
@@ -74,8 +96,8 @@ body[data-shell="dashboard"] .sidebar {
 .form-grid label, .form-field label { color: var(--text-secondary); font-size: 12px; font-weight: 500; }
 .form-grid input, .form-grid select, .form-grid textarea, .form-field input, .input, .search-field input { color: var(--text-primary); background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--r-md); padding: 8px 10px; box-shadow: none; }
 .form-grid input:focus, .form-grid select:focus, .form-grid textarea:focus, .input:focus, .search-field:focus-within { border-color: var(--brand-primary); box-shadow: 0 0 0 3px var(--brand-primary-soft); outline: 0; }
-button:not(.close-btn):not(.icon-button):not(.secondary):not(.btn):not(.project-action-danger):not(.env-sensitivity), .button:not(.secondary):not(.btn) { background: var(--brand-primary); border-color: var(--brand-primary); color: #fff; border-radius: var(--r-md); }
-button:not(.close-btn):not(.icon-button):not(.secondary):not(.btn):not(.project-action-danger):not(.env-sensitivity):hover, .button:not(.secondary):not(.btn):hover { background: var(--brand-primary-hover); border-color: var(--brand-primary-hover); box-shadow: none; transform: none; }
+button:not(.close-btn):not(.icon-button):not(.secondary):not(.btn):not(.project-action-danger):not(.env-sensitivity):not(.mail-nav-item), .button:not(.secondary):not(.btn) { background: var(--brand-primary); border-color: var(--brand-primary); color: #fff; border-radius: var(--r-md); }
+button:not(.close-btn):not(.icon-button):not(.secondary):not(.btn):not(.project-action-danger):not(.env-sensitivity):not(.mail-nav-item):hover, .button:not(.secondary):not(.btn):hover { background: var(--brand-primary-hover); border-color: var(--brand-primary-hover); box-shadow: none; transform: none; }
 button.secondary, .button.secondary, a.secondary { background: transparent; border-color: var(--border); color: var(--text-secondary); }
 button.danger, .button.danger { background: var(--status-error); border-color: var(--status-error); color: #fff; }
 .section-head { margin: 24px 0 12px; }
@@ -189,7 +211,7 @@ button.danger, .button.danger { background: var(--status-error); border-color: v
 
 /* Common lists and settings retain their live controls in v2 cards. */
 .tool-list, .credential-list { border: 0; border-radius: 0; }
-.tool-row, .credential-row { background: transparent; padding: 12px 0; }
+.tool-row, .credential-row { background: transparent; padding: 12px 14px; }
 .tool-row h3, .credential-row h3 { color: var(--text-primary); }
 .tool-row p, .credential-row p, .tool-row small, .credential-row small { color: var(--text-tertiary); }
 .settings-stack { gap: 16px; }
@@ -264,3 +286,11 @@ dialog.deploy-drawer::backdrop { background: rgba(15, 23, 42, .5); backdrop-filt
   .history-head, .history-controls { align-items: flex-start; flex-direction: column; }
   .project-list { grid-template-columns: 1fr; }
 }
+
+/* Dark theme — component overrides for text colors paired with soft/token
+   backgrounds that turn translucent on the dark surface. */
+html[data-theme="dark"] .filter-banner { border-color: rgba(79, 70, 229, .35); color: #a5b4fc; }
+html[data-theme="dark"] .status-chip.ready { color: #6ee7b7; }
+html[data-theme="dark"] .status-chip.needs { color: #fca5a5; }
+html[data-theme="dark"] .notice { color: #fcd34d; }
+html[data-theme="dark"] .toast.error { color: #fca5a5; }

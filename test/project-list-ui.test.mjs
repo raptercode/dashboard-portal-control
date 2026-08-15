@@ -60,6 +60,6 @@ test('project list keeps technical settings behind details and protects deletion
   assert.match(compat, /body\.sidebar-collapsed \.app \{ --sidebar-w: 68px; \}/);
   assert.match(sidebar, /title="Projects"/);
   assert.doesNotMatch(css, /Dark workspace/);
-  assert.match(layout, /name="color-scheme" content="light"/);
+  assert.match(layout, /name="color-scheme" content="light dark"/);
   assert.match(layout, /\/ui\/v2-source\.css/);
 });

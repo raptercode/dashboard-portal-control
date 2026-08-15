@@ -60,6 +60,32 @@
   --topbar-h: 56px;
 }
 
+/* Dark theme — v2 design-system tokens. Toggled via data-theme="dark" on
+   <html>; component styles below keep reading the same custom properties. */
+html[data-theme="dark"] {
+  --bg-app: #0b1220;
+  --bg-surface: #111827;
+  --bg-sidebar: #0f172a;
+  --bg-topbar: #060b18;
+  --text-primary: #f1f5f9;
+  --text-secondary: #94a3b8;
+  --text-tertiary: #64748b;
+  --border: #1e293b;
+  --border-strong: #334155;
+  --brand-primary-soft: rgba(79, 70, 229, .18);
+  --brand-accent-soft: rgba(16, 185, 129, .18);
+  --status-warning-soft: rgba(245, 158, 11, .18);
+  --status-error-soft: rgba(239, 68, 68, .18);
+  --status-info-soft: rgba(59, 130, 246, .18);
+  --slate-50: #1e293b;
+  --slate-100: #1e293b;
+  --slate-200: #334155;
+  --slate-300: #475569;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, .35);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, .45);
+  --shadow-lg: 0 20px 40px rgba(0, 0, 0, .6);
+}
+
 /* Reset --------------------------------------------------- */
 *, *::before, *::after { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
@@ -482,3 +508,13 @@ input, textarea, select { font-family: inherit; font-size: inherit; }
 .text-secondary { color: var(--text-secondary); }
 .flex { display: flex; } .flex-1 { flex: 1; } .gap-8 { gap: 8px; } .gap-12 { gap: 12px; }
 .items-center { align-items: center; } .justify-between { justify-content: space-between; }
+
+/* Dark theme — component overrides. The soft status/brand backgrounds above
+   turn translucent on the dark surface; these badge/text colors are lifted
+   a shade so they stay legible against them. */
+html[data-theme="dark"] .badge.success { color: #6ee7b7; }
+html[data-theme="dark"] .badge.warning { color: #fcd34d; }
+html[data-theme="dark"] .badge.error { color: #fca5a5; }
+html[data-theme="dark"] .badge.info { color: #93c5fd; }
+html[data-theme="dark"] .health-pill.warn { color: #fcd34d; }
+html[data-theme="dark"] .project-state.building { color: #fbbf24; }

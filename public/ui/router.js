@@ -2,6 +2,7 @@ export const pageRoutes = Object.freeze({
   overview: '/',
   setup: '/setup',
   projects: '/projects',
+  mail: '/mail',
   credentials: '/credentials',
   databases: '/databases',
   activity: '/activity',
@@ -13,6 +14,7 @@ const routePages = new Map(Object.entries(pageRoutes).map(([page, path]) => [pat
 export function pageForPathname(pathname) {
   if (routePages.has(pathname)) return routePages.get(pathname);
   if (pathname.startsWith('/projects/')) return 'projects';
+  if (pathname.startsWith('/databases/')) return 'databases';
   return 'overview';
 }
 

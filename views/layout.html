@@ -3,9 +3,21 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="color-scheme" content="light">
+    <meta name="color-scheme" content="light dark">
     <meta name="theme-color" content="#f8fafc">
     <title>{{title}} · Dashboard Portal</title>
+    <script>
+      (function () {
+        try {
+          var theme = localStorage.getItem('hostmgr.theme');
+          if (theme === 'dark') {
+            document.documentElement.setAttribute('data-theme', 'dark');
+            var meta = document.querySelector('meta[name="theme-color"]');
+            if (meta) meta.setAttribute('content', '#0b1220');
+          }
+        } catch (e) { /* localStorage unavailable */ }
+      })();
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -71,6 +83,9 @@
             <span id="tls-badge" class="tls-badge"><span class="dot"></span>TLS active</span>
             <button id="mobile-menu" class="close-btn portal-mobile-menu" type="button" aria-label="Open menu" aria-expanded="false">
               <svg class="icon" aria-hidden="true"><use href="#icon-menu"></use></svg>
+            </button>
+            <button id="theme-toggle" class="close-btn theme-toggle" type="button" aria-label="สลับเป็นโหมดมืด" title="สลับเป็นโหมดมืด">
+              <svg class="icon" aria-hidden="true"><use href="#icon-moon"></use></svg>
             </button>
             <div id="owner-avatar" class="avatar" title="Portal owner">AD</div>
           </div>
