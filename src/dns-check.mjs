@@ -50,13 +50,48 @@ function asAddressList(value) {
   return value.filter((item) => typeof item === 'string' && item);
 }
 
+const PUBLIC_DNS_SERVERS = Object.freeze(['1.1.1.1', '8.8.8.8']);
+
 async function resolveWithLookup(hostname, lookup, timeoutMs) {
   const signal = AbortSignal.timeout(timeoutMs);
-  const records = await lookup(hostname, { all: true, signal });
+  const records = await lookup(hostname, { all: true, order: 'ipv4first', signal });
   if (!Array.isArray(records)) return [];
   return records
     .map((item) => (typeof item === 'string' ? item : item?.address))
     .filter((item) => typeof item === 'string' && item);
+}
+
+async function resolveFromPublicDns(hostname, timeoutMs, options = {}) {
+  if (options.lookup || options.resolve4 || options.resolve6) {
+    if (!options.publicResolve4 && !options.publicResolve6) return [];
+    const addresses = [];
+    try {
+      if (options.publicResolve4) addresses.push(...await resolveRecordList(options.publicResolve4, hostname, timeoutMs));
+    } catch (error) {
+      if (!isUnresolvedDnsError(error)) throw error;
+    }
+    try {
+      if (options.publicResolve6) addresses.push(...await resolveRecordList(options.publicResolve6, hostname, timeoutMs));
+    } catch (error) {
+      if (!isUnresolvedDnsError(error)) throw error;
+    }
+    return addresses;
+  }
+  const Resolver = options.Resolver ?? dns.Resolver;
+  const resolver = new Resolver();
+  resolver.setServers(options.publicDnsServers ?? [...PUBLIC_DNS_SERVERS]);
+  const addresses = [];
+  try {
+    addresses.push(...await resolveRecordList((name, opts) => resolver.resolve4(name, opts), hostname, timeoutMs));
+  } catch (error) {
+    if (!isUnresolvedDnsError(error)) throw error;
+  }
+  try {
+    addresses.push(...await resolveRecordList((name, opts) => resolver.resolve6(name, opts), hostname, timeoutMs));
+  } catch (error) {
+    if (!isUnresolvedDnsError(error)) throw error;
+  }
+  return addresses;
 }
 
 async function resolveRecordList(resolver, hostname, timeoutMs) {
@@ -93,6 +128,13 @@ export async function checkDomainDns(input, options = {}) {
       }
       try {
         resolved.push(...await resolveRecordList(resolve6, hostname, timeoutMs));
+      } catch (error) {
+        if (!isUnresolvedDnsError(error)) sawResolverError = true;
+      }
+    }
+    if (!resolved.length) {
+      try {
+        resolved.push(...await resolveFromPublicDns(hostname, timeoutMs, options));
       } catch (error) {
         if (!isUnresolvedDnsError(error)) sawResolverError = true;
       }

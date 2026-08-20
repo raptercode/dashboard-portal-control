@@ -68,6 +68,19 @@ test('checkDomainDns reports ok, mismatch, and unresolved', async () => {
   assert.deepEqual(unresolved, { hostname: 'missing.example.test', resolved: [], expected: ['203.0.113.9'], matched: false, status: 'unresolved' });
 });
 
+test('checkDomainDns falls back to public resolvers when the host stub has no record', async () => {
+  const result = await checkDomainDns('app.example.test', {
+    expected: ['187.52.115.194'],
+    lookup: noLookup,
+    resolve4: async () => { throw Object.assign(new Error('ENOTFOUND'), { code: 'ENOTFOUND' }); },
+    resolve6: async () => { throw Object.assign(new Error('ENOTFOUND'), { code: 'ENOTFOUND' }); },
+    publicResolve4: async () => ['187.52.115.194'],
+    publicResolve6: async () => [],
+  });
+  assert.equal(result.status, 'ok');
+  assert.deepEqual(result.resolved, ['187.52.115.194']);
+});
+
 test('checkDomainDns identifies a Cloudflare-proxied record without treating it as an origin match', async () => {
   const result = await checkDomainDns('app.example.test', {
     expected: ['203.0.113.9'],
