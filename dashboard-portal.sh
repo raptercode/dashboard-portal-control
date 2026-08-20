@@ -36,6 +36,7 @@ DEFAULT_UPDATE_CHANNEL='stable'
 HELPER_SOCKET='/run/dashboard-portal/deploy-helper.sock'
 NGINX_SITE='/etc/nginx/sites-available/dashboard-portal'
 NGINX_ENABLED='/etc/nginx/sites-enabled/dashboard-portal'
+NGINX_DEFAULT_ENABLED='/etc/nginx/sites-enabled/default'
 PORT='3100'
 NODE_VERSION='24.18.0'
 NODE_SHA256='55aa7153f9d88f28d765fcdad5ae6945b5c0f98a36881703817e4c450fa76742'
@@ -92,6 +93,7 @@ rollback() {
     restore_item update-command "$UPDATE_COMMAND"
     restore_item nginx-site "$NGINX_SITE"
     restore_item nginx-enabled "$NGINX_ENABLED"
+    restore_item nginx-default-enabled "$NGINX_DEFAULT_ENABLED"
     restore_item app-root "$APP_ROOT"
     restore_item config "$CONFIG_ROOT"
     restore_item data-root "$DATA_ROOT"
@@ -135,6 +137,7 @@ backup_item helper-root "$HELPER_ROOT"
 backup_item update-command "$UPDATE_COMMAND"
 backup_item nginx-site "$NGINX_SITE"
 backup_item nginx-enabled "$NGINX_ENABLED"
+backup_item nginx-default-enabled "$NGINX_DEFAULT_ENABLED"
 backup_item app-root "$APP_ROOT"
 backup_item config "$CONFIG_ROOT"
 backup_item data-root "$DATA_ROOT"
@@ -381,6 +384,11 @@ server {
 EOF
 chown root:root /etc/nginx/sites-available/hostmgr-unmatched.conf
 chmod 0644 /etc/nginx/sites-available/hostmgr-unmatched.conf
+# The Ubuntu package ships this exact catch-all as a default server. Keep a
+# Portal-managed reject catch-all instead, but never remove a custom site.
+if [[ -L "$NGINX_DEFAULT_ENABLED" && "$(readlink -f "$NGINX_DEFAULT_ENABLED")" == '/etc/nginx/sites-available/default' ]]; then
+  rm "$NGINX_DEFAULT_ENABLED"
+fi
 ln -sfn /etc/nginx/sites-available/hostmgr-unmatched.conf /etc/nginx/sites-enabled/hostmgr-unmatched.conf
 nginx -t
 systemctl daemon-reload

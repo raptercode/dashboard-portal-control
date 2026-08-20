@@ -28,6 +28,14 @@ test('installer keeps the deployed application root traversable by the service u
   assert.match(script, /mv "\$STAGING_ROOT" "\$APP_ROOT"\r?\nchown -R root:root "\$APP_ROOT"\r?\n#.*\r?\n#.*\r?\nchmod 0755 "\$APP_ROOT"\r?\nchmod -R go-w "\$APP_ROOT"/);
 });
 
+test('installer replaces only the Ubuntu default Nginx symlink before adding its reject catch-all', async () => {
+  const script = await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8');
+  assert.match(script, /NGINX_DEFAULT_ENABLED='\/etc\/nginx\/sites-enabled\/default'/);
+  assert.match(script, /backup_item nginx-default-enabled "\$NGINX_DEFAULT_ENABLED"/);
+  assert.match(script, /restore_item nginx-default-enabled "\$NGINX_DEFAULT_ENABLED"/);
+  assert.match(script, /\[\[ -L "\$NGINX_DEFAULT_ENABLED" && "\$\(readlink -f "\$NGINX_DEFAULT_ENABLED"\)" == '\/etc\/nginx\/sites-available\/default' \]\]/);
+});
+
 test('privileged helper keeps shadow-utils and traversable managed roots compatible with systemd', async () => {
   const script = await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8');
   const helperUnit = script.match(/Description=Dashboard Portal privileged deployment helper[\s\S]*?\n\[Install\]/)?.[0] ?? '';
