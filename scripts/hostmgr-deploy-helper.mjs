@@ -5,7 +5,7 @@ import { access, chmod, chown, copyFile, cp, lstat, mkdir, readFile, readdir, re
 import { basename, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { updateStoredPassword } from './password-config.mjs';
-import { buildEdgeEvaluation, probeLoopbackHttp, publicEdgeResult } from './nginx-edge.mjs';
+import { buildEdgeEvaluation, probeLoopbackHttp, publicEdgeResult, renderUnmatchedNginx } from './nginx-edge.mjs';
 
 const MAX_REQUEST_BYTES = 16 * 1024;
 const PROJECT_ROOT = '/var/lib/dashboard-portal/projects';
@@ -385,6 +385,7 @@ async function runDockerCompose(project, releaseRoot, args, options = {}) {
 }
 
 async function applyDomains(project) {
+  await ensureUnmatchedNginx();
   const site = join(NGINX_AVAILABLE, `hostmgr-${project.slug}.conf`);
   const enabled = join(NGINX_ENABLED, `hostmgr-${project.slug}.conf`);
   await assertDomainsAreAvailable(project.domains.hosts, site, enabled);
@@ -401,6 +402,12 @@ async function applyDomains(project) {
     await restoreNginx(site, enabled, snapshot);
     throw error;
   }
+}
+
+async function ensureUnmatchedNginx() {
+  const site = join(NGINX_AVAILABLE, 'hostmgr-unmatched.conf');
+  const enabled = join(NGINX_ENABLED, 'hostmgr-unmatched.conf');
+  await writeNginx(site, enabled, renderUnmatchedNginx());
 }
 
 async function inspectProjectEdge(slug) {

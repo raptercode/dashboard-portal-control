@@ -361,6 +361,25 @@ EOF
 chown root:root "$NGINX_SITE"
 chmod 0644 "$NGINX_SITE"
 ln -sfn "$NGINX_SITE" "$NGINX_ENABLED"
+cat > /etc/nginx/sites-available/hostmgr-unmatched.conf <<'EOF'
+# Managed by Dashboard Portal. Do not edit.
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
+    return 404;
+}
+
+server {
+    listen 443 ssl default_server;
+    listen [::]:443 ssl default_server;
+    server_name _;
+    ssl_reject_handshake on;
+}
+EOF
+chown root:root /etc/nginx/sites-available/hostmgr-unmatched.conf
+chmod 0644 /etc/nginx/sites-available/hostmgr-unmatched.conf
+ln -sfn /etc/nginx/sites-available/hostmgr-unmatched.conf /etc/nginx/sites-enabled/hostmgr-unmatched.conf
 nginx -t
 systemctl daemon-reload
 # `enable --now` leaves an already-active service on its old Node modules.

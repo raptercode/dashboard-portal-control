@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildEdgeEvaluation, classifyHttpBody, publicEdgeResult, summarizeManagedNginx } from '../scripts/nginx-edge.mjs';
+import http from 'node:http';
+import { buildEdgeEvaluation, classifyHttpBody, probeLoopbackHttp, publicEdgeResult, renderUnmatchedNginx, summarizeManagedNginx } from '../scripts/nginx-edge.mjs';
 
 const hosts = ['helpdesk-api.vitemail.site'];
 const sitePath = '/etc/nginx/sites-available/hostmgr-helpdesk.conf';
@@ -27,6 +28,14 @@ server {
     location / { proxy_pass http://127.0.0.1:3002; }
 }
 `;
+
+test('unmatched Nginx catch-all rejects unknown hosts instead of serving the Portal', () => {
+  const unmatched = renderUnmatchedNginx();
+  assert.match(unmatched, /listen 80 default_server;/);
+  assert.match(unmatched, /listen 443 ssl default_server;/);
+  assert.match(unmatched, /ssl_reject_handshake on;/);
+  assert.match(unmatched, /server_name _;/);
+});
 
 test('classifyHttpBody detects the Ubuntu welcome page', () => {
   assert.equal(classifyHttpBody('<html><title>Welcome to nginx!</title></html>'), 'nginx-default');
@@ -81,4 +90,28 @@ test('publicEdgeResult keeps helper ok from colliding with the evaluation', () =
   assert.equal(published.passed, false);
   assert.equal(published.status, 'default-site');
   assert.equal(published.checks[0].id, 'http');
+});
+
+test('loopback probe sends the domain Host header instead of 127.0.0.1', async () => {
+  const seen = [];
+  const server = http.createServer((request, response) => {
+    seen.push(request.headers.host);
+    if (request.headers.host === 'helpdesk-api.vitemail.site') {
+      response.statusCode = 308;
+      response.setHeader('location', 'https://helpdesk-api.vitemail.site/');
+      response.end();
+      return;
+    }
+    response.statusCode = 200;
+    response.setHeader('content-type', 'text/html');
+    response.end('<title>Welcome to nginx!</title>');
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address();
+  const probe = await probeLoopbackHttp('helpdesk-api.vitemail.site', { url: `http://127.0.0.1:${port}/` });
+  server.close();
+  assert.deepEqual(seen, ['helpdesk-api.vitemail.site']);
+  assert.equal(probe.status, 308);
+  assert.equal(probe.location, 'https://helpdesk-api.vitemail.site/');
+  assert.notEqual(probe.kind, 'nginx-default');
 });

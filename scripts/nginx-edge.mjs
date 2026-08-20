@@ -1,4 +1,11 @@
+import http from 'node:http';
+import https from 'node:https';
+
 export const NGINX_DEFAULT_RE = /welcome to nginx!?/i;
+
+export function renderUnmatchedNginx() {
+  return `# Managed by Dashboard Portal. Do not edit.\nserver {\n    listen 80 default_server;\n    listen [::]:80 default_server;\n    server_name _;\n    return 404;\n}\n\nserver {\n    listen 443 ssl default_server;\n    listen [::]:443 ssl default_server;\n    server_name _;\n    ssl_reject_handshake on;\n}\n`;
+}
 
 export function classifyHttpBody(body) {
   const text = String(body ?? '');
@@ -55,24 +62,60 @@ export function publicEdgeResult(input) {
 }
 
 export async function probeLoopbackHttp(hostname, options = {}) {
-  const fetchImpl = options.fetchImpl ?? fetch;
-  const url = options.url ?? 'http://127.0.0.1/';
-  try {
-    const response = await fetchImpl(url, {
-      headers: { host: hostname, accept: 'text/html,application/json,*/*' },
-      redirect: 'manual',
-      signal: AbortSignal.timeout(options.timeoutMs ?? 2000)
-    });
-    const body = await response.text().catch(() => '');
-    const location = response.headers.get('location');
-    return {
-      status: response.status,
-      location: location && location.length <= 200 ? location : null,
-      kind: classifyHttpBody(body)
-    };
-  } catch {
-    return { status: 0, location: null, kind: 'unreachable' };
+  if (options.fetchImpl) {
+    try {
+      const response = await options.fetchImpl(options.url ?? 'http://127.0.0.1/', {
+        headers: { host: hostname, accept: 'text/html,application/json,*/*' },
+        redirect: 'manual',
+        signal: AbortSignal.timeout(options.timeoutMs ?? 2000)
+      });
+      const body = await response.text().catch(() => '');
+      const location = response.headers.get('location');
+      return {
+        status: response.status,
+        location: location && location.length <= 200 ? location : null,
+        kind: classifyHttpBody(body)
+      };
+    } catch {
+      return { status: 0, location: null, kind: 'unreachable' };
+    }
   }
+  const url = new URL(options.url ?? 'http://127.0.0.1/');
+  const transport = url.protocol === 'https:' ? https : http;
+  const timeoutMs = options.timeoutMs ?? 2000;
+  return new Promise((resolve) => {
+    const req = transport.request({
+      hostname: url.hostname,
+      port: url.port || (url.protocol === 'https:' ? 443 : 80),
+      path: `${url.pathname}${url.search}`,
+      method: 'GET',
+      headers: { host: hostname, accept: 'text/html,application/json,*/*' },
+      timeout: timeoutMs,
+      rejectUnauthorized: false
+    }, (response) => {
+      const chunks = [];
+      let size = 0;
+      response.on('data', (chunk) => {
+        if (size >= 4000) return;
+        chunks.push(chunk);
+        size += chunk.length;
+      });
+      response.on('end', () => {
+        const location = response.headers.location;
+        resolve({
+          status: response.statusCode ?? 0,
+          location: location && location.length <= 200 ? location : null,
+          kind: classifyHttpBody(Buffer.concat(chunks).toString('utf8'))
+        });
+      });
+    });
+    req.on('error', () => resolve({ status: 0, location: null, kind: 'unreachable' }));
+    req.on('timeout', () => {
+      req.destroy();
+      resolve({ status: 0, location: null, kind: 'unreachable' });
+    });
+    req.end();
+  });
 }
 
 export function buildEdgeEvaluation({ siteExists, enabled, nginx, hosts, port, httpProbe, upstreamProbe, sitePath, enabledPath }) {
