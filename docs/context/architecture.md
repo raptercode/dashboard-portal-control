@@ -12,7 +12,7 @@ The system assumes the owner chooses trusted repositories. Building or starting 
 Browser / CLI
   -> Management API (unprivileged service account)
   -> Privileged helper (fixed allowlisted operations)
-  -> systemd, apt, owned Nginx files, Docker
+  -> systemd, apt, owned Nginx files, Docker, owned mail configuration
 
 Project source/build process
   -> dedicated project Unix user
@@ -21,6 +21,10 @@ Project source/build process
 Trusted Docker Compose project
   -> privileged helper validates a bounded Compose configuration
   -> Docker Engine (no privileged/host-network/host-PID/host-bind-mount settings)
+
+Mail desired state (encrypted relay and DKIM secrets)
+  -> privileged helper decrypts only inside the host boundary
+  -> Postfix, Dovecot, OpenDKIM, managed virtual-mail files
 ```
 
 No layer accepts free-form shell commands from the Browser or API. Privileged work must be converted into typed, validated operations before reaching the helper.
@@ -74,6 +78,14 @@ host PID/IPC namespaces, and host bind mounts; it requires the selected service
 to publish the configured project port. This is guardrail policy, not a
 multi-tenant sandbox: image builds and container processes are still owner
 supplied code. See [ADR 0021](../adr/0021-trusted-docker-compose-project-runtime.md).
+
+Mail provisioning follows the same helper boundary. The API checks outbound
+SMTP connectivity while the helper reads the local UFW policy for inbound mail
+ports; it never opens firewall rules itself. Only ports allowed by that local
+policy receive public listeners, and certificate failure falls back to
+loopback-only mail services. This is not proof of provider-edge reachability:
+an external delivery test remains required for inbound SMTP. See
+[ADR 0025](../adr/0025-port-aware-mail-host-provisioning.md).
 
 Notification hooks are stored with their endpoint encrypted in the same vault
 as repository credentials. A completed or failed deployment may post a

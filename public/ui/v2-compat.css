@@ -179,6 +179,21 @@ button.danger, .button.danger { background: var(--status-error); border-color: v
 .project-card .card-actions .btn { flex: 1; justify-content: center; }
 .project-card .card-actions .project-actions-menu { flex: 0; }
 
+.runtime-detect-actions { align-items: center; justify-content: flex-start; gap: 10px; }
+.runtime-detect-actions .field-hint { margin: 0; }
+.runtime-picker { min-inline-size: 0; }
+.runtime-menu { position: relative; max-width: 520px; }
+.runtime-menu > summary { list-style: none; display: grid; grid-template-columns: 34px minmax(0, 1fr) 20px; align-items: center; gap: 10px; cursor: pointer; border: 1px solid var(--line); border-radius: 12px; padding: 11px 12px; background: var(--panel); }
+.runtime-menu > summary::-webkit-details-marker { display: none; }
+.runtime-menu > summary small, .runtime-menu-option small { display: block; margin-top: 2px; color: var(--muted); }
+.runtime-menu[open] > summary { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.runtime-menu[open] .runtime-chevron { transform: rotate(90deg); }
+.runtime-option-icon { width: 34px; height: 34px; display: inline-grid; place-items: center; border-radius: 9px; color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.runtime-menu-options { border: 1px solid var(--line); border-top: 0; border-radius: 0 0 12px 12px; overflow: hidden; background: var(--panel); }
+.runtime-menu-option { width: 100%; border: 0; border-top: 1px solid var(--line); border-radius: 0; padding: 10px 12px; display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 10px; text-align: left; background: transparent; color: inherit; }
+.runtime-menu-option:first-child { border-top: 0; }
+.runtime-menu-option:hover, .runtime-menu-option[aria-selected="true"] { background: color-mix(in srgb, var(--accent) 9%, transparent); }
+
 /* On desktop the navigation can collapse to its icons without changing the
    mobile drawer, which must retain full text labels. */
 @media (min-width: 901px) {

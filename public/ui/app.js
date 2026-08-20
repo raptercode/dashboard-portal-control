@@ -476,7 +476,8 @@ const MAIL_PLAN_GUIDE = Object.freeze({
 function renderMailOutboundReport(report) {
   const root = $('#mail-check-results');
   if (!root) return;
-  const rows = (report.ports ?? []).map((entry) => {
+  const outbound = report.outbound ?? report;
+  const rows = (outbound.ports ?? []).map((entry) => {
     const row = element('article', 'tool-row');
     const status = MAIL_PORT_STATUS[entry.status] ?? { label: entry.status, variant: 'muted' };
     const copy = element('div');
@@ -489,16 +490,25 @@ function renderMailOutboundReport(report) {
     row.append(copy, side);
     return row;
   });
-  const plan = MAIL_PLAN_GUIDE[report.recommendation?.mode];
+  const plan = MAIL_PLAN_GUIDE[outbound.recommendation?.mode];
   const advice = element('article', 'tool-row');
   const adviceCopy = element('div');
   adviceCopy.append(
-    element('h3', '', `คำแนะนำ: ${plan?.label ?? report.recommendation?.mode ?? '—'}`),
-    element('p', 'muted', plan?.detail ?? report.recommendation?.summary ?? ''),
-    element('small', '', `ตรวจเมื่อ ${new Date(report.checkedAt).toLocaleString()}`)
+    element('h3', '', `คำแนะนำ: ${plan?.label ?? outbound.recommendation?.mode ?? '—'}`),
+    element('p', 'muted', plan?.detail ?? outbound.recommendation?.summary ?? ''),
+    element('small', '', `ตรวจเมื่อ ${new Date(outbound.checkedAt).toLocaleString()}`)
   );
   advice.append(adviceCopy);
   root.replaceChildren(...rows, advice);
+  if (report.inbound?.ports) {
+    root.append(element('p', 'muted', 'ขาเข้า: ตรวจ policy firewall บน host เท่านั้น ต้องยืนยันจากการรับ mail จริงภายนอก'));
+    for (const entry of report.inbound.ports) {
+      const row = element('article', 'tool-row');
+      const status = entry.status === 'allowed' ? { label: 'อนุญาตใน firewall', variant: 'ready' } : entry.status === 'blocked' ? { label: 'ถูกบล็อค', variant: 'needs' } : { label: 'ยังไม่ยืนยัน', variant: 'muted' };
+      row.append(element('div', '', `พอร์ต ${entry.port} · ${entry.detail || entry.source || 'ไม่ทราบ policy'}`), statusChip(status.label, status.variant));
+      root.append(row);
+    }
+  }
 }
 
 function renderProjects() {
@@ -1141,10 +1151,10 @@ function renderMailReader() {
 
 // ---- Mail Setup Wizard (7 steps per docs/design/mail-setup-wizard.md) ----
 const MAIL_OUTBOUND_STORAGE = 'hostmgr.mailOutbound';
-const wizard = { step: 1, settings: null, outbound: null, newDomain: '' };
+const wizard = { step: 1, settings: null, outbound: null, inbound: null, newDomain: '' };
 
 const WIZARD_STEPS = Object.freeze([
-  { id: 1, label: 'ตรวจ outbound' },
+  { id: 1, label: 'ตรวจพอร์ต mail' },
   { id: 2, label: 'Hostname + Domain' },
   { id: 3, label: 'DNS records' },
   { id: 4, label: 'โหมดส่งออก' },
@@ -1167,7 +1177,7 @@ const MAIL_DNS_STATUS = Object.freeze({
 function wizardStepDone(step) {
   const mail = wizard.settings?.mail;
   if (!mail) return false;
-  if (step === 1) return Boolean(wizard.outbound);
+  if (step === 1) return Boolean(wizard.outbound && wizard.inbound);
   if (step === 2) return Boolean(mail.hostname && mail.domains.length);
   if (step === 3) return mail.domains.length > 0 && mail.domains.every((domain) => ['mx', 'spf', 'dkim', 'dmarc'].every((kind) => domain.dns?.[kind]?.status === 'verified'));
   if (step === 4) return Boolean(mail.outboundMode && (mail.outboundMode === 'direct' || mail.relay?.hasPassword));
@@ -1193,8 +1203,14 @@ async function reloadWizardSettings() {
 
 async function renderMailSetup() {
   if (!$('#wizard-body')) return;
-  try { wizard.outbound = JSON.parse(sessionStorage.getItem(MAIL_OUTBOUND_STORAGE) || 'null'); } catch { wizard.outbound = null; }
+  try {
+    const cached = JSON.parse(sessionStorage.getItem(MAIL_OUTBOUND_STORAGE) || 'null');
+    wizard.outbound = cached?.outbound ?? cached;
+    wizard.inbound = cached?.inbound ?? null;
+  } catch { wizard.outbound = null; wizard.inbound = null; }
   await reloadWizardSettings();
+  wizard.outbound ??= wizard.settings?.mail?.readiness?.outbound ?? null;
+  wizard.inbound ??= wizard.settings?.mail?.readiness?.inbound ?? null;
   const firstOpen = WIZARD_STEPS.find((step) => wizardStepUnlocked(step.id) && !wizardStepDone(step.id));
   wizard.step = firstOpen?.id ?? 7;
   paintWizard();
@@ -1249,7 +1265,7 @@ function wizardNav(panel, { back = true, next = true, nextLabel = 'ถัดไ�
 }
 
 function wizardStepOutbound() {
-  const panel = wizardPanel(1, 'ตรวจ outbound SMTP', 'ตรวจว่า host นี้ส่งอีเมลขาออกได้ทางพอร์ตไหน');
+  const panel = wizardPanel(1, 'ตรวจพอร์ต mail', 'ตรวจ outbound SMTP จริง และอ่าน policy firewall ขาเข้าของ host เพื่อเปิดเฉพาะ service ที่ได้รับอนุญาต');
   const results = element('section', 'tool-list');
   if (wizard.outbound) {
     for (const entry of wizard.outbound.ports ?? []) {
@@ -1271,17 +1287,27 @@ function wizardStepOutbound() {
     if ((wizard.outbound.ports ?? []).find((entry) => entry.port === 25)?.status !== 'open') {
       results.append(element('p', 'muted', '⚠ พอร์ต 25 ขาออกถูกบล็อค — มักแปลว่า inbound 25 อาจถูกบล็อคด้วย หากต้องการรับเมลเข้า ติดต่อผู้ให้บริการเครือข่ายของ host นี้'));
     }
+    results.append(element('h3', 'wizard-subhead', 'ขาเข้า — policy firewall บน host'));
+    for (const entry of wizard.inbound?.ports ?? []) {
+      const row = element('article', 'tool-row');
+      const status = entry.status === 'allowed' ? { label: 'อนุญาต', variant: 'ready' } : entry.status === 'blocked' ? { label: 'ถูกบล็อค', variant: 'needs' } : { label: 'ยังไม่ยืนยัน', variant: 'muted' };
+      row.append(element('div', '', `พอร์ต ${entry.port} · ${entry.detail || entry.source || 'ไม่ทราบ policy'}`), statusChip(status.label, status.variant));
+      results.append(row);
+    }
+    results.append(element('p', 'muted', 'ผลขาเข้าตรวจได้เพียง firewall ของเครื่องนี้; network/provider ภายนอกต้องพิสูจน์ด้วยการส่ง mail จริง และ Portal จะไม่เปิดพอร์ตที่ผลเป็น blocked หรือ unknown'));
   } else {
-    results.append(element('p', 'muted', 'ยังไม่เคยตรวจ — กดปุ่มด้านล่างเพื่อทดสอบพอร์ต 25, 587 และ 2525'));
+    results.append(element('p', 'muted', 'ยังไม่เคยตรวจ — กดปุ่มด้านล่างเพื่อทดสอบ outbound 25/587/2525 และ firewall ขาเข้า 25/587/993'));
   }
   panel.append(results);
-  const check = element('button', 'secondary', 'ตรวจสอบ outbound SMTP');
+  const check = element('button', 'secondary', 'ตรวจสอบความพร้อม mail');
   check.type = 'button';
   check.addEventListener('click', async () => {
     try {
       await withBusy(check, async () => {
-        wizard.outbound = await api('/api/mail/outbound-check', { method: 'POST', body: {} });
-        sessionStorage.setItem(MAIL_OUTBOUND_STORAGE, JSON.stringify(wizard.outbound));
+        const report = await api('/api/mail/readiness-check', { method: 'POST', body: {} });
+        wizard.outbound = report.outbound;
+        wizard.inbound = report.inbound;
+        sessionStorage.setItem(MAIL_OUTBOUND_STORAGE, JSON.stringify(report));
         paintWizard();
       });
     } catch (error) { showError(error); }
@@ -1289,7 +1315,7 @@ function wizardStepOutbound() {
   const checkRow = element('div', 'form-actions');
   checkRow.append(check);
   panel.append(checkRow);
-  return wizardNav(panel, { nextEnabled: Boolean(wizard.outbound) });
+  return wizardNav(panel, { nextEnabled: Boolean(wizard.outbound && wizard.inbound) });
 }
 
 function wizardStepIdentity() {
@@ -2504,8 +2530,7 @@ async function hydrateRepositoryStep() {
   $('#build-script').value = draft.buildScript ?? 'build';
   $('#skip-build').checked = draft.skipBuild === true || draft.buildScript === null;
   $('#start-script').value = draft.startScript || 'start';
-  const runtime = document.querySelector(`input[name="runtime"][value="${draft.runtime || 'node'}"]`);
-  if (runtime) runtime.checked = true;
+  setProjectRuntime(draft.runtime || 'node');
   $('#compose-file').value = draft.composeFile || 'compose.yaml';
   $('#compose-service').value = draft.composeService || '';
   $('#health-check-enabled').checked = draft.healthCheckEnabled !== false;
@@ -2564,8 +2589,30 @@ function toggleHealthCheckFields() {
   $('#health-check-path-row').classList.toggle('is-disabled', !enabled);
 }
 
+function runtimeValue() {
+  return $('#project-runtime')?.value || 'node';
+}
+
+function setProjectRuntime(value) {
+  const runtime = ['node', 'bun', 'docker-compose'].includes(value) ? value : 'node';
+  const choices = {
+    node: { label: 'Node.js', detail: 'build และ run ด้วย npm script ใน systemd', icon: 'node' },
+    bun: { label: 'Bun', detail: 'ติดตั้ง dependencies และ run package script ด้วย Bun ใน systemd', icon: 'bun' },
+    'docker-compose': { label: 'Docker Compose', detail: 'Compose ที่ผ่าน policy check ก่อน activate', icon: 'docker' }
+  };
+  const input = $('#project-runtime');
+  if (!input) return;
+  input.value = runtime;
+  $('#runtime-selection-label').textContent = choices[runtime].label;
+  $('#runtime-selection-detail').textContent = choices[runtime].detail;
+  $('#runtime-selection-icon').replaceChildren(icon(choices[runtime].icon));
+  $$('[data-runtime-option]').forEach((option) => option.setAttribute('aria-selected', String(option.dataset.runtimeOption === runtime)));
+  $('#runtime-menu')?.removeAttribute('open');
+  toggleRuntimeFields();
+}
+
 function toggleRuntimeFields() {
-  const runtime = document.querySelector('input[name="runtime"]:checked')?.value || 'node';
+  const runtime = runtimeValue();
   const docker = runtime === 'docker-compose';
   $('#docker-compose-fields').hidden = !docker;
   $('#skip-build-row').hidden = docker;
@@ -2583,7 +2630,7 @@ function toggleRuntimeFields() {
 
 function toggleBuildFields() {
   const skip = $('#skip-build').checked;
-  const docker = document.querySelector('input[name="runtime"]:checked')?.value === 'docker-compose';
+  const docker = runtimeValue() === 'docker-compose';
   $('#build-script-row').hidden = docker || skip;
   $('#build-script').disabled = docker || skip;
 }
@@ -2612,8 +2659,51 @@ async function fetchBranches() {
     const previous = $('#branch').value;
     setBranchOptions(result.branches, result.branches.includes(previous) ? previous : (result.branches.includes('main') ? 'main' : result.branches[0]));
     toast(`พบ ${result.branches.length} branches แล้ว`);
+    await detectProjectRuntimeFromRepository({ quiet: true });
   } catch (error) { showError(error); }
   finally { button.disabled = false; }
+}
+
+async function detectProjectRuntimeFromRepository({ quiet = false } = {}) {
+  const repository = $('#repository');
+  if (!repository?.reportValidity()) return;
+  const button = $('#detect-project-runtime');
+  const note = $('#runtime-detection-note');
+  const protocol = document.querySelector('input[name="protocol"]:checked')?.value || 'https';
+  const original = button?.textContent;
+  if (button) button.disabled = true;
+  if (note) note.textContent = 'กำลังอ่าน metadata ของ repository…';
+  try {
+    const result = await api('/api/projects/runtime-detect', {
+      method: 'POST',
+      body: {
+        repository: repository.value,
+        branch: $('#branch').value || 'main',
+        directory: $('#project-directory').value || '/',
+        protocol,
+        credentialId: $('#credential-id').value
+      }
+    });
+    const detection = result.detection;
+    if (detection?.recommendedRuntime) setProjectRuntime(detection.recommendedRuntime);
+    if (detection?.buildScript) $('#build-script').value = detection.buildScript;
+    if (detection?.startScript) $('#start-script').value = detection.startScript;
+    if (detection?.composeFile) $('#compose-file').value = detection.composeFile;
+    if (detection?.composeService) $('#compose-service').value = detection.composeService;
+    if (note) {
+      const evidence = (detection?.evidence || []).map((item) => item.path).join(' · ');
+      note.textContent = [detection?.notice, evidence].filter(Boolean).join(' — ') || 'ยังตรวจ runtime ไม่ได้';
+    }
+    if (!quiet && detection?.recommendedRuntime) toast(`เลือก ${detection.recommendedRuntime === 'docker-compose' ? 'Docker Compose' : detection.recommendedRuntime === 'bun' ? 'Bun' : 'Node.js'} ให้แล้ว`);
+  } catch (error) {
+    if (note) note.textContent = `ตรวจอัตโนมัติไม่สำเร็จ: ${error.message}`;
+    if (!quiet) throw error;
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = original || 'ตรวจ App อัตโนมัติ';
+    }
+  }
 }
 
 async function syncProjectDraft() {
@@ -2733,10 +2823,10 @@ function bindEvents() {
   $('#mail-check-run')?.addEventListener('click', async (event) => {
     const button = event.currentTarget;
     const root = $('#mail-check-results');
-    root?.replaceChildren(element('p', 'muted', 'กำลังทดสอบการเชื่อมต่อขาออก… (อาจใช้เวลาราว 10 วินาที)'));
+    root?.replaceChildren(element('p', 'muted', 'กำลังตรวจ outbound และ policy firewall ขาเข้า… (อาจใช้เวลาราว 10 วินาที)'));
     try {
       await withBusy(button, async () => {
-        renderMailOutboundReport(await api('/api/mail/outbound-check', { method: 'POST', body: {} }));
+        renderMailOutboundReport(await api('/api/mail/readiness-check', { method: 'POST', body: {} }));
       });
     } catch (error) {
       root?.replaceChildren(element('p', 'muted', 'ตรวจสอบไม่สำเร็จ — ลองใหม่อีกครั้ง'));
@@ -2824,7 +2914,7 @@ function bindEvents() {
     event.preventDefault();
     const data = Object.fromEntries(new FormData(event.currentTarget));
     data.protocol = document.querySelector('input[name="protocol"]:checked')?.value || 'https';
-    data.runtime = document.querySelector('input[name="runtime"]:checked')?.value || 'node';
+    data.runtime = runtimeValue();
     data.autoPort = $('#auto-project-port').checked;
     if (data.autoPort) data.port = '';
     data.skipBuild = $('#skip-build').checked;
@@ -2834,10 +2924,13 @@ function bindEvents() {
     location.href = flowPath('review');
   });
   $('#fetch-branches')?.addEventListener('click', () => fetchBranches().catch(showError));
+  $('#detect-project-runtime')?.addEventListener('click', () => detectProjectRuntimeFromRepository().catch(showError));
+  $('#branch')?.addEventListener('change', () => detectProjectRuntimeFromRepository({ quiet: true }));
+  $('#project-directory')?.addEventListener('change', () => detectProjectRuntimeFromRepository({ quiet: true }));
   $('#health-check-enabled')?.addEventListener('change', toggleHealthCheckFields);
   $('#auto-project-port')?.addEventListener('change', toggleProjectPort);
   $('#skip-build')?.addEventListener('change', toggleBuildFields);
-  $$('input[name="runtime"]').forEach((input) => input.addEventListener('change', toggleRuntimeFields));
+  $$('[data-runtime-option]').forEach((option) => option.addEventListener('click', () => setProjectRuntime(option.dataset.runtimeOption)));
   $$('input[name="protocol"]').forEach((input) => input.addEventListener('change', toggleCredentialReference));
 
   $('#project-review-form')?.addEventListener('submit', async (event) => {

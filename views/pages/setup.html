@@ -15,13 +15,13 @@
   <section class="panel">
     <header class="panel-head">
       <h2>Mail server — ความพร้อมก่อนติดตั้ง</h2>
-      <p>ตรวจว่า host นี้ส่งอีเมลขาออก (SMTP) ได้ทางพอร์ตไหน ก่อนเปิดใช้ mail service</p>
+      <p>ตรวจ outbound SMTP จริงและ policy firewall ขาเข้า เพื่อเปิดเฉพาะ mail service ที่พอร์ตได้รับอนุญาต</p>
     </header>
     <section id="mail-check-results" class="tool-list" aria-live="polite">
-      <p class="muted">ยังไม่เคยตรวจ — กดปุ่มด้านล่างเพื่อทดสอบพอร์ต 25, 587 และ 2525 จากเครื่องนี้</p>
+      <p class="muted">ยังไม่เคยตรวจ — ทดสอบ outbound 25/587/2525 และอ่าน policy firewall ขาเข้า 25/587/993</p>
     </section>
     <div class="form-actions">
-      <button id="mail-check-run" type="button">ตรวจสอบ outbound SMTP</button>
+      <button id="mail-check-run" type="button">ตรวจสอบความพร้อม mail</button>
     </div>
   </section>
   <section class="panel narrow">

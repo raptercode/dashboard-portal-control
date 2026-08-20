@@ -17,6 +17,7 @@ export function initialMailState() {
     hostname: null,
     outboundMode: null,
     relay: null,
+    readiness: { checkedAt: null, outbound: null, inbound: null },
     configure: null,
     ptr: { status: 'pending', checkedAt: null, detail: null },
     domains: [],
@@ -294,6 +295,13 @@ export function validateGitBranchRequest(input) {
   return { repository, protocol, credentialId: protocol === 'https' ? credentialId || null : null };
 }
 
+export function validateProjectRuntimeDetection(input) {
+  const repository = validateGitBranchRequest(input);
+  const branch = requiredText(input.branch, 'Branch', 100);
+  if (!/^[A-Za-z0-9._/-]{1,100}$/.test(branch) || branch.startsWith('-') || branch.includes('..')) throw new InputError('Branch is invalid.');
+  return { ...repository, branch, directory: validateRepositoryDirectory(input.directory) };
+}
+
 export function validateRepositoryDirectory(value) {
   const directory = optionalText(value, 240) || '/';
   if (!directory.startsWith('/') || directory.includes('\\') || directory.includes('//')) throw new InputError('Directory must be an absolute path inside the repository.');
@@ -456,6 +464,7 @@ function migrateState(state) {
   state.databaseConnections ??= [];
   state.notificationHooks ??= [];
   state.mail ??= initialMailState();
+  state.mail.readiness ??= { checkedAt: null, outbound: null, inbound: null };
   // Databases created before the mail tool existed lack its tools entry.
   state.tools.mail ??= { id: 'mail', status: 'Missing', version: null, simulated: true, updatedAt: new Date().toISOString(), ...TOOLS.mail };
   return state;

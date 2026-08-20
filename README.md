@@ -53,10 +53,11 @@ so you can exercise the same pipeline production uses:
 1. **Setup** (`/setup`) — install Nginx/Certbot/Git/Docker (simulated here —
    nothing on your machine changes) and set the Git identity used for
    commits.
-2. **Projects** (`/projects`) — create a project against a public Node
-   repository with `package.json`, pick a branch, and sync. This clones the
-   repository inside the container. The Portal automatically reserves an
-   available internal port for each new project.
+2. **Projects** (`/projects`) — create a project, pick a branch, and sync.
+   The wizard reads a shallow metadata-only checkout to suggest Docker Compose,
+   Bun, or Node (you can override it), then clones the repository inside the
+   container. The Portal automatically reserves an available internal port for
+   each new project.
    (Optional: add a token under **Credentials** first if you want to try a
    private repository — tokens are encrypted and never sent back to the
    browser.)
@@ -156,6 +157,14 @@ There is no dependency install step — the app is built entirely on Node.js
 built-ins (`node:http`, `node:sqlite`, `node:crypto`, ...). `npm run
 release:keygen` and `npm run release:prepare` build signed release archives;
 see [docs/releasing-and-ai-handoff.md](docs/releasing-and-ai-handoff.md).
+
+## Mail capability checks
+
+The Mail Setup Wizard checks outbound SMTP connectivity on ports 25, 587, and
+2525 plus the host's UFW policy for inbound 25, 587, and 993. It never changes
+firewall rules and configures listeners only for locally permitted ports. This
+does not prove a cloud-provider firewall allows inbound SMTP; confirm that
+separately by delivering a real message from an external sender.
 
 ## Documentation map
 

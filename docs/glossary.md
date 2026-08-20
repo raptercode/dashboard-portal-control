@@ -17,6 +17,9 @@
 | Credential vault | Encrypted storage for HTTPS tokens in persistent state; tokens are never returned through the API |
 | Deploy key | An SSH key pair that lets the host access one repository; the UI never accesses the private key |
 | Docker Compose runtime | Optional runtime for a trusted owner repository; the helper validates a bounded Compose policy before controlled host activation. It is not multi-tenant container isolation. |
+| Runtime detection | A shallow repository metadata inspection that suggests Docker Compose, Bun, or Node without executing repository code; the owner may override it. |
+| Mail readiness | Separate evidence for SMTP egress and local inbound firewall policy. It does not prove that a cloud-provider firewall permits inbound mail from the Internet. |
+| Mail hostname | The DNS-only hostname used for SMTP HELO, PTR, and mail TLS, normally `mail.example.com`. |
 | Native mode | Running the application on the host under systemd, not in a Docker container |
 | Monitor Logs Token | Project-scoped bearer token that reads safe deployment status only; it cannot read runtime logs, secrets, or repository URLs. |
 | Notification hook | Encrypted HTTPS destination that receives a provider-aware deployment success/failure payload; delivery never changes deployment state. |

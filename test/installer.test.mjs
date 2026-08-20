@@ -88,6 +88,7 @@ test('installer provisions the reset-password command and stores the initial pas
   assert.match(script, /ssl_reject_handshake on;/);
   assert.match(script, /hostmgr-unmatched\.conf/);
   assert.match(script, /install -m 0750 -o root -g root "\$APP_ROOT\/scripts\/nginx-edge\.mjs" "\$HELPER_ROOT\/nginx-edge\.mjs"/);
+  assert.match(script, /install -m 0750 -o root -g root "\$APP_ROOT\/scripts\/mail-host-config\.mjs" "\$HELPER_ROOT\/mail-host-config\.mjs"/);
   assert.match(script, /install -m 0750 -o root -g root "\$APP_ROOT\/scripts\/password-config\.mjs" "\$PASSWORD_SCRIPT"/);
   assert.match(script, /\[\[ "\\\$\{1:-\}" == '--reset-pwd' \]\]/);
   assert.match(script, /ADMIN_PASSWORD_B64="\$\(printf %s "\$ADMIN_PASSWORD" \| base64 -w 0\)"/);

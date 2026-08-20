@@ -23,16 +23,26 @@
           </span>
         </label>
       </div>
+      <div class="form-actions runtime-detect-actions">
+        <button id="detect-project-runtime" class="secondary" type="button"><svg class="icon" aria-hidden="true"><use href="#icon-search"></use></svg>ตรวจ App อัตโนมัติ</button>
+        <small id="runtime-detection-note" class="field-hint">อ่านเฉพาะ metadata ของ branch ที่เลือก ไม่รันโค้ดจาก repository</small>
+      </div>
       <div class="two-fields">
         <label id="project-port-row" for="project-port">Port ภายในเครื่อง <small class="field-hint">ระบบจะกันพอร์ตนี้ให้กับโปรเจกต์</small><input id="project-port" name="port" type="number" min="1024" max="65535" readonly placeholder="จะสุ่มตอนบันทึก"></label>
         <span aria-hidden="true"></span>
       </div>
       <label class="check-row"><input id="auto-project-port" name="autoPort" type="checkbox" checked><span><b>สุ่มพอร์ตว่างอัตโนมัติ</b><small>ตรวจพอร์ตของโปรเจกต์อื่นและ listener บน host; ถ้าชนจะสุ่มใหม่</small></span></label>
-      <fieldset class="fieldset">
+      <fieldset class="fieldset runtime-picker">
         <legend>Runtime</legend>
-        <label class="check-row"><input name="runtime" value="node" type="radio" checked><span><b>Node.js</b><small>build และ run ด้วย npm script ใน systemd</small></span></label>
-        <label class="check-row"><input name="runtime" value="bun" type="radio"><span><b>Bun</b><small>ติดตั้ง dependencies และ run package script ด้วย Bun ใน systemd</small></span></label>
-        <label class="check-row"><input name="runtime" value="docker-compose" type="radio"><span><b>Docker Compose</b><small>สำหรับ repository ที่เชื่อถือได้เท่านั้น; ไม่อนุญาต privileged, host network/PID หรือ host bind mount</small></span></label>
+        <input id="project-runtime" name="runtime" type="hidden" value="node">
+        <details id="runtime-menu" class="runtime-menu">
+          <summary><span id="runtime-selection-icon" class="runtime-option-icon"><svg class="icon" aria-hidden="true"><use href="#icon-node"></use></svg></span><span><b id="runtime-selection-label">Node.js</b><small id="runtime-selection-detail">build และ run ด้วย npm script ใน systemd</small></span><svg class="icon runtime-chevron" aria-hidden="true"><use href="#icon-arrow-right"></use></svg></summary>
+          <div class="runtime-menu-options" role="listbox" aria-label="เลือก Runtime">
+            <button type="button" class="runtime-menu-option" data-runtime-option="node" role="option" aria-selected="true"><span class="runtime-option-icon"><svg class="icon" aria-hidden="true"><use href="#icon-node"></use></svg></span><span><b>Node.js</b><small>npm และ systemd</small></span></button>
+            <button type="button" class="runtime-menu-option" data-runtime-option="bun" role="option" aria-selected="false"><span class="runtime-option-icon"><svg class="icon" aria-hidden="true"><use href="#icon-bun"></use></svg></span><span><b>Bun</b><small>Bun install และ systemd</small></span></button>
+            <button type="button" class="runtime-menu-option" data-runtime-option="docker-compose" role="option" aria-selected="false"><span class="runtime-option-icon"><svg class="icon" aria-hidden="true"><use href="#icon-docker"></use></svg></span><span><b>Docker Compose</b><small>Compose ที่ผ่าน policy check</small></span></button>
+          </div>
+        </details>
       </fieldset>
       <label id="skip-build-row" class="check-row"><input id="skip-build" name="skipBuild" type="checkbox"><span><b>Skip Build</b><small>ใช้เมื่อโปรเจคพร้อม run ได้ทันที เช่น Bun start</small></span></label>
       <div class="two-fields">

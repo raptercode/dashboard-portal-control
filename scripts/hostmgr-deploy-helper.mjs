@@ -3,9 +3,11 @@ import { createServer } from 'node:net';
 import { spawn } from 'node:child_process';
 import { access, chmod, chown, copyFile, cp, lstat, mkdir, readFile, readdir, readlink, rename, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
+import { createDecipheriv } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { updateStoredPassword } from './password-config.mjs';
 import { buildEdgeEvaluation, probeLoopbackHttp, publicEdgeResult, renderUnmatchedNginx } from './nginx-edge.mjs';
+import { buildMailPortPlan, renderDkimTables, renderDovecotConfiguration, renderMap, renderOpenDkimConfiguration, renderPostfixMain, renderPostfixMaster } from './mail-host-config.mjs';
 
 const MAX_REQUEST_BYTES = 16 * 1024;
 const PROJECT_ROOT = '/var/lib/dashboard-portal/projects';
@@ -20,6 +22,16 @@ const CONFIG_PATH = '/etc/dashboard-portal/dashboard-portal.env';
 const NPM = '/usr/local/bin/npm';
 const BUN = '/usr/local/bin/bun';
 const DOCKER = '/usr/bin/docker';
+const MAIL_ROOT = '/etc/hostmgr/mail';
+const MAIL_INSTALL_MARKER = `${MAIL_ROOT}/.portal-installed`;
+const MAIL_POSTFIX_ROOT = '/etc/postfix/hostmgr';
+const MAIL_DOMAINS = `${MAIL_POSTFIX_ROOT}/domains`;
+const MAIL_MAILBOXES = `${MAIL_POSTFIX_ROOT}/mailboxes`;
+const MAIL_USERS = `${MAIL_ROOT}/users`;
+const MAIL_SASL = `${MAIL_ROOT}/sasl_passwd`;
+const MAIL_VMAIL_ROOT = '/var/vmail';
+const MAIL_DKIM_ROOT = '/etc/opendkim/keys';
+const MAIL_CERTIFICATE = '/etc/letsencrypt/live/hostmgr-mail';
 
 const args = parseArgs(process.argv.slice(2));
 const socketPath = args.socket;
@@ -72,12 +84,11 @@ async function dispatch(request) {
   if (request.operation === 'read-project-log') return readProjectLog(request.slug, request.lines);
   if (request.operation === 'project-runtime-status') return projectRuntimeStatus(request.slug);
   if (request.operation === 'inspect-project-edge') return inspectProjectEdge(request.slug);
-  // Mail host provisioning ships in a later release; the operations are
-  // allowlisted now so the API surface is stable, but they fail closed until
-  // the reviewed Postfix/Dovecot/OpenDKIM templating lands.
-  if (['configure-mail', 'write-dkim-key', 'create-mailbox', 'delete-mailbox', 'remove-mail-domain'].includes(request.operation)) {
-    throw new HelperError('Mail host provisioning is not available in this release yet.');
-  }
+  if (request.operation === 'mail-port-readiness') return mailPortReadiness();
+  if (request.operation === 'configure-mail') return configureMail();
+  if (request.operation === 'create-mailbox') return createMailbox(request.domain, request.localPart, request.password);
+  if (request.operation === 'delete-mailbox') return deleteMailbox(request.domain, request.localPart);
+  if (request.operation === 'remove-mail-domain') return removeMailDomain(request.domain, request.force === true);
   throw new HelperError('Unsupported helper operation.');
 }
 
@@ -124,10 +135,281 @@ async function setAdminPassword(password) {
 async function installTool(tool) {
   const packages = { nginx: ['nginx'], certbot: ['certbot', 'python3-certbot-nginx'], git: ['git'], docker: ['docker.io', 'docker-compose-v2'], mail: ['postfix', 'dovecot-imapd', 'dovecot-lmtpd', 'opendkim', 'opendkim-tools'] };
   if (!Object.hasOwn(packages, tool)) throw new HelperError('Unsupported tool installation request.');
-  await run('/usr/bin/apt-get', ['update'], { timeout: 180_000 });
-  await run('/usr/bin/apt-get', ['install', '-y', '--no-install-recommends', ...packages[tool]], { timeout: 300_000 });
+  if (tool === 'mail' && !await exists(MAIL_INSTALL_MARKER) && (await exists('/etc/postfix/main.cf') || await exists('/etc/dovecot'))) {
+    throw new HelperError('Existing mail configuration was found. Portal will not take it over automatically.');
+  }
+  const env = tool === 'mail' ? { ...process.env, DEBIAN_FRONTEND: 'noninteractive' } : undefined;
+  await run('/usr/bin/apt-get', ['update'], { timeout: 180_000, env });
+  await run('/usr/bin/apt-get', ['install', '-y', '--no-install-recommends', ...packages[tool]], { timeout: 300_000, env });
+  if (tool === 'mail') {
+    await mkdir(MAIL_ROOT, { recursive: true, mode: 0o750 });
+    await chmod(MAIL_ROOT, 0o750);
+    await writeFile(MAIL_INSTALL_MARKER, 'Installed by Dashboard Portal. Managed mail configuration may replace package defaults.\n', { mode: 0o640 });
+    await chmod(MAIL_INSTALL_MARKER, 0o640);
+  }
   return { version: 'Installed' };
 }
+
+async function mailPortReadiness() {
+  const unknown = (source, detail) => ({ scope: 'local-firewall', checkedAt: new Date().toISOString(), externalReachability: 'unverified', ports: [25, 587, 993].map((port) => ({ port, status: 'unknown', source, detail })) });
+  if (!await exists('/usr/sbin/ufw')) return unknown('firewall-unmanaged', 'UFW is not installed; Portal will not expose this port automatically.');
+  const output = await run('/usr/sbin/ufw', ['status'], { failure: 'Could not inspect the host firewall.' }).catch(() => null);
+  if (!output) return unknown('ufw-unavailable', 'Could not read UFW policy.');
+  if (/^Status:\s*inactive/im.test(output)) {
+    return { scope: 'local-firewall', checkedAt: new Date().toISOString(), externalReachability: 'unverified', ports: [25, 587, 993].map((port) => ({ port, status: 'allowed', source: 'ufw-inactive', detail: 'UFW is inactive; provider/network firewall is still unverified.' })) };
+  }
+  if (!/^Status:\s*active/im.test(output)) return unknown('ufw-unknown', 'UFW did not report an active or inactive policy.');
+  const ports = [25, 587, 993].map((port) => {
+    const allowed = new RegExp(`^\\s*${port}(?:/tcp)?\\s+ALLOW\\s+`, 'im').test(output);
+    const blocked = new RegExp(`^\\s*${port}(?:/tcp)?\\s+(?:DENY|REJECT)\\s+`, 'im').test(output);
+    if (allowed) return { port, status: 'allowed', source: 'ufw', detail: 'Allowed by UFW; provider/network firewall is still unverified.' };
+    if (blocked) return { port, status: 'blocked', source: 'ufw', detail: 'Blocked by UFW.' };
+    return { port, status: 'blocked', source: 'ufw-default', detail: 'No matching UFW allow rule was found.' };
+  });
+  return { scope: 'local-firewall', checkedAt: new Date().toISOString(), externalReachability: 'unverified', ports };
+}
+
+async function configureMail() {
+  await assertMailInstallation();
+  const mail = await readManagedMailState();
+  let plan = validatedMailPlan(mail);
+  const vmail = await ensureVmailAccount();
+  let certificate = null;
+  let certificateNotice = null;
+  if (plan.needsPublicCertificate) {
+    try { certificate = await issueMailCertificate(mail.hostname); }
+    catch {
+      plan = { ...plan, inbound: { smtp: false, submission: false, imaps: false }, needsPublicCertificate: false, disabledPorts: [25, 587, 993] };
+      certificateNotice = 'Mail services remain loopback-only because a public TLS certificate could not be issued.';
+    }
+  }
+  await mkdir(MAIL_ROOT, { recursive: true, mode: 0o750 });
+  await mkdir(MAIL_POSTFIX_ROOT, { recursive: true, mode: 0o755 });
+  await mkdir(MAIL_VMAIL_ROOT, { recursive: true, mode: 0o750 });
+  await chown(MAIL_VMAIL_ROOT, vmail.uid, vmail.gid);
+  await chmod(MAIL_VMAIL_ROOT, 0o750);
+  await writeMailMaps(mail);
+  await writeDkimMaterial(mail);
+  await writeRelayCredentials(mail);
+  await writeFile('/etc/postfix/main.cf', renderPostfixMain({ hostname: mail.hostname, domains: mail.domains.map((item) => item.domain), outboundMode: mail.outboundMode, relay: mail.relay, plan, certificate, vmail }), { mode: 0o644 });
+  await writeFile('/etc/postfix/master.cf', renderPostfixMaster(plan), { mode: 0o644 });
+  await writeFile('/etc/dovecot/conf.d/99-hostmgr-mail.conf', renderDovecotConfiguration({ plan, certificate, vmail }), { mode: 0o640 });
+  await writeFile('/etc/opendkim.conf', renderOpenDkimConfiguration(), { mode: 0o644 });
+  await run('/usr/sbin/postfix', ['check'], { failure: 'Postfix configuration validation failed.' });
+  await run('/usr/bin/systemctl', ['enable', '--now', 'opendkim', 'dovecot', 'postfix'], { failure: 'Mail services could not be enabled.' });
+  return { inbound: plan.inbound, externalReachability: plan.externalReachability, notice: certificateNotice };
+}
+
+async function createMailbox(domain, localPart, password) {
+  await assertMailInstallation();
+  const mail = await readManagedMailState();
+  validatedMailPlan(mail);
+  const safeDomain = validateMailDomain(domain);
+  const safeLocalPart = validateMailLocalPart(localPart);
+  if (!mail.domains.some((item) => item.domain === safeDomain)) throw new HelperError('Mail domain is not configured.');
+  if (typeof password !== 'string' || password.length < 12 || password.length > 512 || /[\r\n\0]/.test(password)) throw new HelperError('Mailbox password is invalid.');
+  const address = `${safeLocalPart}@${safeDomain}`;
+  const users = await readTextOrEmpty(MAIL_USERS);
+  if (users.split('\n').some((line) => line.startsWith(`${address}:`))) throw new HelperError('Mailbox already exists.');
+  const vmail = await ensureVmailAccount();
+  const hash = await run('/usr/bin/doveadm', ['pw', '-s', 'SHA512-CRYPT'], { input: `${password}\n`, failure: 'Mailbox password could not be secured.' });
+  if (!/^\{SHA512-CRYPT\}/.test(hash)) throw new HelperError('Mailbox password could not be secured.');
+  await writeFile(MAIL_USERS, `${users.replace(/\s*$/, '')}${users.trim() ? '\n' : ''}${address}:${hash}:${vmail.uid}:${vmail.gid}::${MAIL_VMAIL_ROOT}/${safeDomain}/${safeLocalPart}::\n`, { mode: 0o640 });
+  await addMailboxMap(address);
+  const home = join(MAIL_VMAIL_ROOT, safeDomain, safeLocalPart);
+  await mkdir(join(home, 'Maildir'), { recursive: true, mode: 0o750 });
+  await chown(home, vmail.uid, vmail.gid);
+  await chown(join(home, 'Maildir'), vmail.uid, vmail.gid);
+  await chmod(home, 0o750);
+  await chmod(join(home, 'Maildir'), 0o750);
+  await run('/usr/bin/systemctl', ['reload', 'dovecot', 'postfix'], { failure: 'Mailbox services could not be reloaded.' });
+  return { address };
+}
+
+async function deleteMailbox(domain, localPart) {
+  await assertMailInstallation();
+  const address = `${validateMailLocalPart(localPart)}@${validateMailDomain(domain)}`;
+  const users = await readTextOrEmpty(MAIL_USERS);
+  const nextUsers = users.split('\n').filter((line) => line && !line.startsWith(`${address}:`));
+  if (nextUsers.length === users.split('\n').filter(Boolean).length) throw new HelperError('Mailbox was not found.');
+  await writeFile(MAIL_USERS, renderMap(nextUsers), { mode: 0o640 });
+  const maps = (await readTextOrEmpty(MAIL_MAILBOXES)).split('\n').filter((line) => line && !line.startsWith(`${address} `));
+  await writeFile(MAIL_MAILBOXES, renderMap(maps), { mode: 0o644 });
+  await rebuildPostfixMap(MAIL_MAILBOXES, 0o644);
+  await run('/usr/bin/systemctl', ['reload', 'dovecot', 'postfix'], { failure: 'Mailbox services could not be reloaded.' });
+  return { address };
+}
+
+async function removeMailDomain(domain, force) {
+  await assertMailInstallation();
+  const safeDomain = validateMailDomain(domain);
+  const mail = await readManagedMailState();
+  const attached = mail.mailboxes.filter((item) => item.domain === safeDomain);
+  if (attached.length && !force) throw new HelperError('Delete mailboxes before removing this domain.');
+  const remaining = mail.domains.filter((item) => item.domain !== safeDomain);
+  if (remaining.length === mail.domains.length) throw new HelperError('Mail domain was not found.');
+  const nextMail = { ...mail, domains: remaining, mailboxes: mail.mailboxes.filter((item) => item.domain !== safeDomain) };
+  await writeMailMaps(nextMail);
+  const tables = renderDkimTables(remaining);
+  await writeFile('/etc/opendkim/KeyTable', tables.keyTable, { mode: 0o644 });
+  await writeFile('/etc/opendkim/SigningTable', tables.signingTable, { mode: 0o644 });
+  await writeFile('/etc/opendkim/TrustedHosts', tables.trustedHosts, { mode: 0o644 });
+  await rm(join(MAIL_DKIM_ROOT, safeDomain), { recursive: true, force: true });
+  await run('/usr/bin/systemctl', ['reload', 'opendkim', 'postfix'], { failure: 'Mail services could not be reloaded.' });
+  return { domain: safeDomain };
+}
+
+async function assertMailInstallation() {
+  if (!await exists(MAIL_INSTALL_MARKER)) throw new HelperError('Install mail packages through Dashboard Portal before configuring mail.');
+}
+
+async function readManagedMailState() {
+  let database;
+  try {
+    database = new DatabaseSync(STATE_DATABASE_PATH, { readOnly: true });
+    const raw = database.prepare('SELECT value FROM portal_meta WHERE key = ?').get('mail')?.value;
+    if (!raw) throw new HelperError('Mail configuration was not found.');
+    const mail = JSON.parse(raw);
+    validateMailState(mail);
+    return mail;
+  } catch (error) {
+    if (error instanceof HelperError) throw error;
+    throw new HelperError('Mail configuration could not be read.');
+  } finally { database?.close(); }
+}
+
+function validateMailState(mail) {
+  if (!mail || typeof mail !== 'object') throw new HelperError('Mail configuration is invalid.');
+  mail.hostname = validateMailDomain(mail.hostname);
+  if (!['direct', 'relay-587', 'relay-2525'].includes(mail.outboundMode)) throw new HelperError('Mail outbound mode is invalid.');
+  if (!Array.isArray(mail.domains) || !mail.domains.length || mail.domains.length > 10) throw new HelperError('Mail domains are invalid.');
+  mail.domains = mail.domains.map((entry) => {
+    const domain = validateMailDomain(entry?.domain);
+    const selector = entry?.dkim?.selectors?.find((item) => item?.state === 'active') ?? entry?.dkim?.selectors?.[0];
+    if (!selector || !/^[a-z][a-z0-9-]{1,63}$/i.test(selector.selector) || !validEncryptedSecret(selector.encryptedPrivateKey)) throw new HelperError('Mail DKIM configuration is invalid.');
+    if (entry?.dns?.mx?.status !== 'verified' || entry?.dns?.spf?.status !== 'verified' || entry?.dns?.dkim?.status !== 'verified' || entry?.dns?.dmarc?.status !== 'verified') throw new HelperError('Mail DNS records must be verified before host configuration.');
+    return { ...entry, domain, dkim: { selectors: [selector] } };
+  });
+  if (mail.hostnameCheck?.status !== 'ok') throw new HelperError('Mail hostname DNS must resolve directly to this host.');
+  if (mail.outboundMode === 'direct' && mail.ptr?.status !== 'verified') throw new HelperError('Direct mail requires a verified PTR record.');
+  if (mail.outboundMode !== 'direct') {
+    if (!mail.relay || typeof mail.relay.host !== 'string' || !/^[a-z0-9][a-z0-9.-]{0,251}[a-z0-9]$/i.test(mail.relay.host) || !Number.isInteger(mail.relay.port) || !validEncryptedSecret(mail.relay.encryptedSecret)) throw new HelperError('Mail relay configuration is invalid.');
+  }
+  mail.mailboxes = Array.isArray(mail.mailboxes) ? mail.mailboxes.map((item) => ({ ...item, domain: validateMailDomain(item?.domain), localPart: validateMailLocalPart(item?.localPart) })) : [];
+}
+
+function validatedMailPlan(mail) {
+  try { return buildMailPortPlan({ outboundMode: mail.outboundMode, outbound: mail.readiness?.outbound, inbound: mail.readiness?.inbound }); }
+  catch (error) { throw new HelperError(String(error?.message ?? 'Mail readiness check is required.')); }
+}
+
+function validateMailDomain(value) {
+  const domain = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (!/^(?=.{1,253}$)(?!-)(?:[a-z0-9-]{1,63}\.)+[a-z]{2,63}$/.test(domain)) throw new HelperError('Mail domain is invalid.');
+  return domain;
+}
+
+function validateMailLocalPart(value) {
+  const localPart = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (!/^[a-z0-9](?:[a-z0-9.!#$%&'*+/=?^_`{|}~-]{0,62}[a-z0-9])?$/.test(localPart) || localPart.includes('..')) throw new HelperError('Mailbox local part is invalid.');
+  return localPart;
+}
+
+function validEncryptedSecret(value) {
+  return value && typeof value === 'object' && value.algorithm === 'aes-256-gcm' && [value.iv, value.tag, value.ciphertext].every((item) => typeof item === 'string' && /^[A-Za-z0-9+/]+={0,2}$/.test(item));
+}
+
+async function ensureVmailAccount() {
+  const groupExists = await run('/usr/bin/getent', ['group', 'vmail'], { failure: 'Could not inspect the mail account.' }).then(() => true).catch(() => false);
+  if (!groupExists) await run('/usr/sbin/groupadd', ['--system', 'vmail'], { failure: 'Mail account could not be created.' });
+  const userExists = await run('/usr/bin/getent', ['passwd', 'vmail'], { failure: 'Could not inspect the mail account.' }).then(() => true).catch(() => false);
+  if (!userExists) await run('/usr/sbin/useradd', ['--system', '--gid', 'vmail', '--home-dir', MAIL_VMAIL_ROOT, '--shell', '/usr/sbin/nologin', 'vmail'], { failure: 'Mail account could not be created.' });
+  return { uid: await lookupUserId('vmail'), gid: await lookupGroupId('vmail') };
+}
+
+async function writeMailMaps(mail) {
+  await mkdir(MAIL_POSTFIX_ROOT, { recursive: true, mode: 0o755 });
+  await chmod(MAIL_POSTFIX_ROOT, 0o755);
+  await writeFile(MAIL_DOMAINS, renderMap(mail.domains.map((item) => `${item.domain} OK`)), { mode: 0o644 });
+  await writeFile(MAIL_MAILBOXES, renderMap(mail.mailboxes.map((item) => `${item.localPart}@${item.domain} ${item.localPart}@${item.domain}`)), { mode: 0o644 });
+  await writeFile(MAIL_USERS, await preserveUsersFor(mail.mailboxes), { mode: 0o640 });
+  await rebuildPostfixMap(MAIL_DOMAINS, 0o644);
+  await rebuildPostfixMap(MAIL_MAILBOXES, 0o644);
+}
+
+async function preserveUsersFor(mailboxes) {
+  const allowed = new Set(mailboxes.map((item) => `${item.localPart}@${item.domain}`));
+  return renderMap((await readTextOrEmpty(MAIL_USERS)).split('\n').filter((line) => line && allowed.has(line.split(':', 1)[0])));
+}
+
+async function addMailboxMap(address) {
+  const maps = (await readTextOrEmpty(MAIL_MAILBOXES)).split('\n').filter(Boolean);
+  maps.push(`${address} ${address}`);
+  await writeFile(MAIL_MAILBOXES, renderMap(maps), { mode: 0o644 });
+  await rebuildPostfixMap(MAIL_MAILBOXES, 0o644);
+}
+
+async function rebuildPostfixMap(path, mode = 0o644) {
+  await run('/usr/sbin/postmap', [path], { failure: 'Postfix address map could not be rebuilt.' });
+  await chmod(`${path}.db`, mode).catch(() => {});
+}
+
+async function writeDkimMaterial(mail) {
+  const opendkimGid = await lookupGroupId('opendkim');
+  const tables = renderDkimTables(mail.domains);
+  await mkdir(MAIL_DKIM_ROOT, { recursive: true, mode: 0o750 });
+  for (const domain of mail.domains) {
+    const selector = domain.dkim.selectors[0];
+    const directory = join(MAIL_DKIM_ROOT, domain.domain);
+    const keyPath = join(directory, `${selector.selector}.private`);
+    await mkdir(directory, { recursive: true, mode: 0o750 });
+    await chown(directory, 0, opendkimGid);
+    await chmod(directory, 0o750);
+    await writeFile(keyPath, await decryptMailSecret(selector.encryptedPrivateKey), { mode: 0o600 });
+    await chown(keyPath, 0, opendkimGid);
+    await chmod(keyPath, 0o600);
+  }
+  await writeFile('/etc/opendkim/KeyTable', tables.keyTable, { mode: 0o644 });
+  await writeFile('/etc/opendkim/SigningTable', tables.signingTable, { mode: 0o644 });
+  await writeFile('/etc/opendkim/TrustedHosts', tables.trustedHosts, { mode: 0o644 });
+}
+
+async function writeRelayCredentials(mail) {
+  if (mail.outboundMode === 'direct') {
+    await rm(MAIL_SASL, { force: true });
+    await rm(`${MAIL_SASL}.db`, { force: true });
+    return;
+  }
+  const password = await decryptMailSecret(mail.relay.encryptedSecret);
+  await writeFile(MAIL_SASL, `[${mail.relay.host}]:${mail.relay.port} ${mail.relay.username}:${password}\n`, { mode: 0o600 });
+  await rebuildPostfixMap(MAIL_SASL, 0o600);
+  await chmod(MAIL_SASL, 0o600);
+  await chmod(`${MAIL_SASL}.db`, 0o600).catch(() => {});
+}
+
+async function decryptMailSecret(payload) {
+  const config = await readFile(CONFIG_PATH, 'utf8').catch(() => '');
+  const encodedKey = config.match(/^HOSTMGR_SECRET_KEY=([^\r\n]+)$/m)?.[1] ?? '';
+  const key = Buffer.from(encodedKey, 'base64');
+  if (key.length !== 32 || !validEncryptedSecret(payload)) throw new HelperError('Mail secret could not be read.');
+  try {
+    const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(payload.iv, 'base64'));
+    decipher.setAuthTag(Buffer.from(payload.tag, 'base64'));
+    return Buffer.concat([decipher.update(Buffer.from(payload.ciphertext, 'base64')), decipher.final()]).toString('utf8');
+  } catch { throw new HelperError('Mail secret could not be read.'); }
+}
+
+async function issueMailCertificate(hostname) {
+  await ensureUnmatchedNginx();
+  const email = await acmeEmail();
+  await run('/usr/bin/certbot', ['certonly', '--webroot', '--webroot-path', ACME_ROOT, '--non-interactive', '--agree-tos', '--email', email, '--keep-until-expiring', '--expand', '--cert-name', 'hostmgr-mail', '-d', hostname], {
+    timeout: 180_000,
+    failure: 'Mail TLS certificate request failed.'
+  });
+  return { fullchain: `${MAIL_CERTIFICATE}/fullchain.pem`, privateKey: `${MAIL_CERTIFICATE}/privkey.pem` };
+}
+
+async function readTextOrEmpty(path) { return readFile(path, 'utf8').catch(() => ''); }
 
 async function activateProject(slug, releaseId) {
   const project = await loadProject(slug);
@@ -593,6 +875,11 @@ function validateDomain(host) {
 
 function certificateName(slug) { return `hostmgr-${slug}`; }
 async function lookupUserGroupId(user) { return Number(await run('/usr/bin/id', ['-g', user])); }
+async function lookupUserId(user) {
+  const value = await run('/usr/bin/id', ['-u', user]);
+  if (!/^\d+$/.test(value)) throw new HelperError('Mail service user is invalid.');
+  return Number(value);
+}
 async function lookupGroupId(group) {
   const fields = (await run('/usr/bin/getent', ['group', group])).split(':');
   if (!/^\d+$/.test(fields[2] ?? '')) throw new HelperError('Dashboard service group is invalid.');
@@ -610,11 +897,13 @@ async function healthCheck(port, path) { try { const response = await fetch(`htt
 
 function run(command, args, options = {}) {
   return new Promise((resolve, reject) => {
-    const { failure = 'A required host operation failed.', ...spawnOptions } = options;
-    const child = spawn(command, args, { shell: false, stdio: ['ignore', 'pipe', 'pipe'], timeout: 120_000, ...spawnOptions });
+    const { failure = 'A required host operation failed.', input, ...spawnOptions } = options;
+    const child = spawn(command, args, { shell: false, stdio: ['pipe', 'pipe', 'pipe'], timeout: 120_000, ...spawnOptions });
     let stdout = '';
     child.stdout.on('data', (chunk) => { stdout += chunk; });
     child.stderr.resume();
+    child.stdin.on('error', () => {});
+    child.stdin.end(typeof input === 'string' ? input : undefined);
     child.once('error', () => reject(new HelperError('A required host operation could not start.')));
     child.once('close', (code) => code === 0 ? resolve(stdout.trim()) : reject(new HelperError(failure)));
   });

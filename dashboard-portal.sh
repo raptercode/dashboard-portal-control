@@ -113,7 +113,7 @@ trap rollback ERR INT TERM
 [[ $EUID -eq 0 ]] || die 'Run with sudo.'
 [[ -n "$DOMAIN" && "$DOMAIN" =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$ ]] || die 'A lower-case FQDN is required in --domain.'
 [[ -n "$EMAIL" && "$EMAIL" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]] || die 'A valid --email is required. HTTPS is mandatory for a public login.'
-[[ -f package.json && -d src && -d public && -f scripts/hostmgr-deploy-helper.mjs && -f scripts/nginx-edge.mjs && -f scripts/password-config.mjs && -f scripts/dashboard-portal-update.mjs && -f scripts/software-update.mjs && -f "$UPDATE_PUBLIC_KEY_SOURCE" ]] || die 'Run this script from an extracted dashboard-portal release directory.'
+[[ -f package.json && -d src && -d public && -f scripts/hostmgr-deploy-helper.mjs && -f scripts/mail-host-config.mjs && -f scripts/nginx-edge.mjs && -f scripts/password-config.mjs && -f scripts/dashboard-portal-update.mjs && -f scripts/software-update.mjs && -f "$UPDATE_PUBLIC_KEY_SOURCE" ]] || die 'Run this script from an extracted dashboard-portal release directory.'
 source /etc/os-release
 [[ "${ID:-}" == 'ubuntu' && ( "${VERSION_ID:-}" == '24.04' || "${VERSION_ID:-}" == '25.04' ) ]] || die 'This installer supports Ubuntu 24.04 or 25.04 only.'
 [[ "$(dpkg --print-architecture)" == 'amd64' ]] || die 'This release currently supports amd64 only.'
@@ -190,6 +190,7 @@ STAGING_ROOT="$TMP_DIR/app"
 install -d -m 0755 "$STAGING_ROOT"
 tar --exclude='.env' --exclude='data' --exclude='node_modules' --exclude='.git' --exclude='dist' --exclude='release-out' -cf - . | tar -xf - -C "$STAGING_ROOT"
 "/usr/local/bin/node" --check "$STAGING_ROOT/src/server.mjs"
+"/usr/local/bin/node" --check "$STAGING_ROOT/scripts/mail-host-config.mjs"
 
 rm -rf -- "$APP_ROOT"
 mv "$STAGING_ROOT" "$APP_ROOT"
@@ -200,6 +201,7 @@ chmod 0755 "$APP_ROOT"
 chmod -R go-w "$APP_ROOT"
 install -d -m 0750 -o root -g root "$HELPER_ROOT"
 install -m 0750 -o root -g root "$APP_ROOT/scripts/hostmgr-deploy-helper.mjs" "$HELPER_SCRIPT"
+install -m 0750 -o root -g root "$APP_ROOT/scripts/mail-host-config.mjs" "$HELPER_ROOT/mail-host-config.mjs"
 install -m 0750 -o root -g root "$APP_ROOT/scripts/nginx-edge.mjs" "$HELPER_ROOT/nginx-edge.mjs"
 install -m 0750 -o root -g root "$APP_ROOT/scripts/password-config.mjs" "$PASSWORD_SCRIPT"
 install -m 0750 -o root -g root "$APP_ROOT/scripts/dashboard-portal-update.mjs" "$UPDATE_SCRIPT"

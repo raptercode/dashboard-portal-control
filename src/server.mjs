@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import os from 'node:os';
 import { spawn } from 'node:child_process';
-import { StateStore, TOOLS, SUPPORTED_NODE_MAJOR, SecretVault, appendAudit, initialMailState, validateDomain, validateEnvironmentContent, validateEnvironmentVariables, validateGitBranchRequest, validateGitIdentity, validateHttpsCredential, validateNotificationHook, validatePasswordChange, validateProjectDomains, validateProjectSync, validateTool, InputError } from './core.mjs';
+import { StateStore, TOOLS, SUPPORTED_NODE_MAJOR, SecretVault, appendAudit, initialMailState, validateDomain, validateEnvironmentContent, validateEnvironmentVariables, validateGitBranchRequest, validateGitIdentity, validateHttpsCredential, validateNotificationHook, validatePasswordChange, validateProjectDomains, validateProjectRuntimeDetection, validateProjectSync, validateTool, InputError } from './core.mjs';
 import { checkDomainDns } from './dns-check.mjs';
 import { activateRelease, appendReleaseEvent, beginDeployment, beginRollback, createRelease, defaultCandidatePort, failRelease, initialDeployment, markReleaseHealthy, markReleasePendingActivation, projectIdentity, validateDockerComposeProject, validateNativeProject, validatePackageScripts } from './native-project.mjs';
 import { callHostHelper } from './helper-client.mjs';
@@ -22,6 +22,8 @@ import { driverAvailability, runDatabaseQuery } from './db-query.mjs';
 import { checkDkimRecord, checkDmarcRecord, checkMailHostnameDns, checkMailMx, checkPtrRecord, checkSpfRecord } from './dns-check.mjs';
 import { MAIL_MAX_DOMAINS, dkimSelector, generateDkimKeyPair, mailDnsRecords, smtpSubmit, spfExpectedToken, suggestMailDefaults, validateLocalPart, validateMailHostname, validateOutboundMode } from './mail-service.mjs';
 import { DATABASE_PROVIDERS, probeDatabaseConnection, publicDatabaseConnection, validateDatabaseConnectionInput } from './db-connectors.mjs';
+import { scanProjectRuntimeDirectory } from './project-runtime.mjs';
+import { buildMailPortPlan, demoInboundMailReadiness } from '../scripts/mail-host-config.mjs';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const publicDir = join(here, '..', 'public');
@@ -72,6 +74,7 @@ export async function createApplication(options = {}) {
   const softwareVersion = options.softwareVersion ?? await installedSoftwareVersion();
   const domainDnsCheck = options.domainDnsCheck ?? checkDomainDns;
   const mailOutboundCheck = options.mailOutboundCheck ?? checkSmtpOutbound;
+  const mailInboundCheck = options.mailInboundCheck ?? (() => checkMailInboundReadiness(mode, process.env.HOSTMGR_DEPLOY_HELPER_SOCKET));
   const mailDns = {
     hostname: options.mailHostnameCheck ?? checkMailHostnameDns,
     mx: options.mailMxCheck ?? checkMailMx,
@@ -89,6 +92,7 @@ export async function createApplication(options = {}) {
   const portAvailability = options.portAvailability ?? isTcpPortAvailable;
   const portRandom = options.portRandom ?? randomProjectPort;
   const projectRuntimeProbe = options.projectRuntimeProbe ?? probeProjectRuntime;
+  const projectRuntimeDetector = options.projectRuntimeDetector ?? detectProjectRuntime;
   const store = new StateStore(options.dataPath ?? process.env.HOSTMGR_DATABASE_PATH ?? process.env.HOSTMGR_DATA_PATH ?? join(here, '..', 'data', 'state.sqlite'));
   if (!['demo', 'host'].includes(mode)) throw new Error('HOSTMGR_MODE must be demo or host.');
   await store.load();
@@ -222,6 +226,7 @@ export async function createApplication(options = {}) {
         return sendJson(response, 200, { projects: await publicProjectsWithRuntimeStatus() });
       }
       if (request.method === 'POST' && url.pathname === '/api/git/branches') return await handleGitBranches(request, response);
+      if (request.method === 'POST' && url.pathname === '/api/projects/runtime-detect') return await handleProjectRuntimeDetect(request, response);
       if (request.method === 'POST' && url.pathname === '/api/projects/sync') return await handleProjectSync(request, response);
       const jobMatch = url.pathname.match(/^\/api\/jobs\/([a-f0-9-]{36})$/i);
       if (request.method === 'GET' && jobMatch) return await handleJobStatus(request, response, jobMatch[1]);
@@ -285,6 +290,7 @@ export async function createApplication(options = {}) {
       const toolMatch = url.pathname.match(/^\/api\/tools\/(nginx|certbot|git|docker|mail)\/install$/);
       if (request.method === 'POST' && toolMatch) return await handleInstall(request, response, toolMatch[1]);
       if (request.method === 'POST' && url.pathname === '/api/mail/outbound-check') return await handleMailOutboundCheck(request, response);
+      if (request.method === 'POST' && url.pathname === '/api/mail/readiness-check') return await handleMailReadinessCheck(request, response);
       if (request.method === 'GET' && url.pathname === '/api/mail') {
         if (!requireSession(request, response)) return;
         return sendJson(response, 200, mailSettingsView());
@@ -488,13 +494,37 @@ export async function createApplication(options = {}) {
   async function handleMailOutboundCheck(request, response) {
     if (!requireSession(request, response, true)) return;
     const report = await mailOutboundCheck();
-    await store.update((state) => appendAudit(state, {
-      action: 'mail.outbound_check',
-      outcome: 'success',
-      actor: 'owner',
-      target: 'smtp-egress',
-      detail: `Outbound SMTP: ${report.ports.map((item) => `${item.port}=${item.status}`).join(', ')} → ${report.recommendation.mode}`
-    }));
+    await store.update((state) => {
+      state.mail ??= initialMailState();
+      state.mail.readiness ??= { checkedAt: null, outbound: null, inbound: null };
+      state.mail.readiness.outbound = report;
+      state.mail.readiness.checkedAt = new Date().toISOString();
+      appendAudit(state, {
+        action: 'mail.outbound_check',
+        outcome: 'success',
+        actor: 'owner',
+        target: 'smtp-egress',
+        detail: `Outbound SMTP: ${report.ports.map((item) => `${item.port}=${item.status}`).join(', ')} → ${report.recommendation.mode}`
+      });
+    });
+    return sendJson(response, 200, report);
+  }
+
+  async function handleMailReadinessCheck(request, response) {
+    if (!requireSession(request, response, true)) return;
+    const [outbound, inbound] = await Promise.all([mailOutboundCheck(), mailInboundCheck()]);
+    const report = { checkedAt: new Date().toISOString(), outbound, inbound };
+    await store.update((state) => {
+      state.mail ??= initialMailState();
+      state.mail.readiness = { checkedAt: report.checkedAt, outbound, inbound };
+      appendAudit(state, {
+        action: 'mail.readiness_check',
+        outcome: 'success',
+        actor: 'owner',
+        target: 'mail-ports',
+        detail: `Outbound ${outbound.ports.map((item) => `${item.port}=${item.status}`).join(', ')}; inbound ${inbound.ports.map((item) => `${item.port}=${item.status}`).join(', ')}`.slice(0, 240)
+      });
+    });
     return sendJson(response, 200, report);
   }
 
@@ -511,6 +541,7 @@ export async function createApplication(options = {}) {
         hostname: mail.hostname,
         hostnameCheck: mail.hostnameCheck ?? null,
         outboundMode: mail.outboundMode,
+        readiness: mail.readiness ?? { checkedAt: null, outbound: null, inbound: null },
         relay: mail.relay ? { host: mail.relay.host, port: mail.relay.port, username: mail.relay.username, hasPassword: Boolean(mail.relay.encryptedSecret) } : null,
         configure: mail.configure,
         ptr: mail.ptr,
@@ -667,18 +698,23 @@ export async function createApplication(options = {}) {
     if (!mail.domains?.length) throw new InputError('Add at least one mail domain first.');
     if (!mail.outboundMode) throw new InputError('Choose an outbound mode first.');
     if (mail.outboundMode !== 'direct' && !mail.relay?.encryptedSecret) throw new InputError('Save the relay credentials before configuring.');
+    let hostConfiguration = null;
     if (mode === 'host') {
+      assertHostMailReadiness(mail);
       const socketPath = process.env.HOSTMGR_DEPLOY_HELPER_SOCKET;
       if (!socketPath) throw new InputError('Host mail configuration is not available. Re-run the Dashboard Portal installer.');
       const result = await callHostHelper(socketPath, { operation: 'configure-mail' });
       if (!result.ok) throw new InputError(result.error || 'Host mail configuration was rejected.');
+      hostConfiguration = result;
     }
     await store.update((state) => {
       state.mail.configure = {
         status: 'configured',
         simulated: mode === 'demo',
         at: new Date().toISOString(),
-        detail: mode === 'demo' ? 'Simulated: Postfix/Dovecot/OpenDKIM configuration was not applied to this machine.' : 'Host mail services configured and enabled.'
+        detail: mode === 'demo'
+          ? 'Simulated: Postfix/Dovecot/OpenDKIM configuration was not applied to this machine.'
+          : (hostConfiguration?.notice || 'Host mail services configured only for the ports permitted by the latest readiness check.')
       };
       appendAudit(state, { action: 'mail.configure', outcome: 'success', actor: 'owner', target: state.mail.hostname, detail: `${state.mail.domains.length} domain(s), mode ${state.mail.outboundMode}${mode === 'demo' ? ' (simulated)' : ''}` });
     });
@@ -850,6 +886,29 @@ export async function createApplication(options = {}) {
       return sendJson(response, 200, { branches: normalizeBranches(branches) });
     } catch (error) {
       throw new InputError(`Could not fetch branches: ${safeGitBranchFailure(error)}`);
+    }
+  }
+
+  async function handleProjectRuntimeDetect(request, response) {
+    if (!requireSession(request, response, true)) return;
+    const query = validateProjectRuntimeDetection(await readJson(request));
+    const state = store.snapshot();
+    const gitTool = mode === 'host' ? (await toolProbe([state.tools.git]))[0] : state.tools.git;
+    if (gitTool.status !== 'Installed') throw new InputError('Install Git before detecting a project runtime.');
+    if (query.credentialId && !state.credentials.some((credential) => credential.id === query.credentialId)) throw new InputError('Selected credential was not found.');
+    const credential = query.credentialId ? state.credentials.find((item) => item.id === query.credentialId) : null;
+    try {
+      const detection = await projectRuntimeDetector({ ...query, credential, vault, scratchRoot: projectRoot });
+      await store.update((next) => appendAudit(next, {
+        action: 'project.runtime_detect',
+        outcome: detection.available ? 'success' : 'neutral',
+        actor: 'owner',
+        target: query.branch,
+        detail: detection.recommendedRuntime ? `Detected ${detection.recommendedRuntime} from repository metadata` : 'No supported runtime metadata was detected'
+      }));
+      return sendJson(response, 200, { detection });
+    } catch (error) {
+      throw new InputError(`Could not inspect repository metadata: ${safeGitBranchFailure(error)}`);
     }
   }
 
@@ -1507,6 +1566,47 @@ async function listRemoteBranches({ repository, credential, vault, scratchRoot }
   }
 }
 
+export async function detectProjectRuntime({ repository, protocol, branch, directory, credential, vault, scratchRoot }) {
+  if (protocol === 'ssh') {
+    return {
+      available: false,
+      recommendedRuntime: null,
+      confidence: 'unknown',
+      evidence: [],
+      composeFile: null,
+      composeService: null,
+      composeServices: [],
+      buildScript: null,
+      startScript: null,
+      notice: 'ตรวจอัตโนมัติผ่าน SSH จะใช้ได้หลัง Portal รองรับ deploy key สำหรับการอ่าน repository'
+    };
+  }
+  const workspace = join(scratchRoot, `.git-runtime-${randomUUID()}`);
+  const checkout = join(workspace, 'repository');
+  await mkdir(workspace, { recursive: true, mode: 0o700 });
+  const env = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
+  let cleanup = async () => {};
+  if (credential) {
+    if (!vault) throw new InputError('Credential vault is not configured.');
+    const tokenFile = join(workspace, 'token');
+    const askPass = join(workspace, 'askpass');
+    await writeFile(tokenFile, vault.decrypt(credential.encryptedToken), { mode: 0o600 });
+    await writeFile(askPass, '#!/bin/sh\ncase "$1" in *Username*) printf %s x-access-token ;; *) cat "$HOSTMGR_GIT_TOKEN_FILE" ;; esac\n', { mode: 0o700 });
+    await chmod(askPass, 0o700);
+    env.GIT_ASKPASS = askPass;
+    env.GIT_ASKPASS_REQUIRE = 'force';
+    env.HOSTMGR_GIT_TOKEN_FILE = tokenFile;
+    cleanup = async () => Promise.all([rm(tokenFile, { force: true }), rm(askPass, { force: true })]);
+  }
+  try {
+    await run('git', ['clone', '--depth', '1', '--single-branch', '--no-tags', '--branch', branch, repository, checkout], { env, timeout: 120_000 });
+    return await scanProjectRuntimeDirectory(checkout, directory);
+  } finally {
+    await cleanup();
+    await rm(workspace, { recursive: true, force: true });
+  }
+}
+
 function safeGitBranchFailure(error) {
   const message = String(error?.message ?? '');
   if (/could not resolve host|network is unreachable|connection timed out|failed to connect/i.test(message)) return 'network connection to the repository failed.';
@@ -1515,6 +1615,49 @@ function safeGitBranchFailure(error) {
   if (/enoent|spawn git/i.test(message)) return 'the Git executable is unavailable to the service.';
   if (/timed out/i.test(message)) return 'the Git operation timed out.';
   return 'Git could not read the remote branch list.';
+}
+
+async function checkMailInboundReadiness(mode, socketPath) {
+  if (mode !== 'host') return demoInboundMailReadiness();
+  if (!socketPath) return {
+    scope: 'local-firewall',
+    checkedAt: new Date().toISOString(),
+    externalReachability: 'unverified',
+    ports: [25, 587, 993].map((port) => ({ port, status: 'unknown', source: 'helper-unavailable', detail: 'Re-run the Dashboard Portal installer to enable the mail readiness helper.' }))
+  };
+  try {
+    const result = await callHostHelper(socketPath, { operation: 'mail-port-readiness' });
+    if (result.ok && Array.isArray(result.ports)) return {
+      scope: result.scope === 'local-firewall' ? 'local-firewall' : 'unknown',
+      checkedAt: typeof result.checkedAt === 'string' ? result.checkedAt : new Date().toISOString(),
+      externalReachability: 'unverified',
+      ports: [25, 587, 993].map((port) => {
+        const item = result.ports.find((candidate) => Number(candidate?.port) === port);
+        return {
+          port,
+          status: ['allowed', 'blocked', 'unknown'].includes(item?.status) ? item.status : 'unknown',
+          source: typeof item?.source === 'string' ? item.source.slice(0, 64) : 'host',
+          detail: typeof item?.detail === 'string' ? item.detail.slice(0, 240) : null
+        };
+      })
+    };
+  } catch { /* The wizard keeps operating but will fail closed during host configure. */ }
+  return {
+    scope: 'local-firewall',
+    checkedAt: new Date().toISOString(),
+    externalReachability: 'unverified',
+    ports: [25, 587, 993].map((port) => ({ port, status: 'unknown', source: 'check-failed', detail: 'Could not inspect the host firewall.' }))
+  };
+}
+
+function assertHostMailReadiness(mail) {
+  if (mail.hostnameCheck?.status !== 'ok') throw new InputError('Mail hostname DNS must resolve directly to this host before host configuration.');
+  if (!mail.domains?.length || mail.domains.some((domain) => ['mx', 'spf', 'dkim', 'dmarc'].some((kind) => domain.dns?.[kind]?.status !== 'verified'))) {
+    throw new InputError('Verify MX, SPF, DKIM, and DMARC for every mail domain before host configuration.');
+  }
+  if (mail.outboundMode === 'direct' && mail.ptr?.status !== 'verified') throw new InputError('Direct MX delivery requires a PTR record matching the mail hostname.');
+  try { return buildMailPortPlan({ outboundMode: mail.outboundMode, outbound: mail.readiness?.outbound, inbound: mail.readiness?.inbound }); }
+  catch (error) { throw new InputError(String(error?.message ?? 'Run the mail readiness check before host configuration.')); }
 }
 
 function normalizeBranches(branches) {

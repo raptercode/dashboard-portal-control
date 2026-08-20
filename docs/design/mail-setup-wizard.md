@@ -1,14 +1,15 @@
 # Mail Setup Wizard — ออกแบบขั้นตอนติดตั้ง self-hosted Mail Service
 
-Status: **Design only — ยังไม่มีโค้ดใดๆ ถูกเขียนตามเอกสารนี้**. เอกสารนี้ตอบคำถามของ owner
-ว่า "ตอน setup mail ใช้โดเมนไหน/อะไร/ยังไง เพิ่มโดเมนเองได้ไหม" และวาง step-by-step wizard
-ให้ user ติดตั้งทีละขั้น ก่อนจะเริ่ม implement จริง
+Status: **Partially implemented in v0.6.0**. Portal now detects outbound SMTP
+capability, reads supported local inbound firewall policy, and provisions only
+the services whose ports are permitted. The full design remains the product
+reference for later work; read [ADR 0025](../adr/0025-port-aware-mail-host-provisioning.md)
+for the implemented safety boundary.
 
-หมายเหตุ: `docs/context/scope-and-roadmap.md` ปัจจุบันยังลิสต์ **"Mail server"** ไว้ใน
-**Non-goals for v1**. เอกสารนี้เขียนตามทิศทางใหม่ที่ owner ตกลงแล้ว (mail server เป็น
-optional tool เหมือน Docker) — เมื่อเริ่ม implement Phase 1 จริง ต้องอัปเดต
-scope-and-roadmap.md ให้ตรงกัน (ย้าย "Mail server" ออกจาก Non-goals และเพิ่ม section
-ใหม่แบบเดียวกับ "Domain management" / "SSL")
+The remaining roadmap includes a real external inbound-mail probe, mailbox
+backup/quota work, DKIM rotation UX, and replacing the current Mail-page
+preview with live mailbox data. A local host cannot prove provider firewall or
+public Internet reachability by probing itself.
 
 ## เอกสารอ้างอิงที่ใช้ประกอบการออกแบบ
 
@@ -17,7 +18,7 @@ scope-and-roadmap.md ให้ตรงกัน (ย้าย "Mail server" อ
 - `src/server.mjs` — `handleInstall()` (allowlisted tool install, `confirm:true`, demo vs host), `handleMailOutboundCheck()`, domain-check route
 - `src/core.mjs` — `TOOLS` registry, `SecretVault` (AES-256-GCM), `appendAudit()`, `validateProjectDomains()` (cap 10 โดเมนต่อโปรเจค)
 - `scripts/hostmgr-deploy-helper.mjs` — root-owned helper, `dispatch()` allowlist, certbot/Nginx pattern ใน `applyDomains()`/`issueCertificate()`
-- `views/pages/mail.html` + `public/ui/app.js` (`MAIL_DEMO`, `mailState`, mail-* renderers) — Mail UI preview ปัจจุบันเป็น **fixture ล้วน** ยังไม่ผูกกับ state จริง
+- `views/pages/mail.html` + `public/ui/app.js` (`MAIL_DEMO`, `mailState`, mail-* renderers) — Mail UI preview ปัจจุบันยังมี fixture view บางส่วน; provisioning state และ port readiness ถูกผูกกับ API แล้ว
 - `public/ui/app.js` (`renderDomainList`, `domainStatusChip`, `refreshDomainStatuses`) — pattern การ verify DNS ทีละ record ที่มีอยู่แล้วสำหรับ project domain, ใช้เป็นต้นแบบของ mail DNS record verify
 
 ---
@@ -583,22 +584,24 @@ state.mail = {
 
 ## 5. Phase split
 
-### Phase 1 — ขั้นต่ำใช้งานได้จริง (ประมาณ 3–4 สัปดาห์ ต่อ 1 engineer)
+### Phase 1 — baseline ที่ส่งมอบแล้วใน v0.6
 
-- Step 1–6 ครบ: reuse outbound check, hostname+domain picker (รองรับ 1–10 โดเมนตั้งแต่แรก
-  เพราะ Postfix virtual-domain ไม่ได้ยากขึ้นตามจำนวนโดเมนอย่างมีนัยสำคัญ), DNS record
-  generation+verify ครบ 4 ชนิด (MX/SPF/DKIM/DMARC) + PTR advisory, โหมดส่งออก `direct` /
-  `relay-587` / `relay-2525` (ทั้ง 3 มีอยู่แล้วใน `mail-check.mjs`), ติดตั้ง+configure ผ่าน
-  helper, สร้าง mailbox
-- Step 7: **เฉพาะขาออก** (ส่งจริง เช็ค `250 OK`) — ขาเข้ายังเป็น manual (owner เช็คเอง)
-- งานหลักคือ `configure-mail` helper operation (Postfix/Dovecot/OpenDKIM templating +
-  cert reuse) และส่วนขยาย `dns-check.mjs`
+- Step 1 ตรวจผล outbound SMTP และ UFW local policy สำหรับ inbound 25/587/993 แยกกัน
+  แล้วเก็บ evidence ไว้ใน state. `allowed` หมายถึง policy ที่ host; ไม่ใช่การรับรองจาก
+  provider หรือ Internet
+- Step 2–4 มี hostname/domain/DNS/PTR/relay state และใช้เป็น gate ก่อน helper configure
+- Step 5 ติดตั้งผ่าน typed root helper: Postfix, Dovecot, OpenDKIM, TLS, DKIM maps และ
+  virtual mailboxes ถูก provision เฉพาะ listener ที่ port policy อนุญาต; certificate ล้มเหลว
+  จะเหลือ outbound-only/loopback-only แทน public plaintext
+- Step 6 สร้างและลบ virtual mailbox ได้ โดยไม่ log password และไม่ลบ Maildir โดยปริยาย
+- Step 7 ยังต้องใช้การส่งจากผู้ให้บริการภายนอกเพื่อยืนยัน inbound จริง; Portal แสดงผล
+  local policy เป็นหลักฐานคนละชนิดอย่างชัดเจน
 
 ### Phase 2 — ขยายความสมบูรณ์ (ประมาณ 2–3 สัปดาห์)
 
 - โหมดส่งออก `api-only` (ส่งผ่าน HTTPS API เช่น Resend/SES/Mailgun API — เส้นทางส่งต่างจาก
   SMTP relay โดยสิ้นเชิง ไม่ต้องพึ่ง Postfix relay เลย จึงแยก phase เพราะเป็นงานคนละก้อน)
-- Step 7 ขาเข้าอัตโนมัติ: `mailbox-inbound-probe` helper operation + polling UI
+- Step 7 ขาเข้าอัตโนมัติ: external sender + `mailbox-inbound-probe` helper operation + polling UI
 - DKIM key rotation flow (dual-selector publish → switch signing → retire เก่า)
 - Blacklist self-check (DNSBL lookup ผ่าน DNS query ธรรมดา เช่น Spamhaus ZEN)
 - Multi-domain "เพิ่มโดเมนภายหลัง" UI เต็มรูปแบบจากหน้า Mail settings (data model รองรับแล้ว
@@ -710,12 +713,11 @@ gap ของ v0.6 อยู่แล้ว (`docs/context/scope-and-roadmap.md`
 
 ---
 
-## เอกสารที่ต้องอัปเดตต่อเมื่อเริ่ม implement
+## เอกสารที่อัปเดตพร้อม v0.6
 
-- `docs/context/scope-and-roadmap.md` — ย้าย "Mail server" ออกจาก Non-goals, เพิ่ม section
-  ฟีเจอร์ใหม่แบบเดียวกับ "Domain management"/"SSL", เพิ่มแถวในตาราง roadmap
-- `docs/context/architecture.md` — เพิ่ม mail service เข้า trust-boundary diagram (helper
-  operations ใหม่)
-- `docs/glossary.md` — เพิ่มคำว่า Mail hostname, Mail domain, DKIM selector, ฯลฯ
-- ADR ใหม่ (เมื่อ implement จริง) สำหรับการตัดสินใจที่ยัง "Proposed" ในเอกสารนี้ เช่น
-  "mail server config ใช้ root-owned helper เหมือน domain sync" (ต่อยอด ADR 0015)
+- `docs/context/scope-and-roadmap.md` — mail service, runtime discovery และสถานะ
+  follow-on work
+- `docs/context/architecture.md` — mail helper trust boundary
+- `docs/glossary.md` — runtime detection, mail readiness และ mail hostname
+- [ADR 0025](../adr/0025-port-aware-mail-host-provisioning.md) — policy ที่ให้ mail
+  provisioning เปิดเฉพาะพอร์ตที่ local policy อนุญาตและ fail closed

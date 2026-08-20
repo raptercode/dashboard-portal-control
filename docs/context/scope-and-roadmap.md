@@ -42,7 +42,7 @@ Each project gets its own service account, release directory, environment
 file, and systemd unit created by the root-owned helper
 (`scripts/hostmgr-deploy-helper.mjs`).
 
-**Docker Compose Mode (Implemented, v0.5)** — trusted repositories choose a
+**Docker Compose Mode (Implemented, v0.5; discovery added in v0.6)** — trusted repositories choose a
 repository-relative Compose YAML file and web service. The root helper performs
 policy validation, controlled build/start, host health check, rollback, and
 container-log access. It rejects privileged containers, host namespaces, and
@@ -55,7 +55,7 @@ host bind mounts; this is a guardrail, not a hostile-code sandbox (ADR 0021).
 | Dependency isolation | Process/user level | Container level |
 | Multiple runtime versions | Not a v1 focus | Supported via images |
 | Best for | Typical personal apps | Special apps or complex dependencies |
-| Current status | **Implemented** | **Implemented (trusted Docker Compose, v0.5)** |
+| Current status | **Implemented** | **Implemented (trusted Docker Compose, v0.5; repository suggestion, v0.6)** |
 
 ## Features in v1 scope
 
@@ -72,8 +72,8 @@ host bind mounts; this is a guardrail, not a hostile-code sandbox (ADR 0021).
 
 ### Project management
 
-- Create Native projects: repository, branch, directory, build/start command, port — **Implemented**
-- Docker Compose projects — **Implemented (v0.5)** for trusted repositories: selected Compose file/service, policy preflight, guarded host activation, rollback, and container logs
+- Create Native projects: repository, branch, directory, build/start command, port — **Implemented**; a shallow metadata scan suggests Node or Bun without executing project code
+- Docker Compose projects — **Implemented (v0.5)** for trusted repositories: selected Compose file/service, policy preflight, guarded host activation, rollback, and container logs. v0.6 can suggest this selection from a Compose manifest
 - Manage environment variables without exposing full values in the UI — **Implemented** (encrypted at rest, API returns key names only)
 - Deploy and rollback — **Implemented**, including a durable job queue that survives a Dashboard restart
 - Stop/restart as a standalone action (outside of deploy/rollback) — **Planned**
@@ -87,7 +87,7 @@ host bind mounts; this is a guardrail, not a hostile-code sandbox (ADR 0021).
 - Clone over SSH deploy keys — **Planned**; SSH projects are intentionally blocked (`needs_ssh_key`) until key generation, registration, rotation, and revocation exist
 - Choose the deploy branch (fetched from the remote) — **Implemented**
 - Manual deploy from the Dashboard — **Implemented**
-- Webhook-triggered auto deploy — **Planned (v0.6)**
+- Webhook-triggered auto deploy — **Planned**
 - Store credentials encrypted, never returned or logged — **Implemented**
 
 ### Domain management
@@ -272,17 +272,19 @@ boundary see [docs/adr/](../adr/).
 
 Cutting these keeps v1 suitable for single-owner use and low-spec machines.
 
-## Mail service (in progress)
+## Mail service (implemented with port-aware host provisioning)
 
 Self-hosted mail moved out of the non-goals by owner decision (2026-08). The
 step-by-step Mail Setup Wizard (design: `docs/design/mail-setup-wizard.md`)
-ships in phases: Phase 1 delivers the full wizard (outbound check, hostname +
-domains, DNS record generation/verification incl. DKIM, outbound mode with
-encrypted relay credentials, install/configure flow, mailboxes, real SMTP
-outbound test) working end-to-end in demo mode with real DNS/SMTP checks;
-host-mode Postfix/Dovecot/OpenDKIM provisioning through the helper
-(`configure-mail` and related allowlisted operations) is the next tranche and
-fails closed until it lands.
+checks outbound SMTP 25/587/2525 and the host's inbound UFW policy for
+25/587/993 before it configures Postfix, Dovecot, OpenDKIM, virtual mailboxes,
+and TLS through the root-owned helper. The helper does not change firewall
+rules and leaves blocked or unknown inbound ports without public listeners.
+The v0.6 code path covers DNS gates, encrypted relay state, DKIM, virtual
+mailboxes, and real outbound SMTP checks. It requires host acceptance before
+being treated as an operational mail server. Provider-edge inbound
+reachability is still not inferable from the host: verify it with a real
+external delivery.
 
 ## Roadmap
 
@@ -321,10 +323,14 @@ status/recheck guidance, and trusted Docker Compose projects. Docker activation
 is host-validated and supports rollback; it is not a general container-security
 boundary (see ADR 0021).
 
-### v0.6 — Automation — not started
+### v0.6 — Runtime discovery and guarded mail — implemented
 
-No GitHub/GitLab inbound auto-deploy, no per-project backup/restore, no
-certificate-expiry alert, and no notification retry queue.
+Project onboarding inspects a shallow, non-executing repository checkout and
+suggests Docker Compose, Bun, or Node from its metadata; the owner can always
+override the icon-based dropdown. Mail host provisioning is port-aware and
+fails closed as described above. GitHub/GitLab inbound auto-deploy,
+per-project backup/restore, certificate-expiry alerting, and notification
+retry queues remain planned follow-on work.
 
 ## v1 readiness criteria
 
