@@ -46,7 +46,8 @@ test('helper reports a safe and actionable TLS validation failure', async () => 
 
 test('helper keeps Docker Compose project activation bounded to guarded policy checks', async () => {
   const helper = await readFile(new URL('../scripts/hostmgr-deploy-helper.mjs', import.meta.url), 'utf8');
-  assert.match(helper, /request\.operation === 'remove-project-domains'/);
+  assert.match(helper, /request\.operation === 'inspect-project-edge'/);
+  assert.match(helper, /assertProjectEdge/);
   assert.match(helper, /item\.privileged === true \|\| item\.network_mode === 'host' \|\| item\.pid === 'host' \|\| item\.ipc === 'host'/);
   assert.match(helper, /Docker Compose host bind mounts are not allowed/);
   assert.match(helper, /Docker Compose service must publish the configured project port/);
@@ -83,6 +84,7 @@ test('helper gives each project service account access to its release parent', a
 test('installer provisions the reset-password command and stores the initial password encoded', async () => {
   const script = await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8');
   assert.match(script, /PASSWORD_SCRIPT='\/usr\/local\/lib\/dashboard-portal\/password-config\.mjs'/);
+  assert.match(script, /install -m 0750 -o root -g root "\$APP_ROOT\/scripts\/nginx-edge\.mjs" "\$HELPER_ROOT\/nginx-edge\.mjs"/);
   assert.match(script, /install -m 0750 -o root -g root "\$APP_ROOT\/scripts\/password-config\.mjs" "\$PASSWORD_SCRIPT"/);
   assert.match(script, /\[\[ "\\\$\{1:-\}" == '--reset-pwd' \]\]/);
   assert.match(script, /ADMIN_PASSWORD_B64="\$\(printf %s "\$ADMIN_PASSWORD" \| base64 -w 0\)"/);

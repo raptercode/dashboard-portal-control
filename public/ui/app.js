@@ -2196,6 +2196,12 @@ function showDeploymentProgress(project, initialJob) {
       if (job.status === 'succeeded' || job.status === 'failed' || job.status === 'cancelled' || job.status === 'interrupted') {
         await refresh();
         toast(job.status === 'succeeded' ? `งานของ ${project.slug} สำเร็จ` : `งานของ ${project.slug} สิ้นสุดด้วยสถานะ ${job.status}`, job.status !== 'succeeded');
+        if (job.status === 'succeeded' && project.domains?.hosts?.length) {
+          try {
+            const edge = await api(`/api/projects/${encodeURIComponent(project.slug)}/edge/check`, { method: 'POST', body: {} });
+            if (!edge.passed) toast(edge.checks?.find((item) => !item.ok)?.detail || 'Release สำเร็จแต่ Nginx ยังไม่ reverse proxy โดเมนนี้', true);
+          } catch { /* DNS/Nginx follow-up is best-effort after a successful job. */ }
+        }
         return;
       }
       deploymentProgressTimer = setTimeout(poll, 1500);
@@ -2225,7 +2231,7 @@ function watchDeploymentJob(jobId, slug) {
 
 function openDomainDialog(project) {
   state.activeProject = project;
-  state.domainDraft = { hosts: [...(project.domains?.hosts || [])], pending: null, check: null, checks: {} };
+  state.domainDraft = { hosts: [...(project.domains?.hosts || [])], pending: null, check: null, checks: {}, edge: null };
   $('#domain-project-label').textContent = `${project.name} · ${project.slug}`;
   setDomainView('list');
   renderDomainList();
@@ -2286,6 +2292,7 @@ function renderDomainList() {
     }
     return row;
   }));
+  renderDomainEdge();
 }
 
 function domainStatusLabel(status) {
@@ -2312,6 +2319,42 @@ function domainStatusDetail(result) {
   return result.detail || 'ตรวจ DNS ไม่สำเร็จ ลอง Refresh อีกครั้ง';
 }
 
+function renderDomainEdge() {
+  const panel = $('#domain-edge');
+  if (!panel) return;
+  const edge = state.domainDraft?.edge;
+  const hosts = state.domainDraft?.hosts || [];
+  if (!hosts.length) {
+    panel.hidden = true;
+    panel.replaceChildren();
+    return;
+  }
+  panel.hidden = false;
+  if (!edge || edge.status === 'checking') {
+    panel.replaceChildren(element('p', 'domain-row-detail', 'กำลังตรวจ Nginx reverse proxy และ reload…'));
+    return;
+  }
+  const head = element('div', 'domain-row-head');
+  head.append(element('span', 'domain-hostname', 'Nginx / reverse proxy'), edgeStatusChip(edge));
+  const list = element('ul', 'edge-check-list');
+  for (const item of edge.checks || []) {
+    const row = element('li', item.ok ? 'ok' : 'fail');
+    row.append(element('span', 'edge-check-mark', item.ok ? 'ผ่าน' : 'ไม่ผ่าน'), document.createTextNode(` ${item.detail}`));
+    list.append(row);
+  }
+  panel.replaceChildren(head, list);
+}
+
+function edgeStatusChip(edge) {
+  if (!edge || edge.status === 'checking') return statusChip('Checking', 'muted');
+  if (edge.passed || edge.status === 'ok') return statusChip('Proxy พร้อม', 'ready');
+  if (edge.status === 'default-site') return statusChip('ขึ้นหน้า Nginx default', 'needs');
+  if (edge.status === 'not-loaded') return statusChip('ยังไม่โหลด vhost', 'needs');
+  if (edge.status === 'upstream-down') return statusChip('แอปไม่ตอบพอร์ต', 'needs');
+  if (edge.status === 'unavailable') return statusChip('ต้องตรวจบน host', 'muted');
+  return statusChip('Nginx ยังไม่พร้อม', 'needs');
+}
+
 async function refreshDomainStatuses(hosts = state.domainDraft?.hosts || []) {
   const project = state.activeProject;
   if (!project || !hosts.length || !state.domainDraft) return;
@@ -2327,6 +2370,14 @@ async function refreshDomainStatuses(hosts = state.domainDraft?.hosts || []) {
     }
     renderDomainList();
   }
+  try {
+    state.domainDraft.edge = { status: 'checking' };
+    renderDomainList();
+    state.domainDraft.edge = await api(`/api/projects/${encodeURIComponent(project.slug)}/edge/check`, { method: 'POST', body: {} });
+  } catch (error) {
+    state.domainDraft.edge = { passed: false, status: 'error', checks: [{ id: 'host', ok: false, detail: error.message }] };
+  }
+  renderDomainList();
   if (button) button.disabled = false;
 }
 

@@ -642,6 +642,12 @@ label input, label select, label textarea {
 .domain-hostname { font-weight: 650; overflow-wrap: anywhere; }
 .domain-row-actions { margin-left: auto; display: flex; gap: 6px; }
 .domain-row-detail { font-size: 12px; color: var(--muted); line-height: 1.45; }
+.edge-panel { border: 1px solid var(--line); border-radius: 10px; padding: 11px; display: grid; gap: 8px; background: #fff; }
+.edge-check-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.edge-check-list li { font-size: 12px; line-height: 1.45; color: var(--text); display: flex; gap: 8px; }
+.edge-check-mark { flex: 0 0 auto; font-size: 11px; font-weight: 650; }
+.edge-check-list li.ok .edge-check-mark { color: var(--ok); }
+.edge-check-list li.fail .edge-check-mark { color: var(--danger); }
 .domain-records { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
 @media (max-width: 580px) { .domain-list-heading { align-items: stretch; flex-direction: column; } .domain-row-head { align-items: start; } }
 .notification-hook-modal { width: min(92vw, 620px); }
@@ -807,6 +813,7 @@ html[data-theme="dark"] .step-list li.current { border-color: rgba(16, 185, 129,
 html[data-theme="dark"] .env-key-list span,
 html[data-theme="dark"] .domain-list .domain-chip { background: #1e293b; }
 html[data-theme="dark"] .domain-row { background: #111827; }
+html[data-theme="dark"] .edge-panel { background: #111827; }
 html[data-theme="dark"] .notification-hook-row { background: #111827; }
 html[data-theme="dark"] .deployment-event { background: #111827; }
 html[data-theme="dark"] .deployment-event-dot { box-shadow: 0 0 0 3px #111827; }

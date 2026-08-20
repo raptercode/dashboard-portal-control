@@ -45,6 +45,12 @@ If activation fails, begin with the release log in the UI, then inspect the
 helper using `journalctl -u hostmgr-deploy-helper -n 100 --no-pager`. Do not
 copy raw journal output containing project or environment data into the UI.
 
+After a successful release, the project's **Domains** dialog also runs an
+Nginx edge check: managed site file, sites-enabled symlink, `nginx -T`
+server_name/proxy_pass, loopback Host-header request on port 80, and the
+application port. A `Released` status means the process is up; the default
+Ubuntu Nginx page means the Host header still hit `default_server`.
+
 ## Runtime log viewer
 
 Each project's page has a **Logs** link to `/projects/:slug/logs`, which shows

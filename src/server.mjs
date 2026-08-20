@@ -12,6 +12,7 @@ import { activateRelease, appendReleaseEvent, beginDeployment, beginRollback, cr
 import { callHostHelper } from './helper-client.mjs';
 import { softwareUpdateStatus, updateConfiguration } from '../scripts/software-update.mjs';
 import { passwordFromEnvironment } from '../scripts/password-config.mjs';
+import { publicEdgeResult } from '../scripts/nginx-edge.mjs';
 import { createRenderer } from './render.mjs';
 import { matchUiRoute } from './ui-routes.mjs';
 import { METRIC_INTERVAL_MS, METRIC_RANGE_DAYS, METRIC_RETENTION_DAYS, collectHostMetrics, publicCurrentMetrics, publicMetricSample, validateMetricRangeDays } from './metrics.mjs';
@@ -237,6 +238,8 @@ export async function createApplication(options = {}) {
       if (request.method === 'POST' && envMatch) return await handleProjectEnvironment(request, response, envMatch[1]);
       const domainsCheckMatch = url.pathname.match(/^\/api\/projects\/([a-z][a-z0-9-]{0,62})\/domains\/check$/);
       if (request.method === 'POST' && domainsCheckMatch) return await handleProjectDomainCheck(request, response, domainsCheckMatch[1]);
+      const edgeCheckMatch = url.pathname.match(/^\/api\/projects\/([a-z][a-z0-9-]{0,62})\/edge\/check$/);
+      if (request.method === 'POST' && edgeCheckMatch) return await handleProjectEdgeCheck(request, response, edgeCheckMatch[1]);
       const domainsMatch = url.pathname.match(/^\/api\/projects\/([a-z][a-z0-9-]{0,62})\/domains$/);
       if (request.method === 'POST' && domainsMatch) return await handleProjectDomains(request, response, domainsMatch[1]);
       const logsMatch = url.pathname.match(/^\/api\/projects\/([a-z][a-z0-9-]{0,62})\/logs$/);
@@ -1325,6 +1328,25 @@ export async function createApplication(options = {}) {
         detail: softDomainCheckDetail(error),
       });
     }
+  }
+
+  async function handleProjectEdgeCheck(request, response, slug) {
+    if (!requireSession(request, response, true)) return;
+    const project = findProject(store.snapshot(), slug);
+    if (!project.domains?.hosts?.length) throw new InputError('Save a domain before checking Nginx.');
+    if (mode !== 'host') {
+      return sendJson(response, 200, publicEdgeResult({
+        passed: false,
+        status: 'unavailable',
+        hostname: project.domains.hosts[0],
+        checks: [{ id: 'host', ok: false, detail: 'ตรวจ Nginx/proxy จริงได้เฉพาะเครื่องที่ติดตั้ง Dashboard Portal หลัง release' }]
+      }));
+    }
+    const socketPath = process.env.HOSTMGR_DEPLOY_HELPER_SOCKET;
+    if (!socketPath) throw new InputError('The host deployment helper is not configured.');
+    const result = await callHostHelper(socketPath, { operation: 'inspect-project-edge', slug: project.slug });
+    if (result.ok === false) throw new InputError(result.error || 'Nginx edge check failed.');
+    return sendJson(response, 200, publicEdgeResult(result));
   }
 
   async function handleProjectDomains(request, response, slug) {

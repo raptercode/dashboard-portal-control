@@ -533,6 +533,29 @@ test('domain DNS check returns structured soft-check status and rejects invalid 
   assert.match((await missingProject.json()).error, /not found/i);
 });
 
+test('project edge check reports nginx probe steps after a domain is saved', async (t) => {
+  const { app, base } = await start();
+  t.after(() => app.close());
+  const login = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'owner@local.test', password: 'correct-horse-battery-staple' }) });
+  const session = await login.json();
+  const cookie = login.headers.get('set-cookie').split(';')[0];
+  const headers = { cookie, 'content-type': 'application/json', 'x-csrf-token': session.csrfToken };
+  await fetch(`${base}/api/tools/git/install`, { method: 'POST', headers, body: JSON.stringify({ confirm: true }) });
+  await fetch(`${base}/api/git-config`, { method: 'POST', headers, body: JSON.stringify({ name: 'Demo Owner', email: 'owner@example.test' }) });
+  await fetch(`${base}/api/projects/sync`, { method: 'POST', headers, body: JSON.stringify({ name: 'Edge app', slug: 'edge-app', repository: 'https://github.com/example/edge.git', branch: 'main', port: 3002, protocol: 'https' }) });
+  const missing = await fetch(`${base}/api/projects/edge-app/edge/check`, { method: 'POST', headers, body: '{}' });
+  assert.equal(missing.status, 400);
+  await fetch(`${base}/api/projects/edge-app/domains`, { method: 'POST', headers, body: JSON.stringify({ domains: ['helpdesk-api.example.test'] }) });
+  const checked = await fetch(`${base}/api/projects/edge-app/edge/check`, { method: 'POST', headers, body: '{}' });
+  assert.equal(checked.status, 200);
+  const body = await checked.json();
+  assert.equal(body.passed, false);
+  assert.equal(body.status, 'unavailable');
+  assert.equal(body.hostname, 'helpdesk-api.example.test');
+  assert.equal(body.checks[0].id, 'host');
+});
+
+
 test('a failed repository sync is recorded as failure and never overwrites an active release', async (t) => {
   const { app, base } = await start({ sandboxClone: true });
   t.after(() => app.close());

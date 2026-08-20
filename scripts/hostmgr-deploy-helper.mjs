@@ -5,6 +5,7 @@ import { access, chmod, chown, copyFile, cp, lstat, mkdir, readFile, readdir, re
 import { basename, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { updateStoredPassword } from './password-config.mjs';
+import { buildEdgeEvaluation, probeLoopbackHttp, publicEdgeResult } from './nginx-edge.mjs';
 
 const MAX_REQUEST_BYTES = 16 * 1024;
 const PROJECT_ROOT = '/var/lib/dashboard-portal/projects';
@@ -70,6 +71,7 @@ async function dispatch(request) {
   if (request.operation === 'set-admin-password') return setAdminPassword(request.password);
   if (request.operation === 'read-project-log') return readProjectLog(request.slug, request.lines);
   if (request.operation === 'project-runtime-status') return projectRuntimeStatus(request.slug);
+  if (request.operation === 'inspect-project-edge') return inspectProjectEdge(request.slug);
   // Mail host provisioning ships in a later release; the operations are
   // allowlisted now so the API surface is stable, but they fail closed until
   // the reviewed Postfix/Dovecot/OpenDKIM templating lands.
@@ -394,10 +396,47 @@ async function applyDomains(project) {
     await issueCertificate(project);
     await writeNginx(site, enabled, renderTlsSite(project, ACME_ROOT, certificateName(project.slug)));
     await testAndReloadNginx();
+    await assertProjectEdge(project);
   } catch (error) {
     await restoreNginx(site, enabled, snapshot);
     throw error;
   }
+}
+
+async function inspectProjectEdge(slug) {
+  return inspectLoadedProjectEdge(await loadProject(slug));
+}
+
+async function inspectLoadedProjectEdge(project) {
+  const hosts = project.domains?.hosts ?? [];
+  if (!hosts.length) throw new HelperError('No project domain is configured.');
+  const site = join(NGINX_AVAILABLE, `hostmgr-${project.slug}.conf`);
+  const enabled = join(NGINX_ENABLED, `hostmgr-${project.slug}.conf`);
+  const siteExists = await exists(site);
+  const enabledOk = await readlink(enabled).then((target) => target === site).catch(() => false);
+  const dump = await run('/usr/sbin/nginx', ['-T']).catch(() => '');
+  const httpProbe = await probeLoopbackHttp(hosts[0], { url: 'http://127.0.0.1/' });
+  const upstreamPath = project.healthCheckPath ?? '/';
+  const upstreamProbe = await probeLoopbackHttp(hosts[0], { url: `http://127.0.0.1:${project.port}${upstreamPath}` });
+  return publicEdgeResult(buildEdgeEvaluation({
+    siteExists,
+    enabled: enabledOk,
+    nginx: dump,
+    hosts,
+    port: project.port,
+    httpProbe,
+    upstreamProbe,
+    sitePath: site,
+    enabledPath: enabled
+  }));
+}
+
+async function assertProjectEdge(project) {
+  const result = await inspectLoadedProjectEdge(project);
+  if (result.status === 'ok') return;
+  if (result.status === 'default-site') throw new HelperError('Nginx still serves the default site for this domain after reload.');
+  if (result.status === 'upstream-down') throw new HelperError('The project process is not answering on its port.');
+  throw new HelperError('Nginx did not load the managed reverse proxy for this domain after reload.');
 }
 
 async function assertDomainsAreAvailable(hosts, site, enabled) {
