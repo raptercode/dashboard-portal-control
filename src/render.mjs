@@ -24,9 +24,9 @@ export function createRenderer(viewsDir) {
       .replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_, key) => escapeHtml(String(lookup(locals, key) ?? '')));
   }
 
-  async function render(view, locals = {}) {
+  async function render(view, locals = {}, layoutName = 'layout') {
     const body = applyLocals(await expandIncludes(await readTemplate(`pages/${view}.html`)), locals);
-    const layout = await expandIncludes(await readTemplate('layout.html'));
+    const layout = await expandIncludes(await readTemplate(`${layoutName}.html`));
     return applyLocals(layout, { ...locals, body });
   }
 

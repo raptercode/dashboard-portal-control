@@ -24,3 +24,9 @@ test('project logs use a dedicated per-project route', () => {
   assert.deepEqual(matchUiRoute('/projects/demo-app/logs'), { page: 'projects', view: 'project-logs', params: { slug: 'demo-app' } });
   assert.equal(matchUiRoute('/projects/Demo/logs'), null);
 });
+
+test('Mail and its setup wizard keep explicit reloadable routes', () => {
+  assert.equal(pageRoutes.mail, '/mail');
+  assert.deepEqual(matchUiRoute('/mail'), { page: 'mail', view: 'mail', params: {} });
+  assert.deepEqual(matchUiRoute('/mail/setup'), { page: 'mail', view: 'mail-setup', params: {} });
+});

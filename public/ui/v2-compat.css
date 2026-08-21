@@ -53,6 +53,39 @@ body[data-shell="dashboard"] .sidebar {
 .app { min-height: 100vh; }
 .main { min-width: 0; }
 .main > .page { max-width: 1280px; margin: 0 auto; padding: 24px 32px; }
+
+/* Mail is entered from the Portal as a separate, same-origin application. It
+   deliberately shares the portal's topbar language and session, but not the
+   primary navigation shell. */
+body[data-app="mail"][data-shell="dashboard"] { overflow: hidden; }
+.mail-app {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: var(--topbar-h) minmax(0, 1fr);
+  grid-template-areas: "topbar" "main";
+  min-height: 100dvh;
+  height: 100dvh;
+}
+.mail-app-topbar { grid-area: topbar; }
+.mail-app-product { color: var(--slate-300); font-size: 11px; font-weight: 500; }
+.mail-portal-link {
+  align-items: center;
+  border: 1px solid var(--slate-700);
+  border-radius: var(--r-md);
+  color: var(--slate-200);
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 500;
+  gap: 5px;
+  padding: 5px 8px;
+}
+.mail-portal-link:hover { background: var(--slate-800); color: var(--text-on-dark); text-decoration: none; }
+.mail-app-main { grid-area: main; min-height: 0; overflow: hidden; }
+.mail-app-main > .page { height: 100%; max-width: none; margin: 0; padding: 20px 28px; }
+.mail-app-main > .mail-page { display: grid; gap: 14px; grid-template-rows: auto auto minmax(0, 1fr); }
+.mail-app-main .mail-setup-notice { margin: 0; }
+.mail-app-main .mail-shell { height: auto; min-height: 0; }
+.mail-app-main > .page:not(.mail-page) { overflow: auto; }
 .page-header h1, .page-title { color: var(--text-primary); font-size: 22px; font-weight: 700; margin: 0 0 4px; }
 .page-header .subtitle, .page-subtitle { color: var(--text-secondary); font-size: 13px; margin: 0; }
 .page-header { gap: 16px; }
@@ -300,6 +333,14 @@ dialog.deploy-drawer::backdrop { background: rgba(15, 23, 42, .5); backdrop-filt
   .dashboard-stat-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
   .history-head, .history-controls { align-items: flex-start; flex-direction: column; }
   .project-list { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 1080px) {
+  body[data-app="mail"][data-shell="dashboard"] { overflow: auto; }
+  body[data-app="mail"][data-shell="dashboard"] .mail-app { display: block; height: auto; min-height: 100dvh; }
+  body[data-app="mail"][data-shell="dashboard"] .mail-app-main { height: auto; overflow: visible; }
+  .mail-app-main > .mail-page { display: block; height: auto; min-height: calc(100dvh - var(--topbar-h)); }
+  .mail-app-main .mail-shell { min-height: 480px; }
 }
 
 /* Dark theme — component overrides for text colors paired with soft/token

@@ -241,14 +241,20 @@ async function refresh() {
   state.vaultReady = credentials.vaultReady;
   state.softwareUpdate = softwareUpdate;
   state.mode = doctor.mode;
-  $('#mode-badge').textContent = doctor.mode === 'host' ? 'host' : 'sandbox';
+  const modeBadge = $('#mode-badge');
+  if (modeBadge) modeBadge.textContent = doctor.mode === 'host' ? 'host' : 'sandbox';
   const ownerLabel = state.owner?.email || 'owner';
   const initials = ownerLabel.split('@')[0].split(/[._-]/).map((part) => part[0]).join('').slice(0, 2).toUpperCase() || 'OW';
-  $('#host-breadcrumb').textContent = doctor.host?.hostname || '—';
-  $('#tls-badge').lastChild.textContent = doctor.mode === 'host' ? ' Host connected' : ' Sandbox';
-  $('#owner-avatar').textContent = initials;
-  $('#sidebar-avatar').textContent = initials;
-  $('#sidebar-owner').textContent = ownerLabel.split('@')[0] || 'Owner';
+  const hostBreadcrumb = $('#host-breadcrumb');
+  if (hostBreadcrumb) hostBreadcrumb.textContent = doctor.host?.hostname || '—';
+  const tlsBadge = $('#tls-badge');
+  if (tlsBadge?.lastChild) tlsBadge.lastChild.textContent = doctor.mode === 'host' ? ' Host connected' : ' Sandbox';
+  const ownerAvatar = $('#owner-avatar');
+  if (ownerAvatar) ownerAvatar.textContent = initials;
+  const sidebarAvatar = $('#sidebar-avatar');
+  if (sidebarAvatar) sidebarAvatar.textContent = initials;
+  const sidebarOwner = $('#sidebar-owner');
+  if (sidebarOwner) sidebarOwner.textContent = ownerLabel.split('@')[0] || 'Owner';
   const projectCount = $('#sidebar-project-count');
   if (projectCount) {
     projectCount.hidden = false;

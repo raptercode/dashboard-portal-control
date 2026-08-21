@@ -19,10 +19,11 @@ changing any API, session, CSRF, deployment, or secret-handling behaviour.
 
 The visual shell now follows the supplied v2 topbar/sidebar layout. Dashboard,
 Projects, Activity, Setup, Credentials, Databases, and Settings are backed by
-the Portal's real routes. The supplied static examples for Mail, Rules, a
-standalone Nginx view, and standalone Certificates/Deploys pages are not added
-as dead routes: their relevant operations continue to live on real project,
-domain, log, and settings flows.
+the Portal's real routes. Mail is a real route with its own app shell, while
+its inbox preview remains fixture data until live mailbox data is implemented.
+The supplied static examples for Rules, a standalone Nginx view, and standalone
+Certificates/Deploys pages are not added as dead routes: their relevant
+operations continue to live on real project, domain, log, and settings flows.
 
 ## Routes
 
@@ -42,6 +43,8 @@ navigation opens the same section. Unknown paths remain a 404.
 - `/databases` — database client connectors
 - `/activity` — audit activity
 - `/settings` — Portal settings
+- `/mail` — standalone Mail application (opened from the Portal navigation in a new tab)
+- `/mail/setup` — Mail setup wizard in the same standalone Mail shell
 
 ## Behavior notes
 
@@ -55,4 +58,5 @@ navigation opens the same section. Unknown paths remain a 404.
 - Settings owns Monitor Logs Tokens. Each project card owns its deployment notification modal for Discord, Google Chat, Slack, or generic HTTPS hooks; the dialog creates and lists only hooks scoped to that project.
 - Project cards keep identity, domain, and a concise state visible: green for an active release, yellow while deploying, red for attention required (failed sync/release or down runtime), and gray after a successful sync before the first release. The card does not disclose the failure cause; operators inspect Logs or the action menu. Repository, directory, runtime scripts, protocol, port, and environment-key count are in an expandable details section. Operational actions are grouped in a dropdown, and deleting requires an exact project-name confirmation.
 - On desktop, the sidebar can be collapsed to icons and remembers that local preference. Mobile keeps the existing full-label navigation drawer.
+- Mail has a compact app header and no Portal sidebar. It shares the Portal's theme, session, host status, and owner identity, and includes a direct link back to the main Portal.
 - Inbound Git auto-deploy and i18n remain out of scope

@@ -2209,7 +2209,7 @@ async function serveStatic(pathname, response) {
       title: pageTitles[route.view] || pageTitles[route.page] || 'Dashboard Portal',
       flowMode: route.params.mode || '',
       editSlug: route.params.slug || ''
-    });
+    }, route.page === 'mail' ? 'mail-layout' : 'layout');
     response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store' });
     return response.end(html);
   }
