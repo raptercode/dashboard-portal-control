@@ -27,6 +27,7 @@ test('Mail routes render a standalone shell while the Portal navigation opens th
 
   const setup = await (await fetch(`${base}/mail/setup`)).text();
   assert.match(setup, /<section id="dashboard-view" class="mail-app" hidden>/);
+  assert.match(setup, /class="page mail-setup-page" data-page="mail"/);
   assert.match(setup, /id="wizard-body"/);
   assert.doesNotMatch(setup, /aria-label="Primary navigation"/);
 

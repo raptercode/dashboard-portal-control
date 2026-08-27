@@ -1224,13 +1224,29 @@ async function renderMailSetup() {
 
 function paintWizard() {
   const nav = $('#wizard-steps');
-  nav.replaceChildren(...WIZARD_STEPS.map((step) => {
+  const completeCount = WIZARD_STEPS.filter((step) => wizardStepDone(step.id)).length;
+  const progress = element('div', 'wizard-progress-summary');
+  progress.append(
+    element('span', 'wizard-progress-kicker', 'Setup progress'),
+    element('strong', 'wizard-progress-count', `${wizard.step} / ${WIZARD_STEPS.length}`),
+    element('span', 'wizard-progress-description', `${completeCount} ขั้นตอนเสร็จแล้ว`)
+  );
+  nav.replaceChildren(progress, ...WIZARD_STEPS.map((step) => {
     const chip = element('button', 'wizard-step-chip');
     chip.type = 'button';
-    if (step.id === wizard.step) chip.classList.add('active');
-    if (wizardStepDone(step.id)) chip.classList.add('done');
-    chip.disabled = !wizardStepUnlocked(step.id);
-    chip.append(element('span', 'wizard-step-number', wizardStepDone(step.id) ? '✓' : String(step.id)), element('span', '', step.label));
+    const complete = wizardStepDone(step.id);
+    const unlocked = wizardStepUnlocked(step.id);
+    const active = step.id === wizard.step;
+    const state = complete ? 'done' : active ? 'active' : unlocked ? 'next' : 'locked';
+    chip.dataset.state = state;
+    if (active) chip.classList.add('active');
+    if (complete) chip.classList.add('done');
+    chip.disabled = !unlocked;
+    if (active) chip.setAttribute('aria-current', 'step');
+    const copy = element('span', 'wizard-step-copy');
+    const status = complete ? 'เสร็จแล้ว' : active ? 'กำลังตั้งค่า' : unlocked ? 'พร้อมทำต่อ' : 'รอขั้นก่อนหน้า';
+    copy.append(element('span', 'wizard-step-label', step.label), element('span', 'wizard-step-status', status));
+    chip.append(element('span', 'wizard-step-number', complete ? '✓' : String(step.id)), copy);
     chip.addEventListener('click', () => { wizard.step = step.id; paintWizard(); });
     return chip;
   }));
@@ -1240,9 +1256,9 @@ function paintWizard() {
 }
 
 function wizardPanel(step, title, subtitle) {
-  const panel = element('section', 'panel');
+  const panel = element('section', 'panel wizard-panel');
   const head = element('header', 'panel-head');
-  head.append(element('h2', '', `ขั้นตอนที่ ${step}/7 — ${title}`), element('p', '', subtitle));
+  head.append(element('span', 'wizard-panel-kicker', `ขั้นตอน ${step} จาก ${WIZARD_STEPS.length}`), element('h2', '', title), element('p', '', subtitle));
   panel.append(head);
   return panel;
 }
@@ -1328,8 +1344,9 @@ function wizardStepIdentity() {
   const mail = wizard.settings.mail;
   const suggestions = wizard.settings.suggestions ?? { hostname: null, domains: [] };
   const panel = wizardPanel(2, 'Mail hostname และ Mail domain', 'hostname มีค่าเดียวต่อ host (PTR/HELO/TLS) ส่วน mail domain ใช้เป็น @domain ของอีเมล เพิ่มได้หลายโดเมน');
-  const form = element('form', 'form-grid');
+  const form = element('form', 'form-grid wizard-host-form');
   const hostLabel = element('label', '', 'Mail hostname (เช่น mail.example.com)');
+  hostLabel.classList.add('wizard-primary-field');
   const hostInput = element('input');
   hostInput.value = mail.hostname ?? suggestions.hostname ?? '';
   hostInput.placeholder = 'mail.example.com';
@@ -1337,16 +1354,17 @@ function wizardStepIdentity() {
   hostLabel.append(hostInput);
   const saveHost = element('button', '', mail.hostname ? 'บันทึก hostname ใหม่' : 'บันทึก hostname');
   saveHost.type = 'submit';
-  form.append(hostLabel);
+  const hostActions = element('div', 'form-actions wizard-inline-actions');
+  hostActions.append(saveHost);
+  const hostControl = element('div', 'wizard-host-control');
+  hostControl.append(hostLabel, hostActions);
+  form.append(hostControl);
   if (mail.hostnameCheck) {
     const status = MAIL_DNS_STATUS[mail.hostnameCheck.status] ?? { label: mail.hostnameCheck.status, variant: 'muted' };
     const line = element('p', 'muted');
     line.append(statusChip(status.label, status.variant), element('span', '', ` A/AAAA ของ hostname ${mail.hostnameCheck.detail ? `— ${mail.hostnameCheck.detail}` : ''}`));
     form.append(line);
   }
-  const hostActions = element('div', 'form-actions');
-  hostActions.append(saveHost);
-  form.append(hostActions);
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
     try {
@@ -1361,10 +1379,10 @@ function wizardStepIdentity() {
 
   const domainsHead = element('h3', 'wizard-subhead', `Mail domain(s) — เลือกแล้ว ${mail.domains.length}/${wizard.settings.maxDomains}`);
   panel.append(domainsHead);
-  const list = element('section', 'tool-list');
+  const list = element('section', 'tool-list wizard-domain-list');
   for (const entry of mail.domains) {
-    const row = element('article', 'tool-row');
-    const copy = element('div');
+    const row = element('article', 'tool-row wizard-domain-row');
+    const copy = element('div', 'wizard-domain-copy');
     copy.append(element('h3', '', entry.domain), element('p', 'muted', `DKIM selector: ${entry.dkimSelector ?? '—'}`));
     const side = element('div');
     const remove = element('button', 'secondary danger', 'ลบ');
@@ -1382,7 +1400,7 @@ function wizardStepIdentity() {
   }
   const known = new Set(mail.domains.map((entry) => entry.domain));
   for (const suggestion of (suggestions.domains ?? []).filter((domain) => !known.has(domain)).slice(0, 5)) {
-    const row = element('article', 'tool-row');
+    const row = element('article', 'tool-row wizard-domain-row wizard-domain-suggestion');
     const copy = element('div');
     copy.append(element('h3', '', suggestion), element('p', 'muted', 'แนะนำจากโดเมนโปรเจคที่มีอยู่'));
     const add = element('button', 'secondary', 'ใช้โดเมนนี้');
@@ -1395,7 +1413,7 @@ function wizardStepIdentity() {
   }
   panel.append(list);
 
-  const addForm = element('form', 'form-grid');
+  const addForm = element('form', 'form-grid wizard-add-domain');
   const addLabel = element('label', '', 'เพิ่มโดเมนใหม่ (พิมพ์เองได้ ไม่ต้องมีโปรเจค)');
   const addInput = element('input');
   addInput.placeholder = 'example.com';

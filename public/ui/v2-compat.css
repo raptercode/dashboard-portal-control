@@ -350,3 +350,175 @@ html[data-theme="dark"] .status-chip.ready { color: #6ee7b7; }
 html[data-theme="dark"] .status-chip.needs { color: #fca5a5; }
 html[data-theme="dark"] .notice { color: #fcd34d; }
 html[data-theme="dark"] .toast.error { color: #fca5a5; }
+
+/* Mail setup is deliberately a focused task flow: compact progress on the
+   left, one bounded work area on the right.  This keeps the wizard readable
+   on wide host-manager screens without changing any setup behaviour. */
+.mail-app-main > .mail-setup-page {
+  display: grid;
+  grid-template-areas:
+    "header header"
+    "progress content";
+  grid-template-columns: minmax(208px, 236px) minmax(0, 840px);
+  align-items: start;
+  column-gap: 38px;
+  row-gap: 0;
+  height: auto;
+  max-width: 1220px;
+  min-height: 100%;
+  margin: 0 auto;
+  padding: 30px clamp(24px, 4vw, 52px) 48px;
+}
+.mail-setup-page .page-header { grid-area: header; margin-bottom: 28px; }
+.mail-setup-title { display: grid; gap: 5px; }
+.mail-setup-eyebrow, .wizard-progress-kicker, .wizard-panel-kicker {
+  color: var(--brand-primary);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .11em;
+  text-transform: uppercase;
+}
+.mail-setup-title .page-title { margin: 0; font-size: 28px; letter-spacing: -.035em; }
+.mail-setup-title .page-subtitle { max-width: 580px; line-height: 1.55; }
+
+.mail-setup-page .wizard-steps {
+  grid-area: progress;
+  position: sticky;
+  top: 20px;
+  display: grid;
+  gap: 4px;
+  margin: 0;
+}
+.wizard-progress-summary {
+  display: grid;
+  gap: 3px;
+  margin: 0 0 11px;
+  padding: 0 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.wizard-progress-count { color: var(--text-primary); font-size: 21px; letter-spacing: -.03em; }
+.wizard-progress-description { color: var(--text-tertiary); font-size: 12px; }
+.mail-setup-page .wizard-step-chip {
+  width: 100%;
+  min-height: 53px;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-secondary);
+  text-align: left;
+}
+.mail-setup-page .wizard-step-chip:hover:not(:disabled) { background: var(--slate-50); }
+.mail-setup-page .wizard-step-chip.active {
+  border-color: color-mix(in srgb, var(--brand-primary) 22%, var(--border));
+  background: var(--brand-primary-soft);
+  color: var(--brand-primary);
+}
+.mail-setup-page .wizard-step-chip.done { color: var(--text-primary); }
+.mail-setup-page .wizard-step-chip:disabled { opacity: .52; }
+.mail-setup-page .wizard-step-number {
+  flex: none;
+  width: 25px;
+  height: 25px;
+  background: var(--slate-100);
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.mail-setup-page .wizard-step-chip.active .wizard-step-number { background: var(--brand-primary); color: #fff; }
+.mail-setup-page .wizard-step-chip.done .wizard-step-number { background: var(--brand-accent-soft); color: var(--brand-accent); }
+.wizard-step-copy { display: grid; min-width: 0; gap: 1px; }
+.wizard-step-label { color: inherit; font-size: 12.5px; font-weight: 650; line-height: 1.25; }
+.wizard-step-status { color: var(--text-tertiary); font-size: 10.5px; line-height: 1.2; }
+.mail-setup-page .wizard-step-chip.active .wizard-step-status { color: var(--brand-primary); opacity: .72; }
+
+.mail-setup-page #wizard-body { grid-area: content; min-width: 0; }
+.mail-setup-page .wizard-panel {
+  margin: 0;
+  padding: 24px;
+  border-color: var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow-sm);
+}
+.mail-setup-page .wizard-panel .panel-head { margin-bottom: 22px; }
+.mail-setup-page .wizard-panel .panel-head h2 { margin: 3px 0 6px; font-size: 20px; letter-spacing: -.02em; }
+.mail-setup-page .wizard-panel .panel-head p { max-width: 700px; color: var(--text-secondary); line-height: 1.55; }
+.mail-setup-page .wizard-subhead {
+  display: flex;
+  align-items: center;
+  min-height: 34px;
+  margin: 24px 0 10px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 650;
+}
+.mail-setup-page .tool-list { gap: 8px; }
+.mail-setup-page .tool-row {
+  min-height: 68px;
+  border-color: var(--border);
+  border-radius: 10px;
+  background: var(--bg-surface);
+  box-shadow: none;
+}
+.mail-setup-page .wizard-host-form, .mail-setup-page .wizard-add-domain {
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--slate-50);
+}
+.wizard-host-control { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 10px; }
+.wizard-host-control .wizard-inline-actions { margin: 0; }
+.wizard-host-control button { min-height: 36px; white-space: nowrap; }
+.mail-setup-page .wizard-host-form > .muted { margin: 0; font-size: 12px; }
+.mail-setup-page .wizard-domain-list { margin-bottom: 12px; }
+.mail-setup-page .wizard-domain-row { min-height: 72px; }
+.wizard-domain-copy { display: grid; min-width: 0; gap: 3px; }
+.mail-setup-page .wizard-domain-suggestion { border-style: dashed; background: transparent; }
+.mail-setup-page .wizard-add-domain { max-width: 100%; }
+.mail-setup-page .wizard-add-domain .form-actions { justify-content: flex-start; margin-top: 2px; }
+.mail-setup-page .wizard-actions {
+  justify-content: space-between;
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.mail-setup-page .wizard-actions > :first-child:last-child { margin-left: auto; }
+html[data-theme="dark"] .mail-setup-page .wizard-step-chip:hover:not(:disabled) { background: var(--slate-800); }
+html[data-theme="dark"] .mail-setup-page .wizard-host-form,
+html[data-theme="dark"] .mail-setup-page .wizard-add-domain { background: rgba(148, 163, 184, .06); }
+html[data-theme="dark"] .mail-setup-page .wizard-domain-suggestion { background: transparent; }
+
+@media (max-width: 900px) {
+  .mail-app-main > .mail-setup-page {
+    display: block;
+    max-width: 960px;
+    min-height: calc(100dvh - var(--topbar-h));
+    padding: 24px 20px 36px;
+  }
+  .mail-setup-page .page-header { margin-bottom: 20px; }
+  .mail-setup-page .wizard-steps {
+    position: static;
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    margin-bottom: 20px;
+    padding-bottom: 2px;
+    scrollbar-width: thin;
+  }
+  .wizard-progress-summary { display: none; }
+  .mail-setup-page .wizard-step-chip { width: auto; min-width: 154px; }
+  .mail-setup-page #wizard-body { max-width: 840px; }
+}
+@media (max-width: 560px) {
+  .mail-app-main > .mail-setup-page { padding: 20px 16px 28px; }
+  .mail-setup-title .page-title { font-size: 24px; }
+  .mail-setup-page .wizard-step-chip { min-width: 48px; justify-content: center; padding: 8px; }
+  .mail-setup-page .wizard-step-copy { display: none; }
+  .mail-setup-page .wizard-panel { padding: 18px; }
+  .wizard-host-control { grid-template-columns: 1fr; }
+  .wizard-host-control .wizard-inline-actions { justify-content: stretch; }
+  .wizard-host-control button { width: 100%; }
+  .mail-setup-page .tool-row { align-items: flex-start; flex-wrap: wrap; }
+  .mail-setup-page .wizard-record-side { width: 100%; justify-content: flex-end; }
+}
