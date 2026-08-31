@@ -1451,7 +1451,7 @@ function dnsRecordRow(domainName, kind, title, record, state) {
     ['Type', provider.type ?? record.type],
     ['Name / Host', provider.host ?? '@'],
     [record.type === 'MX' ? 'Value / Target' : 'Value', provider.value ?? record.value],
-    ...(provider.priority === null || provider.priority === undefined ? [] : [['Priority', String(provider.priority)]),
+    ...(provider.priority === null || provider.priority === undefined ? [] : [['Priority', String(provider.priority)]]),
     ['TTL', provider.ttl ?? 'Auto']
   ];
   const fieldList = element('dl', 'wizard-dns-fields');

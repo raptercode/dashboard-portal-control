@@ -1,9 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { execFile as execFileCallback } from 'node:child_process';
 import { mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 import { createApplication } from '../src/server.mjs';
+
+const execFile = promisify(execFileCallback);
+
+test('Mail UI script remains syntactically valid before it can block session bootstrap', async () => {
+  await execFile(process.execPath, ['--check', fileURLToPath(new URL('../public/ui/app.js', import.meta.url))]);
+});
 
 test('Mail Setup keeps its desktop content inside a bounded vertical scroll container', async () => {
   const css = await readFile(new URL('../public/ui/v2-compat.css', import.meta.url), 'utf8');

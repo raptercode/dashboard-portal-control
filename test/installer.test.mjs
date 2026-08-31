@@ -28,6 +28,11 @@ test('installer keeps the deployed application root traversable by the service u
   assert.match(script, /mv "\$STAGING_ROOT" "\$APP_ROOT"\r?\nchown -R root:root "\$APP_ROOT"\r?\n#.*\r?\n#.*\r?\nchmod 0755 "\$APP_ROOT"\r?\nchmod -R go-w "\$APP_ROOT"/);
 });
 
+test('installer syntax-checks the browser bundle before replacing the active application', async () => {
+  const script = await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8');
+  assert.match(script, /"\/usr\/local\/bin\/node" --check "\$STAGING_ROOT\/public\/ui\/app\.js"/);
+});
+
 test('installer replaces only the Ubuntu default Nginx symlink before adding its reject catch-all', async () => {
   const script = await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8');
   assert.match(script, /NGINX_DEFAULT_ENABLED='\/etc\/nginx\/sites-enabled\/default'/);

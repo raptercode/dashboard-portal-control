@@ -194,6 +194,7 @@ install -d -m 0755 "$STAGING_ROOT"
 tar --exclude='.env' --exclude='data' --exclude='node_modules' --exclude='.git' --exclude='dist' --exclude='release-out' -cf - . | tar -xf - -C "$STAGING_ROOT"
 "/usr/local/bin/node" --check "$STAGING_ROOT/src/server.mjs"
 "/usr/local/bin/node" --check "$STAGING_ROOT/scripts/mail-host-config.mjs"
+"/usr/local/bin/node" --check "$STAGING_ROOT/public/ui/app.js"
 
 rm -rf -- "$APP_ROOT"
 mv "$STAGING_ROOT" "$APP_ROOT"
