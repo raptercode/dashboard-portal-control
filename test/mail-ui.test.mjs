@@ -1,9 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp } from 'node:fs/promises';
+import { mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createApplication } from '../src/server.mjs';
+
+test('Mail Setup keeps its desktop content inside a bounded vertical scroll container', async () => {
+  const css = await readFile(new URL('../public/ui/v2-compat.css', import.meta.url), 'utf8');
+  const match = css.match(/\.mail-app-main > \.mail-setup-page\s*\{([\s\S]*?)\n\}/);
+  assert.ok(match, 'Mail Setup needs its own desktop layout rule');
+  assert.match(match[1], /height:\s*100%;/, 'the page must stay bounded by the Mail app viewport');
+  assert.match(match[1], /min-height:\s*0;/, 'the page must be allowed to shrink inside the grid');
+  assert.match(match[1], /overflow-y:\s*auto;/, 'long wizard content must remain vertically scrollable');
+});
 
 test('Mail routes render a standalone shell while the Portal navigation opens them in a new tab', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'hostmgr-mail-ui-'));

@@ -1446,13 +1446,28 @@ function dnsRecordRow(domainName, kind, title, record, state) {
   const row = element('article', 'tool-row wizard-record');
   const copy = element('div', 'wizard-record-copy');
   const status = MAIL_DNS_STATUS[state?.status ?? 'pending'] ?? MAIL_DNS_STATUS.pending;
-  copy.append(element('h3', '', title), element('p', 'muted', `${record.type} @ ${record.name}`), element('code', 'wizard-record-value', record.value));
+  const provider = record.provider ?? dnsProviderRecord(record, domainName);
+  const fields = [
+    ['Type', provider.type ?? record.type],
+    ['Name / Host', provider.host ?? '@'],
+    [record.type === 'MX' ? 'Value / Target' : 'Value', provider.value ?? record.value],
+    ...(provider.priority === null || provider.priority === undefined ? [] : [['Priority', String(provider.priority)]),
+    ['TTL', provider.ttl ?? 'Auto']
+  ];
+  const fieldList = element('dl', 'wizard-dns-fields');
+  for (const [label, value] of fields) {
+    const field = element('div', 'wizard-dns-field');
+    if (String(value).length > 90) field.classList.add('wide');
+    field.append(element('dt', '', label), element('dd', '', value));
+    fieldList.append(field);
+  }
+  copy.append(element('h3', '', title), element('p', 'muted', `สร้าง record ใหม่ใน DNS zone ของ ${domainName} แล้วกรอกตามช่องด้านล่าง`), fieldList);
   if (state?.detail) copy.append(element('p', 'muted', state.detail));
   const side = element('div', 'wizard-record-side');
-  const copyButton = element('button', 'secondary', 'Copy');
+  const copyButton = element('button', 'secondary', 'คัดลอก Value');
   copyButton.type = 'button';
   copyButton.addEventListener('click', async () => {
-    try { await navigator.clipboard.writeText(record.value); toast('คัดลอกแล้ว'); }
+    try { await navigator.clipboard.writeText(String(provider.value ?? record.value)); toast('คัดลอก Value แล้ว'); }
     catch { toast('คัดลอกไม่สำเร็จ — เลือกข้อความเองได้', true); }
   });
   const verify = element('button', 'secondary', 'ตรวจสอบ');
@@ -1470,9 +1485,29 @@ function dnsRecordRow(domainName, kind, title, record, state) {
   return row;
 }
 
+function dnsProviderRecord(record, domainName) {
+  const name = String(record.name ?? '').replace(/\.$/, '').toLowerCase();
+  const domain = String(domainName ?? '').replace(/\.$/, '').toLowerCase();
+  const host = name === domain ? '@' : name.endsWith(`.${domain}`) ? name.slice(0, -(domain.length + 1)) : name;
+  const mx = record.type === 'MX' ? String(record.value ?? '').match(/\bMX\s+(\d+)\s+(\S+)/i) : null;
+  return {
+    type: record.type,
+    host,
+    value: mx ? mx[2].replace(/\.$/, '') : record.value,
+    priority: mx ? Number(mx[1]) : null,
+    ttl: 'Auto'
+  };
+}
+
 function wizardStepDns() {
   const mail = wizard.settings.mail;
   const panel = wizardPanel(3, 'DNS records', 'copy ค่าไปวางที่ DNS provider ของโดเมน แล้วกดตรวจสอบทีละรายการ — DNS ใหม่อาจใช้เวลา propagate เป็นชั่วโมง ข้ามไปก่อนแล้วกลับมาตรวจทีหลังได้');
+  const guide = element('aside', 'mail-dns-guide');
+  guide.append(
+    element('strong', '', 'กรอกตามชื่อช่องได้เลย'),
+    element('span', '', 'DNS provider บางรายเรียก Name ว่า Host หรือ Record name — เป็นช่องเดียวกัน ใช้ TTL = Auto ได้')
+  );
+  panel.append(guide);
   for (const entry of mail.domains) {
     panel.append(element('h3', 'wizard-subhead', entry.domain));
     const list = element('section', 'tool-list');
