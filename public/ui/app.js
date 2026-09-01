@@ -1017,50 +1017,93 @@ function mailMessagesFor(category) {
   return all;
 }
 
-function renderMail() {
-  if (!$('#mail-rows')) return;
-  renderMailNav();
-  renderMailRows();
-  renderMailReader();
-  void renderMailSetupNotice();
-  const search = $('#mail-search');
-  if (!search.dataset.bound) {
-    search.dataset.bound = '1';
-    search.addEventListener('input', () => {
-      mailState.search = search.value.trim();
-      renderMailRows();
-    });
-    $('#mail-compose-open').addEventListener('click', () => toggleMailCompose(true));
-    $('#mail-compose-close').addEventListener('click', () => toggleMailCompose(false));
-    $('#mail-compose-overlay').addEventListener('click', () => toggleMailCompose(false));
-    $('#mail-compose-form').addEventListener('submit', (event) => {
-      event.preventDefault();
-      toggleMailCompose(false);
-      toast('ตัวอย่าง UI — ยังไม่ได้ส่งอีเมลจริง');
-    });
-  }
-}
-
-async function renderMailSetupNotice() {
-  const notice = $('#mail-setup-notice');
-  if (!notice) return;
+async function renderMail() {
+  const preview = $('#mail-preview');
+  const management = $('#mail-management');
+  if (!preview || !management) return;
   try {
     const settings = await api('/api/mail');
     const configured = settings.mail.configure?.status === 'configured';
-    const text = element('span');
-    const link = element('a', 'secondary button', configured ? 'จัดการ Mail Setup' : 'เริ่มติดตั้ง →');
-    link.href = '/mail/setup';
-    if (configured) {
-      text.append(
-        statusChip(settings.mail.configure.simulated ? 'ติดตั้งแล้ว (จำลอง)' : 'ติดตั้งแล้ว', 'ready'),
-        element('span', '', ` ${settings.mail.hostname} · ${settings.mail.domains.length} โดเมน · ${settings.mail.mailboxes.length} mailbox — ข้อมูลรายการอีเมลด้านล่างยังเป็นตัวอย่าง UI (inbox จริงมาใน Phase 3)`)
-      );
-    } else {
-      text.append(element('span', '', 'ยังไม่ได้ติดตั้ง mail service — ข้อมูลด้านล่างเป็นตัวอย่าง UI ติดตั้งจริงได้ทีละขั้นผ่าน Mail Setup Wizard'));
-    }
-    notice.replaceChildren(text, link);
-    notice.hidden = false;
-  } catch { notice.hidden = true; }
+    paintMailMode(configured);
+    renderMailSetupNotice(settings.mail);
+    if (!configured) renderMailPreview();
+  } catch {
+    paintMailMode(false, 'ไม่สามารถตรวจสถานะ Mail ได้');
+    renderMailPreview();
+  }
+}
+
+function paintMailMode(configured, unavailableMessage = '') {
+  const preview = $('#mail-preview');
+  const management = $('#mail-management');
+  const status = $('#mail-page-status');
+  preview.hidden = configured;
+  management.hidden = !configured;
+  if (!status) return;
+  status.className = `status-chip ${configured ? 'ready' : 'needs'}`;
+  status.textContent = unavailableMessage || (configured ? 'Mail service พร้อมจัดการ' : 'ตัวอย่างก่อนติดตั้ง');
+}
+
+function renderMailPreview() {
+  renderMailNav();
+  renderMailRows();
+  renderMailReader();
+  const search = $('#mail-search');
+  if (search.dataset.bound) return;
+  search.dataset.bound = '1';
+  search.addEventListener('input', () => {
+    mailState.search = search.value.trim();
+    renderMailRows();
+  });
+  $('#mail-compose-open').addEventListener('click', () => toggleMailCompose(true));
+  $('#mail-compose-close').addEventListener('click', () => toggleMailCompose(false));
+  $('#mail-compose-overlay').addEventListener('click', () => toggleMailCompose(false));
+  $('#mail-compose-form').addEventListener('submit', (event) => {
+    event.preventDefault();
+    toggleMailCompose(false);
+    toast('ตัวอย่างก่อนติดตั้ง — ยังไม่ได้ส่งอีเมลจริง');
+  });
+}
+
+function renderMailSetupNotice(mail) {
+  const notice = $('#mail-setup-notice');
+  if (!notice) return;
+  const configured = mail.configure?.status === 'configured';
+  renderMailMailboxCard(mail);
+  const text = element('span');
+  const link = element('a', 'secondary button', configured ? 'จัดการ Mail Setup' : 'เริ่มติดตั้ง →');
+  link.href = configured ? '/mail/setup?step=6' : '/mail/setup';
+  if (configured) {
+    text.append(
+      statusChip(mail.configure.simulated ? 'ติดตั้งแล้ว (จำลอง)' : 'ติดตั้งแล้ว', 'ready'),
+      element('span', '', ` ${mail.hostname} · ${mail.domains.length} โดเมน · ${mail.mailboxes.length} mailbox`)
+    );
+  } else {
+    text.append(element('span', '', 'ยังไม่ได้ติดตั้ง mail service — ด้านล่างเป็นตัวอย่าง inbox ก่อนติดตั้ง ใช้ Mail Setup เพื่อติดตั้งจริง'));
+  }
+  notice.replaceChildren(text, link);
+  notice.hidden = false;
+}
+
+function renderMailMailboxCard(mail) {
+  const name = $('#mail-mailbox-name');
+  const status = $('#mail-mailbox-status');
+  const manage = $('#mail-mailbox-manage');
+  if (!name || !status || !manage) return;
+  const mailboxes = mail.mailboxes ?? [];
+  const configured = mail.configure?.status === 'configured';
+  manage.href = configured ? '/mail/setup?step=6' : '/mail/setup';
+  manage.textContent = configured ? 'จัดการ mailbox' : 'ตั้งค่า Mail ก่อน';
+  if (!mailboxes.length) {
+    name.textContent = 'ยังไม่มี mailbox';
+    status.textContent = configured ? 'สร้างอีเมลใหม่ได้จาก Mail Setup' : 'ต้องติดตั้งและตั้งค่า Mail ก่อน';
+    status.classList.remove('mail-mailbox-ok');
+    return;
+  }
+  const first = mailboxes[0];
+  name.textContent = mailboxes.length === 1 ? `${first.localPart}@${first.domain}` : `${first.localPart}@${first.domain} และอีก ${mailboxes.length - 1} mailbox`;
+  status.textContent = `● ${mailboxes.length} mailbox พร้อมจัดการ`;
+  status.classList.add('mail-mailbox-ok');
 }
 
 function toggleMailCompose(open) {
@@ -1081,7 +1124,7 @@ function renderMailNav() {
       mailState.category = entry.id;
       const first = mailMessagesFor(entry.id)[0];
       mailState.selected = first?.id ?? null;
-      renderMail();
+      renderMailPreview();
     });
     return button;
   };
@@ -1110,7 +1153,7 @@ function renderMailRows() {
     const select = () => {
       mailState.selected = message.id;
       message.unread = false;
-      renderMail();
+      renderMailPreview();
     };
     row.addEventListener('click', select);
     row.addEventListener('keydown', (event) => { if (event.key === 'Enter') select(); });
@@ -1129,7 +1172,7 @@ function renderMailReader() {
     const button = element('button', 'secondary');
     button.type = 'button';
     button.append(icon(iconName), element('span', '', label));
-    button.addEventListener('click', () => toast('ตัวอย่าง UI — ปุ่มนี้ยังไม่ทำงานจริง'));
+    button.addEventListener('click', () => toast('ตัวอย่างก่อนติดตั้ง — ปุ่มนี้ยังไม่ทำงานจริง'));
     return button;
   };
   const actions = element('div', 'mail-reader-actions');
@@ -1218,7 +1261,9 @@ async function renderMailSetup() {
   wizard.outbound ??= wizard.settings?.mail?.readiness?.outbound ?? null;
   wizard.inbound ??= wizard.settings?.mail?.readiness?.inbound ?? null;
   const firstOpen = WIZARD_STEPS.find((step) => wizardStepUnlocked(step.id) && !wizardStepDone(step.id));
-  wizard.step = firstOpen?.id ?? 7;
+  const requestedStep = Number(new URLSearchParams(window.location.search).get('step'));
+  const requested = WIZARD_STEPS.find((step) => step.id === requestedStep && wizardStepUnlocked(step.id));
+  wizard.step = requested?.id ?? firstOpen?.id ?? 7;
   paintWizard();
 }
 

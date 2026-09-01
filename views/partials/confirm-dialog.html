@@ -1,0 +1,13 @@
+<dialog id="confirm-dialog" class="modal confirm-modal" aria-labelledby="confirm-title" aria-describedby="confirm-message">
+  <form method="dialog" class="confirm-form">
+    <div class="warning-mark" aria-hidden="true"><svg class="icon" aria-hidden="true"><use href="#icon-alert"></use></svg></div>
+    <h2 id="confirm-title">ยืนยันการดำเนินการ</h2>
+    <p id="confirm-message"></p>
+    <p class="muted">กิจกรรมนี้จะถูกบันทึกใน audit log</p>
+    <div class="modal-footer">
+      <button class="secondary" value="cancel" type="submit">ยกเลิก</button>
+      <span class="modal-spacer"></span>
+      <button id="confirm-accept" value="confirm" type="submit">ยืนยัน</button>
+    </div>
+  </form>
+</dialog>

@@ -792,10 +792,20 @@ label input, label select, label textarea {
 .mail-compose-window { position: fixed; right: 24px; bottom: 24px; width: min(480px, calc(100vw - 48px)); background: var(--surface); border: 1px solid var(--line-strong); border-radius: 12px; box-shadow: 0 18px 50px rgba(15, 23, 42, 0.25); z-index: 61; }
 .mail-compose-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid var(--line); }
 .mail-compose-window form { padding: 14px; }
+.mail-preview { display: grid; gap: 10px; grid-template-rows: auto minmax(0, 1fr); min-height: 0; }
+.mail-preview-notice { align-items: center; background: var(--line-soft); border: 1px dashed var(--line-strong); border-radius: 10px; color: var(--muted); display: flex; flex-wrap: wrap; font-size: 12px; gap: 8px 12px; padding: 9px 12px; }
+.mail-preview-notice strong { color: var(--ink); }
+.mail-management-panel { display: grid; gap: 18px; max-width: 720px; padding: 20px; }
+.mail-management-head { align-items: flex-start; display: flex; gap: 16px; justify-content: space-between; }
+.mail-management-head h2 { margin: 0 0 4px; }
+.mail-management-head p { color: var(--muted); margin: 0; }
+.mail-management-panel .mail-mailbox-card { margin-top: 0; padding: 12px; }
 @media (max-width: 1080px) {
   .mail-shell { grid-template-columns: 1fr; height: auto; }
   .mail-nav, .mail-list { border-right: none; border-bottom: 1px solid var(--line); }
   .mail-mailbox-card { margin-top: 10px; }
+  .mail-management-head { align-items: stretch; flex-direction: column; }
+  .mail-management-head .button { width: fit-content; }
 }
 
 /* Dark theme — component overrides for admin.css rules that hardcode light
@@ -819,14 +829,6 @@ html[data-theme="dark"] .deployment-event { background: #111827; }
 html[data-theme="dark"] .deployment-event-dot { box-shadow: 0 0 0 3px #111827; }
 html[data-theme="dark"] .token-row { background: #1e293b; }
 html[data-theme="dark"] .warning-mark { background: rgba(245, 158, 11, .16); }
-html[data-theme="dark"] .mail-nav-item.active { background: rgba(79, 70, 229, .18); }
-html[data-theme="dark"] .mail-nav-item .count.danger { background: rgba(239, 68, 68, .18); color: #fca5a5; }
-html[data-theme="dark"] .mail-row.selected { background: rgba(79, 70, 229, .14); }
-html[data-theme="dark"] .mail-chip.warn { background: rgba(245, 158, 11, .18); color: #fcd34d; }
-html[data-theme="dark"] .mail-chip.danger { background: rgba(239, 68, 68, .18); color: #fca5a5; }
-html[data-theme="dark"] .mail-chip.info { background: rgba(79, 70, 229, .18); color: #a5b4fc; }
-html[data-theme="dark"] .mail-chip.github { background: rgba(139, 92, 246, .18); color: #c4b5fd; }
-html[data-theme="dark"] .mail-chip.human { background: rgba(16, 185, 129, .18); color: #6ee7b7; }
 
 /* Mail setup wizard */
 .wizard-steps { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }

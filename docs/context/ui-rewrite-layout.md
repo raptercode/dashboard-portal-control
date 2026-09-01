@@ -19,9 +19,11 @@ changing any API, session, CSRF, deployment, or secret-handling behaviour.
 
 The visual shell now follows the supplied v2 topbar/sidebar layout. Dashboard,
 Projects, Activity, Setup, Credentials, Databases, and Settings are backed by
-the Portal's real routes. Mail is a real route with its own app shell, while
-its inbox preview remains fixture data until live mailbox data is implemented.
-The supplied static examples for Rules, a standalone Nginx view, and standalone
+the Portal's real routes. Mail is a real route with its own app shell for
+service and mailbox management. Before Mail service is configured, it presents
+a clearly labelled inbox fixture to orient the owner; the fixture and its
+compose actions are hidden as soon as setup is configured. The supplied static
+examples for Rules, a standalone Nginx view, and standalone
 Certificates/Deploys pages are not added as dead routes: their relevant
 operations continue to live on real project, domain, log, and settings flows.
 

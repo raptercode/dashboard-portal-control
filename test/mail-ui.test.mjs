@@ -40,16 +40,32 @@ test('Mail routes render a standalone shell while the Portal navigation opens th
   const mail = await (await fetch(`${base}/mail`)).text();
   assert.match(mail, /<section id="dashboard-view" class="mail-app" hidden>/);
   assert.match(mail, /class="topbar mail-app-topbar"/);
+  assert.match(mail, /id="mail-preview" class="mail-preview"[^>]*hidden/);
+  assert.match(mail, /ตัวอย่าง inbox ก่อนติดตั้ง/);
+  assert.match(mail, /class="[^"]*\bmail-management-panel\b[^"]*"/);
+  assert.match(mail, /id="mail-management"[^>]*hidden/);
+  assert.match(mail, /id="mail-mailbox-manage"/);
   assert.match(mail, /id="mail-rows"/);
+  assert.match(mail, /ops\.example\.com/);
   assert.doesNotMatch(mail, /aria-label="Primary navigation"/);
 
   const setup = await (await fetch(`${base}/mail/setup`)).text();
   assert.match(setup, /<section id="dashboard-view" class="mail-app" hidden>/);
   assert.match(setup, /class="page mail-setup-page" data-page="mail"/);
   assert.match(setup, /id="wizard-body"/);
+  assert.match(setup, /<dialog id="confirm-dialog"/);
+  assert.match(setup, /<div id="toast" class="toast"/);
   assert.doesNotMatch(setup, /aria-label="Primary navigation"/);
 
   const portal = await (await fetch(`${base}/projects`)).text();
   assert.match(portal, /aria-label="Primary navigation"/);
   assert.match(portal, /data-nav="mail" href="\/mail" target="_blank" rel="noopener noreferrer"/);
+});
+
+test('Mail fixture inbox is visible only before the service is configured', async () => {
+  const app = await readFile(new URL('../public/ui/app.js', import.meta.url), 'utf8');
+  assert.match(app, /\bMAIL_DEMO\b/);
+  assert.match(app, /preview\.hidden = configured/);
+  assert.match(app, /management\.hidden = !configured/);
+  assert.match(app, /ตัวอย่างก่อนติดตั้ง — ยังไม่ได้ส่งอีเมลจริง/);
 });

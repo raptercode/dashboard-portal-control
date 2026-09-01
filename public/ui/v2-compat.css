@@ -84,7 +84,9 @@ body[data-app="mail"][data-shell="dashboard"] { overflow: hidden; }
 .mail-app-main > .page { height: 100%; max-width: none; margin: 0; padding: 20px 28px; }
 .mail-app-main > .mail-page { display: grid; gap: 14px; grid-template-rows: auto auto minmax(0, 1fr); }
 .mail-app-main .mail-setup-notice { margin: 0; }
+.mail-app-main .mail-preview { min-height: 0; }
 .mail-app-main .mail-shell { height: auto; min-height: 0; }
+.mail-app-main .mail-management-panel { margin: 0; }
 .mail-app-main > .page:not(.mail-page) { overflow: auto; }
 .page-header h1, .page-title { color: var(--text-primary); font-size: 22px; font-weight: 700; margin: 0 0 4px; }
 .page-header .subtitle, .page-subtitle { color: var(--text-secondary); font-size: 13px; margin: 0; }
@@ -340,7 +342,6 @@ dialog.deploy-drawer::backdrop { background: rgba(15, 23, 42, .5); backdrop-filt
   body[data-app="mail"][data-shell="dashboard"] .mail-app { display: block; height: auto; min-height: 100dvh; }
   body[data-app="mail"][data-shell="dashboard"] .mail-app-main { height: auto; overflow: visible; }
   .mail-app-main > .mail-page { display: block; height: auto; min-height: calc(100dvh - var(--topbar-h)); }
-  .mail-app-main .mail-shell { min-height: 480px; }
 }
 
 /* Dark theme — component overrides for text colors paired with soft/token

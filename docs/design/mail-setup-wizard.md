@@ -7,9 +7,10 @@ reference for later work; read [ADR 0025](../adr/0025-port-aware-mail-host-provi
 for the implemented safety boundary.
 
 The remaining roadmap includes a real external inbound-mail probe, mailbox
-backup/quota work, DKIM rotation UX, and replacing the current Mail-page
-preview with live mailbox data. A local host cannot prove provider firewall or
-public Internet reachability by probing itself.
+backup/quota work, and DKIM rotation UX. Before Mail service is configured,
+the Mail page shows a clearly labelled fixture inbox to orient the owner; once
+configured it switches to service and mailbox management. A local host cannot
+prove provider firewall or public Internet reachability by probing itself.
 
 ## เอกสารอ้างอิงที่ใช้ประกอบการออกแบบ
 
@@ -18,7 +19,7 @@ public Internet reachability by probing itself.
 - `src/server.mjs` — `handleInstall()` (allowlisted tool install, `confirm:true`, demo vs host), `handleMailOutboundCheck()`, domain-check route
 - `src/core.mjs` — `TOOLS` registry, `SecretVault` (AES-256-GCM), `appendAudit()`, `validateProjectDomains()` (cap 10 โดเมนต่อโปรเจค)
 - `scripts/hostmgr-deploy-helper.mjs` — root-owned helper, `dispatch()` allowlist, certbot/Nginx pattern ใน `applyDomains()`/`issueCertificate()`
-- `views/pages/mail.html` + `public/ui/app.js` (`MAIL_DEMO`, `mailState`, mail-* renderers) — Mail UI preview ปัจจุบันยังมี fixture view บางส่วน; provisioning state และ port readiness ถูกผูกกับ API แล้ว
+- `views/pages/mail.html` + `public/ui/app.js` (`MAIL_DEMO`, `renderMail`, `renderMailSetupNotice`) — ก่อนติดตั้งแสดง fixture inbox ที่ติดป้ายชัดเจน; เมื่อ `configure.status` เป็น `configured` จะซ่อน fixture และแสดงสถานะ/mailbox จริง
 - `public/ui/app.js` (`renderDomainList`, `domainStatusChip`, `refreshDomainStatuses`) — pattern การ verify DNS ทีละ record ที่มีอยู่แล้วสำหรับ project domain, ใช้เป็นต้นแบบของ mail DNS record verify
 
 ---
@@ -423,8 +424,7 @@ flowchart LR
 - **สิ่งที่ระบบตรวจให้**: ตรวจ local-part ไม่ซ้ำใต้โดเมนเดียวกัน, password policy (ใช้กติกา
   เดียวกับ `validatePasswordChange`), helper สร้าง virtual mailbox ใน Dovecot
 - **ปุ่ม/สถานะ**: "สร้าง mailbox" ปุ่ม, รายการ mailbox ที่สร้างแล้วพร้อม status-chip
-  "พร้อมใช้งาน" — จุดนี้คือที่ mail preview UI เดิม (`portal@ops.example.com` ใน
-  `views/pages/mail.html`) เปลี่ยนจาก fixture (`MAIL_DEMO`) เป็นข้อมูลจริง
+  "พร้อมใช้งาน" — หน้า Mail แสดงจำนวน mailbox จริงและลิงก์กลับมาจัดการที่ step 6
 - **ข้ามได้ไหม**: ข้ามได้ ("ข้ามตอนนี้ ไปสร้างทีหลังในหน้า Mail") — จบ wizard ในสถานะ
   "ติดตั้งแล้ว แต่ยังไม่มีกล่องจดหมาย" ชัดเจนบนหน้า Mail
 
@@ -607,10 +607,11 @@ state.mail = {
 - Multi-domain "เพิ่มโดเมนภายหลัง" UI เต็มรูปแบบจากหน้า Mail settings (data model รองรับแล้ว
   ตั้งแต่ Phase 1 เหลือแค่ทำ UI)
 
-### Phase 3 — ขัดเกลา + ผูก Mail UI จริง (ประมาณ 2–4 สัปดาห์ ขึ้นกับ scope webmail)
+### Phase 3 — ขัดเกลา Mail service (ประมาณ 2–4 สัปดาห์)
 
-- แทนที่ `MAIL_DEMO` fixture ใน `public/ui/app.js`/`views/pages/mail.html` ด้วยข้อมูลจริง
-  (IMAP/Maildir-backed) — ทำให้หน้า Mail ที่มี preview UI อยู่แล้ววันนี้ใช้งานได้จริง
+- หากต้องการ webmail ในอนาคต ให้กำหนดเป็นผลิตภัณฑ์แยกพร้อม IMAP/Maildir permission,
+  session isolation และ audit scope ที่ชัดเจน; fixture inbox ของ Portal มีได้เฉพาะก่อน
+  Mail service ถูกตั้งค่า และต้องติดป้ายว่าเป็นตัวอย่างเสมอ
 - Certificate-expiry visibility สำหรับ mail hostname (เหมือน gap เดิมที่ project domain
   ก็ยัง "Planned" อยู่ใน scope-and-roadmap.md)
 - Backup/restore ของ mailbox + DKIM key (ผูกกับ per-project backup ที่ยังเป็น gap ของ v0.6 อยู่แล้ว)
