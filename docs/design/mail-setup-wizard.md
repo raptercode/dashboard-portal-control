@@ -176,6 +176,8 @@ Mail hostname ต้องมี TLS certificate สำหรับ STARTTLS บ
   — เริ่มที่ `p=none` (monitor-only) ตาม DMARC rollout practice มาตรฐาน แล้วให้ owner ค่อย
   ขยับเป็น `quarantine`/`reject` เองภายหลังจากหน้า Mail settings (Phase 2+ ค่อยมี UI ปรับ policy)
 - **Verify**: `dns.resolveTxt('_dmarc.<mailDomain>')` → ต้องขึ้นต้น `v=DMARC1` และมี `p=` tag
+  หาก resolver ของ host ตอบว่าไม่พบ record ระบบจะตรวจซ้ำผ่าน public DNS ก่อนแสดง
+  `not_found` เพื่อไม่ให้ DNS cache/local resolver ที่ล้าสมัยทำให้ผลผิด
 - **UI**: `verified` / `mismatch` / `not_found`
 
 ### 2.5 PTR / rDNS (ระดับ host ไม่ใช่ระดับโดเมน — แนะนำเท่านั้น)

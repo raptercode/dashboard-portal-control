@@ -193,7 +193,27 @@ async function resolveMxRecords(hostname, options = {}) {
 async function resolveTxtRecords(hostname, options = {}) {
   const timeoutMs = Number.isInteger(options.timeoutMs) && options.timeoutMs > 0 ? options.timeoutMs : DEFAULT_DNS_TIMEOUT_MS;
   const resolveTxt = options.resolveTxt ?? ((name, opts) => dns.resolveTxt(name, opts));
-  const records = await resolveTxt(hostname, { signal: AbortSignal.timeout(timeoutMs) });
+  try {
+    const records = await resolveTxt(hostname, { signal: AbortSignal.timeout(timeoutMs) });
+    const normalized = normalizeTxtRecords(records);
+    if (normalized.length || (options.resolveTxt && !options.publicResolveTxt)) return normalized;
+  } catch (error) {
+    if (!isUnresolvedDnsError(error) || (options.resolveTxt && !options.publicResolveTxt)) throw error;
+  }
+
+  const records = await resolveTxtFromPublicDns(hostname, timeoutMs, options);
+  return normalizeTxtRecords(records);
+}
+
+async function resolveTxtFromPublicDns(hostname, timeoutMs, options = {}) {
+  if (options.publicResolveTxt) return options.publicResolveTxt(hostname, { signal: AbortSignal.timeout(timeoutMs) });
+  const Resolver = options.Resolver ?? dns.Resolver;
+  const resolver = new Resolver();
+  resolver.setServers(options.publicDnsServers ?? [...PUBLIC_DNS_SERVERS]);
+  return resolver.resolveTxt(hostname, { signal: AbortSignal.timeout(timeoutMs) });
+}
+
+function normalizeTxtRecords(records) {
   if (!Array.isArray(records)) return [];
   return records.map((chunks) => (Array.isArray(chunks) ? chunks.join('') : String(chunks ?? ''))).filter(Boolean);
 }

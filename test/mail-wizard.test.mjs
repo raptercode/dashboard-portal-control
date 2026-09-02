@@ -44,6 +44,15 @@ test('mail MX checks accept Cloudflare direct-mail aliases only for the expected
   assert.equal(differentTarget.status, 'mismatch');
 });
 
+test('mail DMARC checks retry public DNS when the host resolver has no TXT record', async () => {
+  const hostResolver = async () => { throw Object.assign(new Error('none'), { code: 'ENODATA' }); };
+  const result = await checkDmarcRecord('tovenly.com', {
+    resolveTxt: hostResolver,
+    publicResolveTxt: async () => [['v=DMARC1; p=none; rua=mailto:postmaster@tovenly.com; fo=1']]
+  });
+  assert.equal(result.status, 'verified');
+});
+
 test('mail service generates DKIM keys, DNS values, and validates inputs', () => {
   const keyPair = generateDkimKeyPair('portal2026');
   assert.equal(keyPair.selector, 'portal2026');
