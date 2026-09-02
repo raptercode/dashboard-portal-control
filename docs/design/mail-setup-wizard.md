@@ -133,7 +133,10 @@ Mail hostname ต้องมี TLS certificate สำหรับ STARTTLS บ
 
 - **ค่าที่ generate ให้ copy**: `<mail domain>.  MX  10  <mail hostname>.`
 - **Verify**: `dns.resolveMx(mailDomain)` — ต้องเจอ exchange ที่ตรงกับ mail hostname
-  (case-insensitive, ตัด trailing dot) อย่างน้อย 1 รายการ
+  (case-insensitive, ตัด trailing dot) อย่างน้อย 1 รายการ หาก mail hostname อยู่หลัง
+  Cloudflare proxy ระบบจะยอมรับ alias ที่ Cloudflare ตอบกลับในรูป
+  `_dc-mx.<hash>.<mail hostname>` ด้วย; alias นี้อาจไม่ปรากฏเป็น record ใน DNS dashboard
+  และระบบจะรับเฉพาะรูปแบบที่ลงท้ายด้วย hostname เดียวกันเท่านั้น
 - **UI**: `verified` ถ้าเจอตรง, `mismatch` ถ้ามี MX แต่ชี้ไปที่อื่น, `not_found` ถ้าไม่มี MX เลย
 
 ### 2.2 SPF (TXT ที่ root ของ mail domain)

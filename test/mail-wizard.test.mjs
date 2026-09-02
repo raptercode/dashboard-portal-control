@@ -35,6 +35,15 @@ test('mail DNS record checks classify verified, mismatch, and missing records', 
   assert.equal(ptrMiss.status, 'mismatch');
 });
 
+test('mail MX checks accept Cloudflare direct-mail aliases only for the expected hostname', async () => {
+  const mx = (records) => ({ resolveMx: async () => records });
+  const cloudflareDirect = await checkMailMx('tovenly.com', 'tovenly.com', mx([{ exchange: '_dc-mx.2ebe8e9dd582.tovenly.com', priority: 10 }]));
+  assert.equal(cloudflareDirect.status, 'verified');
+
+  const differentTarget = await checkMailMx('tovenly.com', 'tovenly.com', mx([{ exchange: '_dc-mx.2ebe8e9dd582.other.example', priority: 10 }]));
+  assert.equal(differentTarget.status, 'mismatch');
+});
+
 test('mail service generates DKIM keys, DNS values, and validates inputs', () => {
   const keyPair = generateDkimKeyPair('portal2026');
   assert.equal(keyPair.selector, 'portal2026');

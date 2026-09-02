@@ -1,6 +1,6 @@
 {
   "name": "modern-host-manager",
-  "version": "0.6.6",
+  "version": "0.6.7",
   "private": true,
   "type": "module",
   "description": "A constrained control plane for one self-managed Linux host.",

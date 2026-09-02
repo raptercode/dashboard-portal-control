@@ -209,12 +209,22 @@ function unresolvedOrError(error, notFoundDetail) {
 
 const stripDot = (value) => String(value ?? '').toLowerCase().replace(/\.$/, '');
 
+function isCloudflareDirectMxAlias(exchange, expectedHostname) {
+  const target = stripDot(exchange);
+  const expected = stripDot(expectedHostname);
+  const prefix = '_dc-mx.';
+  const suffix = `.${expected}`;
+  if (!expected || !target.startsWith(prefix) || !target.endsWith(suffix)) return false;
+  const hash = target.slice(prefix.length, -suffix.length);
+  return /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(hash);
+}
+
 export async function checkMailMx(mailDomain, expectedHostname, options = {}) {
   try {
     const records = await resolveMxRecords(mailDomain, options);
     if (!records.length) return recordResult('not_found', 'No MX record was found.');
     const expected = stripDot(expectedHostname);
-    if (records.some((item) => stripDot(item.exchange) === expected)) return recordResult('verified');
+    if (records.some((item) => stripDot(item.exchange) === expected || isCloudflareDirectMxAlias(item.exchange, expected))) return recordResult('verified');
     return recordResult('mismatch', `MX points to ${records.map((item) => stripDot(item.exchange)).join(', ')} instead of ${expected}.`);
   } catch (error) {
     return unresolvedOrError(error, 'No MX record was found.');
