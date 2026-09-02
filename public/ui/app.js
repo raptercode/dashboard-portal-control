@@ -48,6 +48,21 @@ function icon(name) {
   return svg;
 }
 
+const runtimeLogoPaths = Object.freeze({
+  node: '/ui/runtime-logos/nodejs.svg',
+  bun: '/ui/runtime-logos/bun.svg',
+  docker: '/ui/runtime-logos/docker.svg'
+});
+
+function runtimeLogo(name) {
+  const logo = document.createElement('img');
+  logo.className = `runtime-logo runtime-logo-${name}`;
+  logo.src = runtimeLogoPaths[name];
+  logo.alt = '';
+  logo.setAttribute('aria-hidden', 'true');
+  return logo;
+}
+
 function element(tag, className = '', text = '') {
   const node = document.createElement(tag);
   if (className) node.className = className;
@@ -2639,9 +2654,7 @@ async function hydrateRepositoryStep() {
   $('#compose-service').value = draft.composeService || '';
   $('#health-check-enabled').checked = draft.healthCheckEnabled !== false;
   $('#health-check-path').value = draft.healthCheckPath || '/';
-  const protocol = document.querySelector(`input[name="protocol"][value="${draft.protocol || 'https'}"]`);
-  if (protocol) protocol.checked = true;
-  toggleCredentialReference();
+  updateRepositoryConnection();
   toggleHealthCheckFields();
   toggleRuntimeFields();
   toggleProjectPort();
@@ -2689,7 +2702,9 @@ function setBranchOptions(branches, selected) {
 
 function toggleHealthCheckFields() {
   const enabled = $('#health-check-enabled').checked;
+  $('#health-check-details').hidden = !enabled;
   $('#health-check-path').disabled = !enabled;
+  $('#health-check-path').required = enabled;
   $('#health-check-path-row').classList.toggle('is-disabled', !enabled);
 }
 
@@ -2709,7 +2724,7 @@ function setProjectRuntime(value) {
   input.value = runtime;
   $('#runtime-selection-label').textContent = choices[runtime].label;
   $('#runtime-selection-detail').textContent = choices[runtime].detail;
-  $('#runtime-selection-icon').replaceChildren(icon(choices[runtime].icon));
+  $('#runtime-selection-icon').replaceChildren(runtimeLogo(choices[runtime].icon));
   $$('[data-runtime-option]').forEach((option) => option.setAttribute('aria-selected', String(option.dataset.runtimeOption === runtime)));
   $('#runtime-menu')?.removeAttribute('open');
   toggleRuntimeFields();
@@ -2745,17 +2760,30 @@ function toggleProjectPort() {
   $('#project-port-row').classList.toggle('is-disabled', automatic);
 }
 
-function toggleCredentialReference() {
-  const selected = document.querySelector('input[name="protocol"]:checked')?.value || 'https';
-  $('#https-credential').hidden = selected !== 'https';
-  $('#credential-id').disabled = selected !== 'https';
+function repositoryProtocol(repository = $('#repository')?.value) {
+  return String(repository || '').trim().startsWith('git@') ? 'ssh' : 'https';
+}
+
+function updateRepositoryConnection() {
+  const repository = $('#repository')?.value.trim() || '';
+  const protocol = repositoryProtocol(repository);
+  const credential = $('#credential-id');
+  const credentialRow = $('#https-credential');
+  credentialRow.hidden = protocol !== 'https';
+  credential.disabled = protocol !== 'https';
+  if (protocol === 'ssh') credential.value = '';
+  $('#repository-connection-note').textContent = !repository
+    ? 'วาง HTTPS หรือ git@ URL — ระบบจะเลือกวิธีเชื่อมต่อให้'
+    : protocol === 'ssh'
+      ? 'SSH — ตรวจพบจาก Remote URL; ต้องมี deploy key บน host ก่อน sync'
+      : 'HTTPS — ตรวจพบจาก Remote URL; เลือก credential เฉพาะ private repository';
 }
 
 async function fetchBranches() {
   const repository = $('#repository');
   if (!repository.reportValidity()) return;
   const button = $('#fetch-branches');
-  const protocol = document.querySelector('input[name="protocol"]:checked')?.value || 'https';
+  const protocol = repositoryProtocol(repository.value);
   button.disabled = true;
   try {
     const result = await api('/api/git/branches', { method: 'POST', body: { repository: repository.value, protocol, credentialId: $('#credential-id').value } });
@@ -2773,7 +2801,7 @@ async function detectProjectRuntimeFromRepository({ quiet = false } = {}) {
   if (!repository?.reportValidity()) return;
   const button = $('#detect-project-runtime');
   const note = $('#runtime-detection-note');
-  const protocol = document.querySelector('input[name="protocol"]:checked')?.value || 'https';
+  const protocol = repositoryProtocol(repository.value);
   const original = button?.textContent;
   if (button) button.disabled = true;
   if (note) note.textContent = 'กำลังอ่าน metadata ของ repository…';
@@ -3017,7 +3045,8 @@ function bindEvents() {
   $('#project-repository-form')?.addEventListener('submit', (event) => {
     event.preventDefault();
     const data = Object.fromEntries(new FormData(event.currentTarget));
-    data.protocol = document.querySelector('input[name="protocol"]:checked')?.value || 'https';
+    data.protocol = repositoryProtocol(data.repository);
+    if (data.protocol === 'ssh') data.credentialId = '';
     data.runtime = runtimeValue();
     data.autoPort = $('#auto-project-port').checked;
     if (data.autoPort) data.port = '';
@@ -3029,13 +3058,13 @@ function bindEvents() {
   });
   $('#fetch-branches')?.addEventListener('click', () => fetchBranches().catch(showError));
   $('#detect-project-runtime')?.addEventListener('click', () => detectProjectRuntimeFromRepository().catch(showError));
+  $('#repository')?.addEventListener('input', updateRepositoryConnection);
   $('#branch')?.addEventListener('change', () => detectProjectRuntimeFromRepository({ quiet: true }));
   $('#project-directory')?.addEventListener('change', () => detectProjectRuntimeFromRepository({ quiet: true }));
   $('#health-check-enabled')?.addEventListener('change', toggleHealthCheckFields);
   $('#auto-project-port')?.addEventListener('change', toggleProjectPort);
   $('#skip-build')?.addEventListener('change', toggleBuildFields);
   $$('[data-runtime-option]').forEach((option) => option.addEventListener('click', () => setProjectRuntime(option.dataset.runtimeOption)));
-  $$('input[name="protocol"]').forEach((input) => input.addEventListener('change', toggleCredentialReference));
 
   $('#project-review-form')?.addEventListener('submit', async (event) => {
     event.preventDefault();

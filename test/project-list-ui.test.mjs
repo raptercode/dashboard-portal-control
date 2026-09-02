@@ -6,13 +6,15 @@ const root = new URL('..', import.meta.url);
 const read = (path) => readFile(new URL(path, root), 'utf8');
 
 test('project list keeps technical settings behind details and protects deletion by exact name', async () => {
-  const [app, dialogs, css, compat, layout, sidebar] = await Promise.all([
+  const [app, dialogs, css, compat, layout, sidebar, repository, icons] = await Promise.all([
     read('public/ui/app.js'),
     read('views/partials/dialogs.html'),
     read('public/ui/admin.css'),
     read('public/ui/v2-compat.css'),
     read('views/layout.html'),
-    read('views/partials/sidebar.html')
+    read('views/partials/sidebar.html'),
+    read('views/pages/projects-new-repository.html'),
+    read('views/partials/icons.html')
   ]);
 
   assert.match(app, /project-details/);
@@ -58,6 +60,21 @@ test('project list keeps technical settings behind details and protects deletion
   assert.match(app, /function setSidebarCollapsed\(collapsed\)/);
   assert.match(layout, /id="sidebar-toggle"/);
   assert.match(compat, /body\.sidebar-collapsed \.app \{ --sidebar-w: 68px; \}/);
+  assert.match(compat, /:not\(\.runtime-menu-option\)/);
+  assert.match(compat, /\.runtime-menu-option \{ width: 100%; border: 0;/);
+  assert.match(compat, /\.runtime-logo \{ display: block; width: 23px; height: 23px;/);
+  assert.match(app, /function runtimeLogo\(name\)/);
+  assert.match(repository, /\/ui\/runtime-logos\/nodejs\.svg/);
+  assert.match(repository, /\/ui\/runtime-logos\/bun\.svg/);
+  assert.match(repository, /\/ui\/runtime-logos\/docker\.svg/);
+  assert.doesNotMatch(repository, /#icon-(node|bun|docker)/);
+  assert.doesNotMatch(icons, /id="icon-(node|bun|docker)"/);
+  assert.match(repository, /id="repository-connection-note"/);
+  assert.doesNotMatch(repository, /name="protocol"/);
+  assert.ok(repository.indexOf('id="https-credential"') < repository.indexOf('id="project-directory"'));
+  assert.match(repository, /id="health-check-details"/);
+  assert.match(repository, /สถานะ 2xx หรือ 3xx/);
+  assert.match(app, /function repositoryProtocol\(repository/);
   assert.match(sidebar, /title="Projects"/);
   assert.doesNotMatch(css, /Dark workspace/);
   assert.match(layout, /name="color-scheme" content="light dark"/);

@@ -15,7 +15,7 @@ test('runtime detection API requires owner CSRF and returns only safe repository
   await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
   t.after(() => app.close());
   const base = `http://127.0.0.1:${app.server.address().port}`;
-  const body = { repository: 'https://github.com/example/project.git', branch: 'main', directory: '/', protocol: 'https', credentialId: '' };
+  const body = { repository: 'https://github.com/example/project.git', branch: 'main', directory: '/', credentialId: '' };
   assert.equal((await fetch(`${base}/api/projects/runtime-detect`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })).status, 401);
   const login = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'owner@local.test', password: 'correct-horse-battery-staple' }) });
   const session = await login.json();

@@ -22,18 +22,19 @@ async function makeLocalRepo(dir, filename, content) {
   return dir;
 }
 
-test('Git sync accepts HTTPS token references and host-managed SSH keys', () => {
+test('Git sync derives the protocol from the remote URL and accepts token references or host-managed SSH keys', () => {
   assert.deepEqual(validateGitIdentity({ name: 'Owner', email: 'owner@example.test' }), { name: 'Owner', email: 'owner@example.test' });
-  const https = validateProjectSync({ ...base, repository: 'https://github.com/example/demo.git', protocol: 'https', credentialId: '00000000-0000-4000-8000-000000000001' });
+  const https = validateProjectSync({ ...base, repository: 'https://github.com/example/demo.git', credentialId: '00000000-0000-4000-8000-000000000001' });
+  assert.equal(https.protocol, 'https');
   assert.equal(https.credentialId, '00000000-0000-4000-8000-000000000001');
-  const ssh = validateProjectSync({ ...base, repository: 'git@github.com:example/demo.git', protocol: 'ssh' });
+  const ssh = validateProjectSync({ ...base, repository: 'git@github.com:example/demo.git', protocol: 'https' });
+  assert.equal(ssh.protocol, 'ssh');
   assert.equal(ssh.sshKeyId, 'deploy-key-demo-app');
   assert.equal(ssh.credentialId, null);
 });
 
-test('Git sync refuses an inline token, protocol mismatch, and invalid identity', () => {
+test('Git sync refuses an inline token and invalid identity', () => {
   assert.throws(() => validateProjectSync({ ...base, repository: 'https://github.com/example/demo.git', protocol: 'https', credentialId: 'ghp-secret-token' }), InputError);
-  assert.throws(() => validateProjectSync({ ...base, repository: 'git@github.com:example/demo.git', protocol: 'https' }), InputError);
   assert.throws(() => validateGitIdentity({ name: 'Owner', email: 'not-an-email' }), InputError);
 });
 

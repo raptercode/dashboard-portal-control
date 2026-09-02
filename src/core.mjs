@@ -256,10 +256,7 @@ export function validateGitIdentity(input) {
 
 export function validateProjectSync(input) {
   const project = validateProject(input);
-  const protocol = input.protocol;
-  if (!['https', 'ssh'].includes(protocol)) throw new InputError('Select HTTPS or SSH.');
-  if (protocol === 'https' && !project.repository.startsWith('https://')) throw new InputError('HTTPS projects require an HTTPS repository URL.');
-  if (protocol === 'ssh' && !project.repository.startsWith('git@')) throw new InputError('SSH projects require Git SSH URL syntax.');
+  const protocol = repositoryProtocol(project.repository);
   const credentialId = optionalText(input.credentialId, 64);
   if (protocol === 'https' && credentialId && !/^[a-f0-9-]{36}$/i.test(credentialId)) throw new InputError('Credential selection is invalid.');
   const runtime = input.runtime === undefined ? 'node' : input.runtime;
@@ -285,14 +282,15 @@ export function validateProjectSync(input) {
 
 export function validateGitBranchRequest(input) {
   const repository = requiredText(input.repository, 'Repository URL', 500);
-  const protocol = input.protocol;
-  if (!['https', 'ssh'].includes(protocol)) throw new InputError('Select HTTPS or SSH.');
-  if (protocol === 'https' && !repository.startsWith('https://')) throw new InputError('HTTPS projects require an HTTPS repository URL.');
-  if (protocol === 'ssh' && !repository.startsWith('git@')) throw new InputError('SSH projects require Git SSH URL syntax.');
   if (!isRepositoryUrl(repository)) throw new InputError('Repository URL must be HTTPS or SSH Git syntax.');
+  const protocol = repositoryProtocol(repository);
   const credentialId = optionalText(input.credentialId, 64);
   if (protocol === 'https' && credentialId && !/^[a-f0-9-]{36}$/i.test(credentialId)) throw new InputError('Credential selection is invalid.');
   return { repository, protocol, credentialId: protocol === 'https' ? credentialId || null : null };
+}
+
+function repositoryProtocol(repository) {
+  return repository.startsWith('git@') ? 'ssh' : 'https';
 }
 
 export function validateProjectRuntimeDetection(input) {

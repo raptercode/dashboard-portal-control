@@ -13,7 +13,12 @@
   </ol>
   <section class="panel">
     <form id="project-repository-form" class="form-grid">
-      <label for="repository">Repository URL<input id="repository" name="repository" maxlength="500" placeholder="https://github.com/org/repo.git" required></label>
+      <label for="repository">Remote repository<input id="repository" name="repository" maxlength="500" placeholder="https://github.com/org/repo.git หรือ git@github.com:org/repo.git" required><small id="repository-connection-note" class="field-hint" aria-live="polite">วาง HTTPS หรือ git@ URL — ระบบจะเลือกวิธีเชื่อมต่อให้</small></label>
+      <div id="https-credential">
+        <label for="credential-id">Credential <small class="field-hint">เลือกเฉพาะ private repository ผ่าน HTTPS</small>
+          <select id="credential-id" name="credentialId"><option value="">Public repository — ไม่ต้องใช้ credential</option></select>
+        </label>
+      </div>
       <div class="two-fields">
         <label for="project-directory">Directory <small class="field-hint">โฟลเดอร์ของแอปภายใน repository</small><input id="project-directory" name="directory" list="directory-suggestions" value="/" maxlength="240" placeholder="/examples" required><datalist id="directory-suggestions"><option value="/"></option><option value="/apps"></option><option value="/examples"></option><option value="/packages"></option></datalist></label>
         <label for="branch">Branch <small class="field-hint">ดึงรายการจาก Git ก่อนเลือก</small>
@@ -36,11 +41,11 @@
         <legend>Runtime</legend>
         <input id="project-runtime" name="runtime" type="hidden" value="node">
         <details id="runtime-menu" class="runtime-menu">
-          <summary><span id="runtime-selection-icon" class="runtime-option-icon"><svg class="icon" aria-hidden="true"><use href="#icon-node"></use></svg></span><span><b id="runtime-selection-label">Node.js</b><small id="runtime-selection-detail">build และ run ด้วย npm script ใน systemd</small></span><svg class="icon runtime-chevron" aria-hidden="true"><use href="#icon-arrow-right"></use></svg></summary>
+          <summary><span id="runtime-selection-icon" class="runtime-option-icon"><img class="runtime-logo runtime-logo-node" src="/ui/runtime-logos/nodejs.svg" alt="" aria-hidden="true"></span><span><b id="runtime-selection-label">Node.js</b><small id="runtime-selection-detail">build และ run ด้วย npm script ใน systemd</small></span><svg class="icon runtime-chevron" aria-hidden="true"><use href="#icon-arrow-right"></use></svg></summary>
           <div class="runtime-menu-options" role="listbox" aria-label="เลือก Runtime">
-            <button type="button" class="runtime-menu-option" data-runtime-option="node" role="option" aria-selected="true"><span class="runtime-option-icon"><svg class="icon" aria-hidden="true"><use href="#icon-node"></use></svg></span><span><b>Node.js</b><small>npm และ systemd</small></span></button>
-            <button type="button" class="runtime-menu-option" data-runtime-option="bun" role="option" aria-selected="false"><span class="runtime-option-icon"><svg class="icon" aria-hidden="true"><use href="#icon-bun"></use></svg></span><span><b>Bun</b><small>Bun install และ systemd</small></span></button>
-            <button type="button" class="runtime-menu-option" data-runtime-option="docker-compose" role="option" aria-selected="false"><span class="runtime-option-icon"><svg class="icon" aria-hidden="true"><use href="#icon-docker"></use></svg></span><span><b>Docker Compose</b><small>Compose ที่ผ่าน policy check</small></span></button>
+            <button type="button" class="runtime-menu-option" data-runtime-option="node" role="option" aria-selected="true"><span class="runtime-option-icon"><img class="runtime-logo runtime-logo-node" src="/ui/runtime-logos/nodejs.svg" alt="" aria-hidden="true"></span><span><b>Node.js</b><small>npm และ systemd</small></span></button>
+            <button type="button" class="runtime-menu-option" data-runtime-option="bun" role="option" aria-selected="false"><span class="runtime-option-icon"><img class="runtime-logo runtime-logo-bun" src="/ui/runtime-logos/bun.svg" alt="" aria-hidden="true"></span><span><b>Bun</b><small>Bun install และ systemd</small></span></button>
+            <button type="button" class="runtime-menu-option" data-runtime-option="docker-compose" role="option" aria-selected="false"><span class="runtime-option-icon"><img class="runtime-logo runtime-logo-docker" src="/ui/runtime-logos/docker.svg" alt="" aria-hidden="true"></span><span><b>Docker Compose</b><small>Compose ที่ผ่าน policy check</small></span></button>
           </div>
         </details>
       </fieldset>
@@ -56,18 +61,11 @@
       <fieldset class="fieldset">
         <legend>Health check</legend>
         <label class="check-row"><input id="health-check-enabled" name="healthCheckEnabled" type="checkbox" checked><span><b>ตรวจสอบ candidate ก่อน activate</b><small>ปิดเมื่อโปรเจคไม่มี HTTP endpoint</small></span></label>
-        <label id="health-check-path-row" for="health-check-path">Health check path<input id="health-check-path" name="healthCheckPath" value="/" maxlength="200" placeholder="/healthz" required></label>
+        <div id="health-check-details">
+          <label id="health-check-path-row" for="health-check-path">Health check path<input id="health-check-path" name="healthCheckPath" value="/" maxlength="200" placeholder="/healthz" required></label>
+          <small class="field-hint">ส่ง HTTP GET ไปที่ candidate บน loopback; สถานะ 2xx หรือ 3xx ภายในเวลาที่กำหนดจึงผ่าน</small>
+        </div>
       </fieldset>
-      <fieldset class="fieldset">
-        <legend>วิธีเชื่อมต่อ</legend>
-        <label class="check-row"><input name="protocol" value="https" type="radio" checked><span><b>HTTPS</b><small>ใช้ token จาก credential vault</small></span></label>
-        <label class="check-row"><input name="protocol" value="ssh" type="radio"><span><b>SSH</b><small>ต้องมี deploy key บน host ก่อน</small></span></label>
-      </fieldset>
-      <div id="https-credential">
-        <label for="credential-id">HTTPS credential
-          <select id="credential-id" name="credentialId"><option value="">Public repository — ไม่ต้องใช้ credential</option></select>
-        </label>
-      </div>
       <div class="form-actions">
         <a id="flow-back" class="secondary button" href="/projects/new">ย้อนกลับ</a>
         <span class="modal-spacer"></span>
