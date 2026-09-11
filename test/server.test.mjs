@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { copyCandidateSource, createApplication, installCandidateDependencies, redactBuildOutput, resolveProjectPort } from '../src/server.mjs';
+import { candidateRuntimeEnvironment, copyCandidateSource, createApplication, installCandidateDependencies, redactBuildOutput, resolveProjectPort } from '../src/server.mjs';
 import { SecretVault } from '../src/core.mjs';
 
 async function start(options = {}) {
@@ -73,6 +73,18 @@ test('failed build output is bounded and redacts project environment values', ()
   assert.equal(output.includes(secret), false);
   assert.match(output, /earlier build output omitted/);
   assert.ok(Buffer.byteLength(output, 'utf8') <= 13 * 1024);
+});
+
+test('candidate health checks reserve their PORT and HOST after loading project environment', () => {
+  const environment = candidateRuntimeEnvironment({
+    baseEnvironment: { HOME: '/home/dashboardportal' },
+    environmentContent: 'PORT=4000\nHOST=0.0.0.0\nDATABASE_URL=postgres://example',
+    candidatePort: 24000
+  });
+  assert.equal(environment.PORT, '24000');
+  assert.equal(environment.HOST, '127.0.0.1');
+  assert.equal(environment.HOSTMGR_CANDIDATE, 'true');
+  assert.equal(environment.DATABASE_URL, 'postgres://example');
 });
 
 test('Bun candidate installs use a frozen lockfile and fall back only for a lock mismatch', async () => {

@@ -1797,8 +1797,10 @@ async function healthCheckCandidate(cwd, project, storedProject, vault, reportPh
     return;
   }
   await reportPhase('candidate_health', 'started', `Starting the candidate and checking ${project.healthCheckPath}.`);
-  const environment = { ...process.env, PORT: String(project.candidatePort), HOST: '127.0.0.1', HOSTMGR_CANDIDATE: 'true' };
-  if (storedProject.environment?.encryptedContent) Object.assign(environment, parseEnvironment(vault?.decrypt(storedProject.environment.encryptedContent) ?? ''));
+  const environment = candidateRuntimeEnvironment({
+    environmentContent: storedProject.environment?.encryptedContent ? vault?.decrypt(storedProject.environment.encryptedContent) ?? '' : '',
+    candidatePort: project.candidatePort
+  });
   const candidate = spawn(runtimeExecutable(project.runtime), ['run', project.startScript], { cwd, env: environment, shell: false, detached: process.platform !== 'win32', stdio: ['ignore', 'ignore', 'ignore'] });
   let exited = false;
   let startupError = false;
@@ -1903,6 +1905,16 @@ async function requestHealth(port, path) {
 
 function parseEnvironment(content) {
   return Object.fromEntries(parseEnvironmentDocument(content).variables.map(({ key, value }) => [key, value]));
+}
+
+export function candidateRuntimeEnvironment({ environmentContent = '', candidatePort, baseEnvironment = process.env }) {
+  return {
+    ...baseEnvironment,
+    ...parseEnvironment(environmentContent),
+    PORT: String(candidatePort),
+    HOST: '127.0.0.1',
+    HOSTMGR_CANDIDATE: 'true'
+  };
 }
 
 function serializeEnvironment(environment) {
