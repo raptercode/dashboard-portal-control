@@ -2,11 +2,15 @@
 
 ## What a deployment records
 
-Each release retains an ordered, safe event log in Portal state. The project
-card opens the latest release's **Logs** dialog, which reports candidate source
+Each release retains an ordered event log in Portal state. The project card
+opens the latest release's **Logs** dialog, which reports candidate source
 copy, dependency installation, build, candidate health, host activation, and
-the final failure reason. Messages deliberately exclude command output,
-filesystem paths derived from project input, environment values, and secrets.
+the final failure reason. When a native build or Docker Compose build fails,
+the dialog also keeps the final bounded build output so the owner can see the
+actual compiler or package-manager error. Before it is stored, values from the
+project `.env`, authorization headers, and common secret assignments are
+replaced with `<redacted>`. It does not retain arbitrary helper output or
+filesystem paths derived from project input.
 
 The active release is not changed unless every required phase succeeds.
 

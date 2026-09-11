@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { copyCandidateSource, createApplication, installCandidateDependencies, resolveProjectPort } from '../src/server.mjs';
+import { copyCandidateSource, createApplication, installCandidateDependencies, redactBuildOutput, resolveProjectPort } from '../src/server.mjs';
 import { SecretVault } from '../src/core.mjs';
 
 async function start(options = {}) {
@@ -65,6 +65,16 @@ test('candidate dependency install uses npm install only when a lockfile is abse
   );
 });
 
+test('failed build output is bounded and redacts project environment values', () => {
+  const secret = 'production-secret-value';
+  const output = redactBuildOutput('x'.repeat(13 * 1024) + '\nnpm error API_KEY=' + secret + '\nAuthorization: Bearer bearer-value', 'API_KEY=' + secret + '\n');
+  assert.match(output, /API_KEY=<redacted>/);
+  assert.match(output, /Authorization: Bearer <redacted>/);
+  assert.equal(output.includes(secret), false);
+  assert.match(output, /earlier build output omitted/);
+  assert.ok(Buffer.byteLength(output, 'utf8') <= 13 * 1024);
+});
+
 test('Bun candidate installs use a frozen lockfile and fall back only for a lock mismatch', async () => {
   const calls = [];
   const runner = async (args) => { calls.push(args); };
@@ -102,7 +112,7 @@ test('project-scoped monitor tokens expose safe deployment status without an own
       name: 'Monitor app', organization: 'Tests', slug: 'monitor-app', repository: 'https://token@example.test/private.git', branch: 'main', directory: '/', port: 3211,
       healthCheckEnabled: true, healthCheckPath: '/', protocol: 'https', credentialId: 'private-credential', sync: { status: 'synced', at: new Date().toISOString(), detail: 'Source synced.' },
       environment: { keys: ['SECRET'], encryptedContent: { ciphertext: 'never-returned' } }, domains: { hosts: ['monitor.example.test'] },
-      deployment: { state: 'failed', activeReleaseId: null, previousReleaseId: null, updatedAt: new Date().toISOString(), releases: [{ id: 'a'.repeat(36), revision: 'deadbeef', status: 'failed', createdAt: new Date().toISOString(), failure: 'Build failed.', health: { status: 'failed' }, events: [{ at: new Date().toISOString(), phase: 'build', status: 'failed', message: 'Build failed.' }] }] }
+      deployment: { state: 'failed', activeReleaseId: null, previousReleaseId: null, updatedAt: new Date().toISOString(), releases: [{ id: 'a'.repeat(36), revision: 'deadbeef', status: 'failed', createdAt: new Date().toISOString(), failure: 'Build failed.', failureLog: 'owner-only-build-output', health: { status: 'failed' }, events: [{ at: new Date().toISOString(), phase: 'build', status: 'failed', message: 'Build failed.' }] }] }
     });
   });
   const login = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'owner@local.test', password: 'correct-horse-battery-staple' }) });
@@ -120,6 +130,9 @@ test('project-scoped monitor tokens expose safe deployment status without an own
   assert.equal(payload.project.slug, 'monitor-app');
   assert.equal(JSON.stringify(payload).includes('token@example.test'), false);
   assert.equal(JSON.stringify(payload).includes('never-returned'), false);
+  assert.equal(JSON.stringify(payload).includes('owner-only-build-output'), false);
+  const ownerProjects = await (await fetch(`${base}/api/projects`, { headers: { cookie: headers.cookie } })).json();
+  assert.equal(ownerProjects.projects[0].deployment.releases[0].failureLog, 'owner-only-build-output');
   const revoked = await fetch(`${base}/api/monitor-tokens/${createdBody.monitorToken.id}`, { method: 'DELETE', headers, body: '{}' });
   assert.equal(revoked.status, 200);
   assert.equal((await fetch(`${base}/api/monitor/v1/projects/monitor-app/deployments`, { headers: { authorization: `Bearer ${createdBody.token}` } })).status, 403);
@@ -153,6 +166,18 @@ test('dashboard URLs reload their matching application shell', async (t) => {
   assert.equal((await fetch(`${base}/not-a-dashboard-page`)).status, 404);
   assert.equal((await fetch(`${base}/index.html`)).status, 404);
   assert.equal((await fetch(`${base}/app.js`)).status, 404);
+});
+
+test('UI assets support nested paths without exposing files outside public UI', async (t) => {
+  const { app, base } = await start();
+  t.after(() => app.close());
+
+  const logo = await fetch(`${base}/ui/runtime-logos/nodejs.svg`);
+  assert.equal(logo.status, 200);
+  assert.match(logo.headers.get('content-type'), /image\/svg\+xml/);
+  assert.match(await logo.text(), /<svg\b/);
+
+  assert.equal((await fetch(`${base}/ui/..%2Fpackage.json`)).status, 404);
 });
 
 test('an active project reports a down runtime without exposing host diagnostics', async (t) => {

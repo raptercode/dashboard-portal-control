@@ -45,6 +45,7 @@ test('project list keeps technical settings behind details and protects deletion
   assert.match(dialogs, /id="deploy-add-variable"/);
   assert.match(dialogs, /id="deploy-package-manager"/);
   assert.match(dialogs, /id="deploy-lockfile"/);
+  assert.match(dialogs, /id="deployment-log-output"/);
   assert.match(app, /function setDeployStep\(step\)/);
   assert.match(app, /function closeDeployDialog\(\)/);
   assert.match(app, /collectDeployEnvironmentVariables/);
@@ -61,7 +62,10 @@ test('project list keeps technical settings behind details and protects deletion
   assert.match(compat, /:not\(\.runtime-menu-option\)/);
   assert.match(compat, /\.runtime-menu-option \{ width: 100%; border: 0;/);
   assert.match(compat, /\.runtime-logo \{ display: block; width: 23px; height: 23px;/);
+  assert.match(compat, /\.project-list \{ display: grid; grid-template-columns: repeat\(3, minmax\(0, 1fr\)\);/);
+  assert.match(compat, /\.deployment-log-output/);
   assert.match(app, /function runtimeLogo\(name\)/);
+  assert.match(app, /function renderDeploymentLog\(events, failureLog\)/);
   assert.match(repository, /\/ui\/runtime-logos\/nodejs\.svg/);
   assert.match(repository, /\/ui\/runtime-logos\/bun\.svg/);
   assert.match(repository, /\/ui\/runtime-logos\/docker\.svg/);

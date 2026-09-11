@@ -92,7 +92,13 @@
     </div>
     <button id="deployment-log-close" class="modal-close" type="button" aria-label="ปิด"><svg class="icon" aria-hidden="true"><use href="#icon-close"></use></svg></button>
   </header>
-  <div class="modal-body"><ol id="deployment-log-events" class="deployment-log-events"></ol></div>
+  <div class="modal-body">
+    <ol id="deployment-log-events" class="deployment-log-events"></ol>
+    <section id="deployment-log-output-panel" class="deployment-log-output-panel" hidden>
+      <h3>Build output</h3>
+      <pre id="deployment-log-output" class="deployment-log-output"></pre>
+    </section>
+  </div>
   <footer class="modal-footer"><span class="modal-spacer"></span><button id="deployment-log-dismiss" type="button">ปิด</button></footer>
 </dialog>
 

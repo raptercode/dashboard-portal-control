@@ -32,6 +32,7 @@ const MAIL_SASL = `${MAIL_ROOT}/sasl_passwd`;
 const MAIL_VMAIL_ROOT = '/var/vmail';
 const MAIL_DKIM_ROOT = '/etc/opendkim/keys';
 const MAIL_CERTIFICATE = '/etc/letsencrypt/live/hostmgr-mail';
+const MAX_COMMAND_OUTPUT_BYTES = 64 * 1024;
 
 const args = parseArgs(process.argv.slice(2));
 const socketPath = args.socket;
@@ -66,9 +67,11 @@ function handleSocket(socket) {
       const result = await dispatch(request);
       socket.end(`${JSON.stringify({ ok: true, ...result })}\n`);
     } catch (error) {
-      // Error messages must stay static: do not return command output, paths
-      // derived from a project, or secret-bearing application errors.
-      socket.end(`${JSON.stringify({ ok: false, error: safeError(error) })}\n`);
+      // Only a bounded, redacted Docker build output may cross this boundary.
+      // Every other helper failure remains a static message.
+      const response = { ok: false, error: safeError(error) };
+      if (error instanceof HelperError && error.buildOutput) response.buildOutput = error.buildOutput;
+      socket.end(`${JSON.stringify(response)}\n`);
     }
   });
 }
@@ -618,7 +621,12 @@ async function startAndCheckProject(project, transaction) {
 }
 
 async function startAndCheckDockerProject(project, transaction) {
-  await runDockerCompose(project, transaction.releaseRoot, ['up', '--build', '--detach', '--remove-orphans'], { timeout: 600_000, failure: 'Docker Compose could not build or start the project.' });
+  try {
+    await runDockerCompose(project, transaction.releaseRoot, ['up', '--build', '--detach', '--remove-orphans'], { timeout: 600_000, failure: 'Docker Compose could not build or start the project.' });
+  } catch (error) {
+    const environment = await readTextOrEmpty(join(transaction.releaseRoot, '.env'));
+    throw new HelperError('Docker Compose could not build or start the project.', redactBuildOutput(error?.commandOutput, environment));
+  }
   if (project.healthCheckEnabled === false) return;
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
@@ -900,13 +908,25 @@ function run(command, args, options = {}) {
     const { failure = 'A required host operation failed.', input, ...spawnOptions } = options;
     const child = spawn(command, args, { shell: false, stdio: ['pipe', 'pipe', 'pipe'], timeout: 120_000, ...spawnOptions });
     let stdout = '';
-    child.stdout.on('data', (chunk) => { stdout += chunk; });
+    let stderr = '';
+    child.stdout.on('data', (chunk) => { stdout = appendCommandOutput(stdout, chunk); });
+    child.stderr.on('data', (chunk) => { stderr = appendCommandOutput(stderr, chunk); });
     child.stderr.resume();
     child.stdin.on('error', () => {});
     child.stdin.end(typeof input === 'string' ? input : undefined);
     child.once('error', () => reject(new HelperError('A required host operation could not start.')));
-    child.once('close', (code) => code === 0 ? resolve(stdout.trim()) : reject(new HelperError(failure)));
+    child.once('close', (code) => {
+      if (code === 0) return resolve(stdout.trim());
+      const error = new HelperError(failure);
+      error.commandOutput = `${stdout}\n${stderr}`;
+      reject(error);
+    });
   });
+}
+
+function appendCommandOutput(existing, chunk) {
+  const merged = Buffer.concat([Buffer.from(existing), Buffer.from(chunk)]);
+  return (merged.length > MAX_COMMAND_OUTPUT_BYTES ? merged.subarray(-MAX_COMMAND_OUTPUT_BYTES) : merged).toString('utf8');
 }
 
 function helperFailure(error, fallback) {
@@ -922,5 +942,26 @@ function parseArgs(values) {
   return result;
 }
 
+function redactBuildOutput(output, environment) {
+  let safe = String(output ?? '').replace(/\r\n?/g, '\n').trim();
+  if (!safe) return null;
+  const values = String(environment ?? '').split(/\r?\n/)
+    .map((line) => /^[A-Za-z_][A-Za-z0-9_]*=(.*)$/.exec(line)?.[1] ?? '')
+    .filter((value) => value.length >= 3)
+    .sort((left, right) => right.length - left.length);
+  for (const value of new Set(values)) safe = safe.split(value).join('<redacted>');
+  safe = safe
+    .replace(/\b(authorization\s*:\s*(?:bearer\s+)?)[^\s'"\\]+/gi, '$1<redacted>')
+    .replace(/\b([A-Z][A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|API_KEY|PRIVATE_KEY)[A-Z0-9_]*)\s*([=:])\s*([^\s'"\\]+)/g, '$1$2<redacted>');
+  const maxBytes = 12 * 1024;
+  if (Buffer.byteLength(safe, 'utf8') > maxBytes) safe = `… earlier build output omitted …\n${Buffer.from(safe, 'utf8').subarray(-maxBytes).toString('utf8')}`;
+  return safe;
+}
+
 function safeError(error) { return error instanceof HelperError ? error.message : 'Host helper operation failed.'; }
-class HelperError extends Error {}
+class HelperError extends Error {
+  constructor(message, buildOutput = null) {
+    super(message);
+    this.buildOutput = typeof buildOutput === 'string' && buildOutput ? buildOutput : null;
+  }
+}

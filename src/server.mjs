@@ -1,7 +1,7 @@
 import { createServer } from 'node:http';
 import { createServer as createTcpServer } from 'node:net';
 import { chmod, cp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
-import { basename, extname, join, normalize } from 'node:path';
+import { basename, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import os from 'node:os';
@@ -30,6 +30,8 @@ const here = fileURLToPath(new URL('.', import.meta.url));
 const publicDir = join(here, '..', 'public');
 const uiDir = join(publicDir, 'ui');
 const viewsDir = join(here, '..', 'views');
+const MAX_BUILD_LOG_BYTES = 12 * 1024;
+const MAX_COMMAND_OUTPUT_BYTES = 64 * 1024;
 const renderView = createRenderer(viewsDir);
 const contentTypes = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.json': 'application/json; charset=utf-8' };
 const pageTitles = {
@@ -972,7 +974,7 @@ export async function createApplication(options = {}) {
       return sendJson(response, 200, { ok: true, activation: 'complete', project: publicProject(store.snapshot().projects.find((item) => item.slug === slug)) });
     }
     const release = createRelease(deployProject, await projectRevision(project, projectRoot));
-    const job = { id: randomUUID(), kind: 'deploy', projectSlug: slug, releaseId: release.id, status: 'queued', createdAt: new Date().toISOString(), startedAt: null, finishedAt: null, events: [{ at: new Date().toISOString(), status: 'queued', message: 'Deployment is queued.' }], failure: null };
+    const job = { id: randomUUID(), kind: 'deploy', projectSlug: slug, releaseId: release.id, status: 'queued', createdAt: new Date().toISOString(), startedAt: null, finishedAt: null, events: [{ at: new Date().toISOString(), status: 'queued', message: 'Deployment is queued.' }], failure: null, failureLog: null };
     await store.update((state) => {
       const target = findProject(state, slug);
       if (state.jobs.some((item) => item.projectSlug === slug && ['queued', 'running'].includes(item.status))) throw new InputError('This project already has a queued or running deployment.');
@@ -1037,12 +1039,15 @@ export async function createApplication(options = {}) {
       return markJobSucceeded(jobId, 'Deployment completed and the new release is active.');
     } catch (error) {
       const failure = safeDeploymentFailure(error);
+      const failureLog = error instanceof DeploymentFailure ? error.failureLog : null;
       await store.update((state) => {
         const target = findProject(state, job.projectSlug);
         target.deployment = failRelease(target.deployment, release.id, failure);
+        const failedRelease = target.deployment.releases.find((item) => item.id === release.id);
+        if (failedRelease && failureLog) failedRelease.failureLog = failureLog;
         appendAudit(state, { action: 'project.deploy', outcome: 'failure', actor: 'owner', target: job.projectSlug, detail: `${failure} Active release was left unchanged.` });
       });
-      return markJobFailed(jobId, failure);
+      return markJobFailed(jobId, failure, failureLog);
     }
   }
 
@@ -1083,11 +1088,12 @@ export async function createApplication(options = {}) {
     void deliverProjectNotifications('deployment.succeeded', jobId, message);
   }
 
-  async function markJobFailed(jobId, message) {
+  async function markJobFailed(jobId, message, failureLog = null) {
     await updateJob(jobId, (job) => {
       job.status = 'failed';
       job.finishedAt = new Date().toISOString();
       job.failure = message.slice(0, 240);
+      job.failureLog = typeof failureLog === 'string' && failureLog ? failureLog : null;
       appendJobEvent(job, 'failed', job.failure);
     });
     void deliverProjectNotifications('deployment.failed', jobId, message);
@@ -1719,9 +1725,10 @@ async function prepareNativeRelease(project, release, storedProject, vault, proj
     await mkdir(join(projectRoot, project.slug, 'releases'), { recursive: true, mode: 0o750 });
     await copyCandidateSource(source, destination);
     await reportPhase('source_copy', 'passed', 'Candidate source was prepared.');
+    const environmentContent = storedProject.environment?.encryptedContent ? vault?.decrypt(storedProject.environment.encryptedContent) ?? '' : '';
     if (storedProject.environment?.encryptedContent) {
       if (!vault) throw new InputError('Credential vault is not configured.');
-      await writeFile(join(destination, '.env'), vault.decrypt(storedProject.environment.encryptedContent), { mode: 0o600 });
+      await writeFile(join(destination, '.env'), environmentContent, { mode: 0o600 });
     }
     await runCandidateRuntime(project.runtime, ['--version'], {}, `The host ${runtimeLabel(project.runtime)} runtime is missing. Re-run the Dashboard Portal installer.`);
     await installCandidateDependencies({
@@ -1733,7 +1740,7 @@ async function prepareNativeRelease(project, release, storedProject, vault, proj
     });
     if (project.buildScript) {
       await reportPhase('build', 'started', `Running ${runtimeLabel(project.runtime)} script "${project.buildScript}".`);
-      await runCandidateRuntime(project.runtime, ['run', project.buildScript], { cwd: destination, timeout: 300_000 }, `Candidate build script "${project.buildScript}" failed.`);
+      await runCandidateRuntime(project.runtime, ['run', project.buildScript], { cwd: destination, timeout: 300_000 }, `Candidate build script "${project.buildScript}" failed.`, environmentContent);
       await reportPhase('build', 'passed', `Build script "${project.buildScript}" passed.`);
     } else {
       await reportPhase('build', 'skipped', 'No build script is configured for this project.');
@@ -1821,11 +1828,11 @@ function stopCandidate(candidate, signal) {
   } catch {}
 }
 
-async function runCandidateRuntime(runtime, args, options, failure) {
+async function runCandidateRuntime(runtime, args, options, failure, environmentContent = '') {
   try {
     return await run(runtimeExecutable(runtime), args, options);
-  } catch {
-    throw new DeploymentFailure(failure);
+  } catch (error) {
+    throw new DeploymentFailure(failure, redactBuildOutput(error?.commandOutput, environmentContent));
   }
 }
 
@@ -1921,7 +1928,7 @@ function repositoryDirectory(project, projectRoot) {
 
 async function activateOnHost(socketPath, slug, releaseId) {
   const result = await callHostHelper(socketPath, { operation: 'activate-project', slug, releaseId });
-  if (!result.ok) throw new DeploymentFailure(result.error || 'Deployment helper rejected the activation.');
+  if (!result.ok) throw new DeploymentFailure(result.error || 'Deployment helper rejected the activation.', result.buildOutput);
 }
 
 async function syncDomainsOnHost(socketPath, slug) {
@@ -2068,6 +2075,7 @@ function publicJob(job) {
     status: event.status,
     message: typeof event.message === 'string' ? event.message.slice(0, 240) : 'Deployment event recorded.'
   }));
+  safe.failureLog = typeof safe.failureLog === 'string' ? safe.failureLog.slice(-MAX_BUILD_LOG_BYTES) : null;
   return safe;
 }
 
@@ -2144,7 +2152,30 @@ function compactVersion(output) {
   return String(output ?? '').replace(/\s+/g, ' ').trim().slice(0, 160);
 }
 
-class DeploymentFailure extends Error {}
+class DeploymentFailure extends Error {
+  constructor(message, failureLog = null) {
+    super(message);
+    this.failureLog = typeof failureLog === 'string' && failureLog ? failureLog.slice(-MAX_BUILD_LOG_BYTES) : null;
+  }
+}
+
+export function redactBuildOutput(output, environmentContent = '') {
+  let safe = String(output ?? '').replace(/\r\n?/g, '\n').trim();
+  if (!safe) return null;
+  const values = parseEnvironmentDocument(String(environmentContent ?? '')).variables
+    .map(({ value }) => value)
+    .filter((value) => typeof value === 'string' && value.length >= 3)
+    .sort((left, right) => right.length - left.length);
+  for (const value of new Set(values)) safe = safe.split(value).join('<redacted>');
+  safe = safe
+    .replace(/\b(authorization\s*:\s*(?:bearer\s+)?)[^\s'"\\]+/gi, '$1<redacted>')
+    .replace(/\b([A-Z][A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|API_KEY|PRIVATE_KEY)[A-Z0-9_]*)\s*([=:])\s*([^\s'"\\]+)/g, '$1$2<redacted>');
+  if (Buffer.byteLength(safe, 'utf8') > MAX_BUILD_LOG_BYTES) {
+    const tail = Buffer.from(safe, 'utf8').subarray(-MAX_BUILD_LOG_BYTES).toString('utf8');
+    safe = `… earlier build output omitted …\n${tail}`;
+  }
+  return safe;
+}
 
 function safeDeploymentFailure(error) {
   if (error instanceof DeploymentFailure || error instanceof InputError) return error.message.slice(0, 240);
@@ -2167,11 +2198,21 @@ function run(command, args, options = {}) {
     const child = spawn(command, args, { shell: false, stdio: ['ignore', 'pipe', 'pipe'], timeout: 120000, ...options });
     let stdout = '';
     let stderr = '';
-    child.stdout.on('data', (data) => { stdout += data; });
-    child.stderr.on('data', (data) => { stderr += data; });
+    child.stdout.on('data', (data) => { stdout = appendCommandOutput(stdout, data); });
+    child.stderr.on('data', (data) => { stderr = appendCommandOutput(stderr, data); });
     child.once('error', reject);
-    child.once('close', (code) => code === 0 ? resolve(stdout.trim()) : reject(new Error(`Privileged helper failed (${code}): ${stderr.slice(0, 200)}`)));
+    child.once('close', (code) => {
+      if (code === 0) return resolve(stdout.trim());
+      const error = new Error(`Privileged helper failed (${code}): ${stderr.slice(0, 200)}`);
+      error.commandOutput = `${stdout}\n${stderr}`;
+      reject(error);
+    });
   });
+}
+
+function appendCommandOutput(existing, chunk) {
+  const merged = Buffer.concat([Buffer.from(existing), Buffer.from(chunk)]);
+  return (merged.length > MAX_COMMAND_OUTPUT_BYTES ? merged.subarray(-MAX_COMMAND_OUTPUT_BYTES) : merged).toString('utf8');
 }
 
 async function readJson(request, maxBytes = 64 * 1024) {
@@ -2200,11 +2241,13 @@ async function serveStatic(pathname, response) {
     return response.end(html);
   }
   if (!pathname.startsWith('/ui/')) return sendJson(response, 404, { error: 'Not found.' });
-  const filename = basename(normalize(pathname));
-  if (!filename || filename !== basename(filename) || filename.includes('..')) return sendJson(response, 404, { error: 'Not found.' });
+  const requestedAsset = pathname.slice('/ui/'.length);
+  const assetPath = resolve(uiDir, requestedAsset);
+  const relativeAssetPath = relative(uiDir, assetPath);
+  if (!requestedAsset || relativeAssetPath === '..' || relativeAssetPath.startsWith(`..${sep}`) || isAbsolute(relativeAssetPath)) return sendJson(response, 404, { error: 'Not found.' });
   try {
-    const body = await readFile(join(uiDir, filename));
-    const type = contentTypes[extname(filename)] ?? 'application/octet-stream';
+    const body = await readFile(assetPath);
+    const type = contentTypes[extname(assetPath)] ?? 'application/octet-stream';
     response.writeHead(200, { 'Content-Type': type, 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store' });
     response.end(body);
   } catch (error) {

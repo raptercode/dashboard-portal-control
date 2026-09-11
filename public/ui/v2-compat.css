@@ -181,7 +181,7 @@ button.danger, .button.danger { background: var(--status-error); border-color: v
 .search-field input { background: transparent; border: 0; color: var(--text-primary); }
 .filter-banner { background: var(--brand-primary-soft); border-color: #c7d2fe; color: #3730a3; }
 .project-groups .organization { color: var(--text-primary); font-size: 14px; margin: 22px 0 10px; }
-.project-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
+.project-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
 .project-card { cursor: default; display: block; grid-template-columns: none; overflow: visible; }
 .project-card.menu-open { position: relative; z-index: 5; }
 .project-card .project-copy { min-width: 0; }
@@ -231,6 +231,9 @@ button.danger, .button.danger { background: var(--status-error); border-color: v
 .runtime-menu-option { width: 100%; border: 0; border-top: 1px solid var(--line); border-radius: 0; padding: 10px 12px; display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 10px; text-align: left; background: transparent; color: inherit; }
 .runtime-menu-option:first-child { border-top: 0; }
 .runtime-menu-option:hover, .runtime-menu-option[aria-selected="true"] { background: color-mix(in srgb, var(--accent) 9%, transparent); }
+.deployment-log-output-panel { border-top: 1px solid var(--border); margin-top: 16px; padding-top: 16px; }
+.deployment-log-output-panel h3 { color: var(--text-primary); font-size: 13px; margin: 0 0 8px; }
+.deployment-log-output { background: var(--slate-950); border: 1px solid var(--border); border-radius: var(--r-sm); color: var(--slate-100); font: 12px/1.5 var(--mono); margin: 0; max-height: 360px; overflow: auto; padding: 12px; white-space: pre-wrap; word-break: break-word; }
 
 /* On desktop the navigation can collapse to its icons without changing the
    mobile drawer, which must retain full text labels. */
@@ -331,6 +334,7 @@ dialog.deploy-drawer::backdrop { background: rgba(15, 23, 42, .5); backdrop-filt
   .main > .page { padding: 20px; }
   .dashboard-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .dashboard-split { grid-template-columns: 1fr; }
+  .project-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 560px) {
   .topbar { padding: 0 14px; }

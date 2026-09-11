@@ -2282,10 +2282,19 @@ async function submitDeploy(event) {
 function openDeploymentLog(project, release) {
   $('#deployment-log-title').textContent = `${project.name} · ${release.id || 'release'}`;
   $('#deployment-log-summary').textContent = `${release.status || 'unknown'} · ${release.createdAt ? new Date(release.createdAt).toLocaleString('th-TH') : ''}`;
-  const list = $('#deployment-log-events');
-  const events = release.events || [];
-  list.replaceChildren(...(events.length ? events.map(deploymentEventItem) : [element('li', 'deployment-event waiting', 'ยังไม่มีเหตุการณ์')]));
+  renderDeploymentLog(release.events, release.failureLog);
   $('#deployment-log-dialog').showModal();
+}
+
+function renderDeploymentLog(events, failureLog) {
+  const list = $('#deployment-log-events');
+  const recorded = events || [];
+  list.replaceChildren(...(recorded.length ? recorded.map(deploymentEventItem) : [element('li', 'deployment-event waiting', 'ยังไม่มีเหตุการณ์')]));
+  const panel = $('#deployment-log-output-panel');
+  const output = $('#deployment-log-output');
+  const visible = typeof failureLog === 'string' && failureLog.trim();
+  panel.hidden = !visible;
+  output.textContent = visible ? failureLog : '';
 }
 
 function deploymentEventItem(event) {
@@ -2368,9 +2377,7 @@ function showDeploymentProgress(project, initialJob) {
   $('#deployment-log-dialog').showModal();
   const render = (job) => {
     $('#deployment-log-summary').textContent = `${job.status} · ${job.releaseId || ''}`;
-    const list = $('#deployment-log-events');
-    const events = job.events || [];
-    list.replaceChildren(...(events.length ? events.map(deploymentEventItem) : [element('li', 'deployment-event waiting', 'กำลังรอคิว')]));
+    renderDeploymentLog(job.events, job.failureLog);
   };
   const poll = async () => {
     try {
