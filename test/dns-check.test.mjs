@@ -81,6 +81,18 @@ test('checkDomainDns falls back to public resolvers when the host stub has no re
   assert.deepEqual(result.resolved, ['187.52.115.194']);
 });
 
+test('checkDomainDns accepts a public origin record when the host resolver has a stale proxy address', async () => {
+  const result = await checkDomainDns('api.speedtopup.shop', {
+    expected: ['187.52.115.194'],
+    lookup: async () => [{ address: '104.21.53.162', family: 4 }, { address: '172.67.215.41', family: 4 }],
+    publicResolve4: async () => ['187.52.115.194'],
+    publicResolve6: async () => [],
+  });
+  assert.equal(result.status, 'ok');
+  assert.equal(result.matched, true);
+  assert.deepEqual(result.resolved, ['104.21.53.162', '172.67.215.41', '187.52.115.194']);
+});
+
 test('checkDomainDns identifies a Cloudflare-proxied record without treating it as an origin match', async () => {
   const result = await checkDomainDns('app.example.test', {
     expected: ['203.0.113.9'],

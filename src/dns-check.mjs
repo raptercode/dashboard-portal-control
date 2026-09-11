@@ -139,6 +139,16 @@ export async function checkDomainDns(input, options = {}) {
         if (!isUnresolvedDnsError(error)) sawResolverError = true;
       }
     }
+    // The host resolver can retain a CDN answer after a record is switched to
+    // DNS-only. When that stale answer does not match this host, ask the public
+    // resolvers before blocking the certificate flow.
+    if (expected.length && !resolved.some((address) => expected.includes(address))) {
+      try {
+        resolved.push(...await resolveFromPublicDns(hostname, timeoutMs, options));
+      } catch (error) {
+        if (!isUnresolvedDnsError(error)) sawResolverError = true;
+      }
+    }
     const uniqueResolved = [...new Set(resolved)];
     if (!uniqueResolved.length) {
       if (sawResolverError) {
