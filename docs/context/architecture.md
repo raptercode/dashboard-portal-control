@@ -114,4 +114,4 @@ status see [scope-and-roadmap.md](scope-and-roadmap.md).
 - Docker compose sandbox on Ubuntu 24.04 publishing port 80 for `demo.test`
 - Native project contract that creates a project user, release paths, systemd hardening, and environment file, accepting only npm script names
 - Git onboarding: author identity, HTTPS credential identifier or SSH deploy-key identifier, project sync configuration, and audit events
-- Encrypted credential vault for HTTPS tokens and encrypted per-project `.env`; API returns only metadata/key names
+- Encrypted credential vault for HTTPS tokens and encrypted per-project `.env`; the authenticated owner environment editor returns full values with caching disabled, while project lists and audit events return metadata only (ADR 0026)

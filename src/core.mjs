@@ -2,6 +2,7 @@ import { mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { createCipheriv, createDecipheriv, randomBytes, randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
+import { parseEnvironmentDocument } from '../public/ui/environment-editor.js';
 
 export const SUPPORTED_NODE_MAJOR = 24;
 export const TOOLS = {
@@ -352,16 +353,10 @@ export function validatePasswordChange(input) {
 }
 
 export function validateEnvironmentContent(content) {
-  if (typeof content !== 'string' || content.length > 128 * 1024) throw new InputError('Environment content is invalid.');
-  const keys = [];
-  for (const rawLine of content.replace(/\r\n/g, '\n').split('\n')) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith('#')) continue;
-    const match = line.match(/^([A-Z_][A-Z0-9_]*)=(.*)$/);
-    if (!match) throw new InputError('Each .env line must use KEY=value format.');
-    keys.push(match[1]);
-  }
-  return { content, keys: [...new Set(keys)].sort() };
+  try {
+    const document = parseEnvironmentDocument(content);
+    return { content: document.content, keys: document.variables.map(({ key }) => key).sort() };
+  } catch (error) { throw new InputError(error.message); }
 }
 
 export function validateEnvironmentVariables(variables) {
@@ -374,8 +369,7 @@ export function validateEnvironmentVariables(variables) {
     seen.add(key);
     const value = typeof item.value === 'string' ? item.value : '';
     if (value.length > 4096 || value.includes('\u0000') || value.includes('\n') || value.includes('\r')) throw new InputError('Environment variable value is invalid.');
-    if (typeof item.sensitive !== 'boolean') throw new InputError('Environment variable sensitivity is invalid.');
-    return { key, value, sensitive: item.sensitive };
+    return { key, value };
   });
 }
 

@@ -1,4 +1,5 @@
 import { pageForPathname } from './router.js';
+import { ENVIRONMENT_MAX_BYTES, parseEnvironmentDocument, updateEnvironmentDocument, mergeEnvironmentDocument } from './environment-editor.js';
 
 const DRAFT_KEY = 'hostmgr.projectDraft';
 const SIDEBAR_COLLAPSED_KEY = 'hostmgr.sidebarCollapsed';
@@ -25,7 +26,8 @@ const state = {
   bootstrapRequired: false,
   owner: null,
   activeProject: null,
-  deployEnvironmentVariables: [],
+  deployEnvironmentMode: 'file',
+  deployEnvironmentRevision: 0,
   domainDraft: null,
   notificationProject: null,
   slugManual: false,
@@ -314,7 +316,7 @@ function renderOverview() {
     { title: 'ติดตั้งเครื่องมือที่จำเป็น', detail: missingTools(tools).length ? `ยังขาด ${missingTools(tools).map((tool) => tool.label).join(', ')}` : 'เครื่องมือที่จำเป็นพร้อมแล้ว', ready: !missingTools(tools).length, href: '/setup' },
     { title: 'ตั้งค่า Git identity', detail: state.git.identity ? state.git.identity.email : 'เพิ่มชื่อและอีเมลสำหรับ commit', ready: Boolean(state.git.identity), href: '/setup' },
     { title: 'เพิ่มโปรเจคแรก', detail: state.projects.length ? `${state.projects.length} โปรเจคที่ตั้งค่าแล้ว` : 'เชื่อมต่อ repository และเลือก branch', ready: state.projects.length > 0, href: '/projects' },
-    { title: 'ตั้งค่า secrets ก่อน deploy', detail: state.projects.some((project) => project.environment?.keys?.length) ? 'มี project secrets ที่บันทึกแล้ว' : 'กดสร้าง release แล้วใส่ `.env` ของโปรเจคก่อน deploy', ready: state.projects.some((project) => project.environment?.keys?.length), href: '/projects' }
+    { title: 'ตั้งค่า ENV ก่อน deploy', detail: state.projects.some((project) => project.environment?.keys?.length) ? 'มี ENV ของโปรเจคที่บันทึกแล้ว' : 'เปิด Deploy เพื่อเพิ่มหรืออัปโหลด `.env` ของโปรเจค', ready: state.projects.some((project) => project.environment?.keys?.length), href: '/projects' }
   ];
   $('#readiness-count').textContent = `${checklist.filter((item) => item.ready).length}/${checklist.length} พร้อม`;
   const root = $('#readiness');
@@ -2093,6 +2095,7 @@ async function openDeployDialog(project) {
     api(`/api/projects/${encodeURIComponent(project.slug)}/deploy-configuration`)
   ]);
   const configuration = configurationPayload.configuration;
+  if (state.activeProject !== project) return;
   $('#deploy-runtime').textContent = configuration.runtime;
   $('#deploy-branch').textContent = project.branch || 'main';
   $('#deploy-start-script').textContent = configuration.startScript;
@@ -2109,15 +2112,14 @@ async function openDeployDialog(project) {
     : configuration.skipBuild
       ? 'Build step is skipped by this project configuration; dependencies and health checks still run.'
       : 'The build plan uses the configuration shown in the Environment step.';
-  state.deployEnvironmentVariables = payload.environment?.variables || [];
-  renderDeployEnvironment(state.deployEnvironmentVariables);
-  const keyCount = state.deployEnvironmentVariables.length;
-  $('#deploy-saved-env-message').textContent = keyCount
-    ? 'ค่าที่ไม่ sensitive แสดงในช่องแก้ไขได้ ส่วน sensitive key จะปกปิดค่าไว้'
-    : 'เพิ่ม environment variable ก่อนสร้าง release';
-  $('#deploy-env-hint').textContent = keyCount
-    ? 'ช่องค่าที่เว้นว่างจะคงค่าเดิมไว้; key ใหม่ต้องระบุค่า'
-    : 'เพิ่มอย่างน้อยหนึ่งตัวแปรก่อน deploy';
+  $('#deploy-env-editor').value = payload.environment?.content || '';
+  state.deployEnvironmentMode = 'file';
+  setDeployEnvironmentMode('file');
+  $('#deploy-environment-rows').replaceChildren();
+  $('#deploy-env-file').value = '';
+  $('#deploy-env-status').textContent = 'ยังไม่มีการเปลี่ยนแปลง';
+  state.deployEnvironmentRevision += 1;
+  const keyCount = payload.environment?.variables?.length || 0;
   $('#deploy-release-environment').textContent = keyCount ? `${keyCount} configured keys` : 'New .env required';
   setDeployStep(1);
   const dialog = $('#deploy-dialog');
@@ -2130,51 +2132,27 @@ function renderDeployEnvironment(variables) {
   root.replaceChildren(...variables.map((variable) => deployEnvironmentRow(variable)));
 }
 
-function deployEnvironmentRow(variable = { key: '', value: '', sensitive: true, isNew: true }) {
-  const row = element('div', `env-row deploy-env-row${variable.isNew ? ' deploy-env-row--new' : ''}`);
-  row.dataset.existing = variable.isNew ? 'false' : 'true';
+function deployEnvironmentRow(variable = { key: '', value: '' }) {
+  const row = element('div', 'env-row deploy-env-row');
   const key = element('input', 'input');
   key.value = variable.key || '';
   key.placeholder = 'VARIABLE_NAME';
   key.autocomplete = 'off';
   key.spellcheck = false;
-  key.readOnly = !variable.isNew;
   key.setAttribute('aria-label', 'Environment variable name');
   const value = element('input', 'input');
-  const sensitive = variable.sensitive !== false;
-  value.type = sensitive ? 'password' : 'text';
-  value.value = sensitive ? '' : (variable.value || '');
-  value.placeholder = sensitive ? 'Sensitive — leave blank to keep' : 'Leave blank to keep current value';
+  value.type = 'text';
+  value.value = variable.value || '';
+  value.placeholder = 'Value (เว้นว่างได้)';
   value.autocomplete = 'off';
   value.spellcheck = false;
   value.setAttribute('aria-label', `Value for ${variable.key || 'new variable'}`);
-  const toggle = element('button', 'env-sensitivity');
-  toggle.type = 'button';
-  const refreshSensitivity = () => {
-    const isSensitive = row.dataset.sensitive === 'true';
-    value.type = isSensitive ? 'password' : 'text';
-    value.classList.toggle('secret', isSensitive);
-    value.placeholder = isSensitive ? 'Sensitive — leave blank to keep' : 'Leave blank to keep current value';
-    toggle.setAttribute('aria-pressed', String(isSensitive));
-    toggle.setAttribute('aria-label', isSensitive ? 'Sensitive value: keep masked' : 'Non-sensitive value: may be shown');
-    toggle.replaceChildren(icon(isSensitive ? 'lock' : 'unlock'));
-  };
-  row.dataset.sensitive = String(sensitive);
-  refreshSensitivity();
-  toggle.addEventListener('click', () => {
-    row.dataset.sensitive = String(row.dataset.sensitive !== 'true');
-    if (row.dataset.sensitive === 'true') value.value = '';
-    refreshSensitivity();
-  });
-  row.append(key, value, toggle);
-  if (variable.isNew) {
-    const remove = element('button', 'close-btn deploy-env-remove');
-    remove.type = 'button';
-    remove.setAttribute('aria-label', 'Remove environment variable');
-    remove.append(icon('close'));
-    remove.addEventListener('click', () => row.remove());
-    row.append(remove);
-  }
+  const remove = element('button', 'close-btn deploy-env-remove');
+  remove.type = 'button';
+  remove.setAttribute('aria-label', `Remove ${variable.key || 'environment variable'}`);
+  remove.append(icon('close'));
+  remove.addEventListener('click', () => { row.remove(); markDeployEnvironmentChanged(); });
+  row.append(key, value, remove);
   return row;
 }
 
@@ -2184,14 +2162,72 @@ function collectDeployEnvironmentVariables() {
     const [keyInput, valueInput] = $$('input', row);
     const key = keyInput.value.trim();
     const value = valueInput.value;
-    const existing = row.dataset.existing === 'true';
     if (!key && !value) continue;
-    if (!key) throw new Error('กรุณาระบุชื่อ environment variable');
-    if (!existing && !value) throw new Error(`กรุณาระบุค่าสำหรับ key ใหม่ ${key}`);
-    variables.push({ key, value, sensitive: row.dataset.sensitive === 'true' });
+    if (!/^[A-Z_][A-Z0-9_]*$/.test(key)) throw new Error('ชื่อ environment variable ต้องเป็นตัวพิมพ์ใหญ่ ตัวเลข หรือ _ และไม่ขึ้นต้นด้วยตัวเลข');
+    variables.push({ key, value });
   }
-  if (!variables.length) throw new Error('ต้องมีอย่างน้อยหนึ่ง environment variable ก่อน deploy');
   return variables;
+}
+
+function collectDeployEnvironmentContent() {
+  const content = $('#deploy-env-editor').value;
+  return state.deployEnvironmentMode === 'rows'
+    ? updateEnvironmentDocument(content, collectDeployEnvironmentVariables())
+    : parseEnvironmentDocument(content).content;
+}
+
+function setDeployEnvironmentMode(mode) {
+  const content = collectDeployEnvironmentContent();
+  if (mode === 'rows') renderDeployEnvironment(parseEnvironmentDocument(content).variables);
+  $('#deploy-env-editor').value = content;
+  state.deployEnvironmentMode = mode;
+  $('#deploy-env-editor-pane').hidden = mode !== 'file';
+  $('#deploy-env-rows-pane').hidden = mode !== 'rows';
+  $('#deploy-env-file-mode').setAttribute('aria-pressed', String(mode === 'file'));
+  $('#deploy-env-rows-mode').setAttribute('aria-pressed', String(mode === 'rows'));
+}
+
+function markDeployEnvironmentChanged() {
+  state.deployEnvironmentRevision += 1;
+  $('#deploy-env-status').textContent = 'มีการเปลี่ยนแปลงที่ยังไม่ได้บันทึก';
+}
+
+async function importDeployEnvironmentFile(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  const editor = $('#deploy-env-editor');
+  const project = state.activeProject;
+  try {
+    const original = collectDeployEnvironmentContent();
+    if (file.size > ENVIRONMENT_MAX_BYTES) throw new Error('ไฟล์ .env ต้องมีขนาดไม่เกิน 128 KB');
+    const uploaded = await file.text();
+    if (!$('#deploy-dialog').open || state.activeProject !== project) return;
+    if (collectDeployEnvironmentContent() !== original) throw new Error('ENV เปลี่ยนระหว่างอ่านไฟล์ กรุณาอัปโหลดอีกครั้ง');
+    const content = mergeEnvironmentDocument(original, uploaded);
+    editor.value = content;
+    state.deployEnvironmentMode = 'file';
+    setDeployEnvironmentMode('file');
+    markDeployEnvironmentChanged();
+    $('#deploy-env-status').textContent = `นำเข้า ${file.name} แล้ว — ตรวจสอบและกดบันทึก ENV`;
+  } finally { event.target.value = ''; }
+}
+
+async function saveDeployEnvironment() {
+  const content = collectDeployEnvironmentContent();
+  const revision = state.deployEnvironmentRevision;
+  const project = state.activeProject;
+  const button = $('#deploy-env-save');
+  button.disabled = true;
+  try {
+    const result = await api(`/api/projects/${encodeURIComponent(project.slug)}/environment`, { method: 'POST', body: { mode: 'replace', content } });
+    const current = state.projects.find((item) => item.slug === project.slug);
+    if (current) current.environment = result.project.environment;
+    if (state.activeProject === project && $('#deploy-dialog').open) {
+      $('#deploy-release-environment').textContent = `${result.project.environment.keys.length} configured keys`;
+      if (state.deployEnvironmentRevision === revision) $('#deploy-env-status').textContent = 'บันทึกแล้ว · ค่าจะมีผลเมื่อ deploy ครั้งถัดไป';
+    }
+    toast('บันทึก ENV แล้ว');
+  } finally { button.disabled = false; }
 }
 
 function setDeployStep(step) {
@@ -2218,7 +2254,9 @@ function closeDeployDialog() {
 async function submitDeploy(event) {
   event.preventDefault();
   const project = state.activeProject;
-  const variables = collectDeployEnvironmentVariables();
+  const content = collectDeployEnvironmentContent();
+  const variables = parseEnvironmentDocument(content).variables;
+  if (!variables.length) throw new Error('ต้องมีอย่างน้อยหนึ่ง environment variable ก่อน deploy');
   if (state.deployStep === 1) {
     $('#deploy-release-environment').textContent = `${variables.length} configured keys`;
     setDeployStep(2);
@@ -2231,7 +2269,7 @@ async function submitDeploy(event) {
   const submit = $('#deploy-submit');
   submit.disabled = true;
   try {
-    await api(`/api/projects/${encodeURIComponent(project.slug)}/environment`, { method: 'POST', body: { variables } });
+    await api(`/api/projects/${encodeURIComponent(project.slug)}/environment`, { method: 'POST', body: { mode: 'replace', content } });
     const result = await api(`/api/projects/${encodeURIComponent(project.slug)}/deploy`, { method: 'POST', body: {} });
     closeDeployDialog();
     toast(result.activation === 'queued' ? 'จัดคิว deploy แล้ว' : 'สร้าง release แล้ว');
@@ -3079,7 +3117,20 @@ function bindEvents() {
   $('#deploy-close')?.addEventListener('click', closeDeployDialog);
   $('#deploy-cancel')?.addEventListener('click', closeDeployDialog);
   $('#deploy-back')?.addEventListener('click', () => setDeployStep(Math.max(1, state.deployStep - 1)));
-  $('#deploy-add-variable')?.addEventListener('click', () => $('#deploy-environment-rows').append(deployEnvironmentRow()));
+  $('#deploy-add-variable')?.addEventListener('click', () => {
+    const row = deployEnvironmentRow();
+    $('#deploy-environment-rows').append(row);
+    $('input', row).focus();
+    markDeployEnvironmentChanged();
+  });
+  $('#deploy-env-editor')?.addEventListener('input', markDeployEnvironmentChanged);
+  $('#deploy-environment-rows')?.addEventListener('input', markDeployEnvironmentChanged);
+  for (const mode of ['file', 'rows']) $('#deploy-env-' + mode + '-mode')?.addEventListener('click', () => {
+    try { setDeployEnvironmentMode(mode); } catch (error) { showError(error); }
+  });
+  $('#deploy-env-upload')?.addEventListener('click', () => $('#deploy-env-file').click());
+  $('#deploy-env-file')?.addEventListener('change', (event) => importDeployEnvironmentFile(event).catch(showError));
+  $('#deploy-env-save')?.addEventListener('click', () => saveDeployEnvironment().catch(showError));
   $('#deploy-dialog')?.addEventListener('cancel', (event) => { event.preventDefault(); closeDeployDialog(); });
   $('#deployment-log-close')?.addEventListener('click', () => $('#deployment-log-dialog').close());
   $('#deployment-log-dismiss')?.addEventListener('click', () => $('#deployment-log-dialog').close());

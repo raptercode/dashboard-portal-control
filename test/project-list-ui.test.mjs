@@ -51,8 +51,6 @@ test('project list keeps technical settings behind details and protects deletion
   assert.match(app, /deploy-configuration/);
   assert.match(compat, /project-action-divider/);
   assert.match(compat, /project-card\.menu-open/);
-  assert.match(compat, /not\(\.env-sensitivity\)/);
-  assert.match(compat, /deploy-env-row--new \{ grid-template-columns: 180px minmax\(0, 1fr\) 28px 28px/);
   assert.match(compat, /body\[data-shell="dashboard"\] \.app \{\s*grid-template-rows: var\(--topbar-h\) minmax\(0, 1fr\);\s*height: 100dvh;/);
   assert.match(compat, /body\[data-shell="dashboard"\] \.main,\s*body\[data-shell="dashboard"\] \.sidebar \{\s*min-height: 0;/);
   assert.match(compat, /body\[data-shell="dashboard"\] \.main \{ overflow: visible; \}/);

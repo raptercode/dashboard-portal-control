@@ -292,12 +292,15 @@ dialog.deploy-drawer::backdrop { background: rgba(15, 23, 42, .5); backdrop-filt
 .deploy-drawer .field-group > p { color: var(--text-secondary); margin: 0 0 12px; }
 .deploy-env-rows { display: grid; gap: 8px; }
 .deploy-drawer .deploy-env-row { grid-template-columns: 180px minmax(0, 1fr) 28px; column-gap: 8px; margin: 0; }
-.deploy-drawer .deploy-env-row--new { grid-template-columns: 180px minmax(0, 1fr) 28px 28px; }
 .deploy-drawer .deploy-env-row .input { height: 34px; min-width: 0; padding: 7px 10px; }
-.deploy-drawer .deploy-env-row input[readonly] { background: var(--slate-50); color: var(--text-secondary); }
-.deploy-drawer .env-sensitivity { align-self: stretch; background: transparent; border: 0; border-radius: var(--r-md); color: var(--brand-primary); display: grid; height: 34px; place-items: center; padding: 0; width: 28px; }
-.deploy-drawer .env-sensitivity:hover { background: var(--brand-primary-soft); color: var(--brand-primary-hover); box-shadow: none; transform: none; }
-.deploy-drawer .env-sensitivity .icon { width: 15px; height: 15px; }
+.deploy-env-toolbar, .deploy-env-modes, .deploy-env-save-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.deploy-env-toolbar { justify-content: space-between; margin-bottom: 12px; }
+.deploy-env-modes { gap: 4px; }
+.deploy-env-modes .btn[aria-pressed="true"] { background: var(--brand-primary-soft); border-color: var(--brand-primary); color: var(--brand-primary); }
+.deploy-drawer textarea.deploy-env-editor { display: block; width: 100%; min-height: 220px; max-height: 50vh; resize: vertical; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 13px; line-height: 1.7; tab-size: 2; padding: 12px; white-space: pre; overflow: auto; }
+.deploy-drawer #deploy-env-hint { margin-top: 10px; }
+.deploy-env-save-row { margin-top: 12px; }
+.deploy-env-save-row .field-hint { flex: 1; min-width: 160px; }
 .deploy-drawer .deploy-env-remove { align-self: stretch; height: 34px; padding: 0; width: 28px; }
 .deploy-drawer #deploy-add-variable { margin-top: 2px; width: fit-content; }
 .deploy-drawer .notice { margin-top: 16px; }
@@ -313,7 +316,6 @@ dialog.deploy-drawer::backdrop { background: rgba(15, 23, 42, .5); backdrop-filt
 @media (max-width: 640px) {
   .deploy-drawer .drawer-body { padding: 20px; }
   .deploy-drawer .deploy-env-row { grid-template-columns: minmax(132px, .62fr) minmax(0, 1fr) 28px; column-gap: 6px; }
-  .deploy-drawer .deploy-env-row--new { grid-template-columns: minmax(132px, .62fr) minmax(0, 1fr) 28px 28px; }
   .deploy-drawer .deploy-env-row .input { font-size: 12px; }
 }
 

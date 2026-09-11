@@ -14,17 +14,18 @@ test('environment content exposes keys only and rejects malformed values', () =>
   const environment = validateEnvironmentContent('DATABASE_URL=postgres://secret\n# note\nAPI_KEY=value\n');
   assert.deepEqual(environment.keys, ['API_KEY', 'DATABASE_URL']);
   assert.throws(() => validateEnvironmentContent('export API_KEY=value'), /KEY=value/);
+  assert.throws(() => validateEnvironmentContent('invalid line'), /KEY=value/);
   assert.deepEqual(validateHttpsCredential({ name: 'github-personal', token: 'ghp_token_value' }), { name: 'github-personal', token: 'ghp_token_value' });
 });
 
-test('environment row updates retain blank values and require an explicit sensitivity choice', () => {
+test('legacy environment row updates accept plain values and ignore sensitivity', () => {
   assert.deepEqual(validateEnvironmentVariables([
     { key: 'NODE_ENV', value: '', sensitive: false },
     { key: 'API_KEY', value: 'new-value', sensitive: true }
   ]), [
-    { key: 'NODE_ENV', value: '', sensitive: false },
-    { key: 'API_KEY', value: 'new-value', sensitive: true }
+    { key: 'NODE_ENV', value: '' },
+    { key: 'API_KEY', value: 'new-value' }
   ]);
-  assert.throws(() => validateEnvironmentVariables([{ key: 'API_KEY', value: 'x' }]), /sensitivity/i);
+  assert.deepEqual(validateEnvironmentVariables([{ key: 'API_KEY', value: 'x' }]), [{ key: 'API_KEY', value: 'x' }]);
   assert.throws(() => validateEnvironmentVariables([{ key: 'bad-key', value: 'x', sensitive: true }]), /uppercase/i);
 });

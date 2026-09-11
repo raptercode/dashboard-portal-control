@@ -5,6 +5,7 @@ import { basename, extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import os from 'node:os';
+import { parseEnvironmentDocument } from '../public/ui/environment-editor.js';
 import { spawn } from 'node:child_process';
 import { StateStore, TOOLS, SUPPORTED_NODE_MAJOR, SecretVault, appendAudit, initialMailState, validateDomain, validateEnvironmentContent, validateEnvironmentVariables, validateGitBranchRequest, validateGitIdentity, validateHttpsCredential, validateNotificationHook, validatePasswordChange, validateProjectDomains, validateProjectRuntimeDetection, validateProjectSync, validateTool, InputError } from './core.mjs';
 import { checkDomainDns } from './dns-check.mjs';
@@ -1289,35 +1290,28 @@ export async function createApplication(options = {}) {
   async function handleProjectEnvironment(request, response, slug) {
     if (!requireSession(request, response, true)) return;
     if (!vault) throw new InputError('Credential vault is not configured. Set HOSTMGR_SECRET_KEY before saving .env content.');
-    const body = await readJson(request);
+    const body = await readJson(request, 1024 * 1024);
     const variables = Array.isArray(body.variables) ? validateEnvironmentVariables(body.variables) : null;
-    const content = typeof body.content === 'string' && body.content.trim() ? body.content : 'NODE_ENV=production\n';
+    if (body.mode === 'replace' && (typeof body.content !== 'string' || variables)) throw new InputError('Provide .env content to replace the environment.');
+    const content = body.mode === 'replace' ? body.content : typeof body.content === 'string' && body.content.trim() ? body.content : 'NODE_ENV=production\n';
     await store.update((state) => {
       const project = state.projects.find((item) => item.slug === slug);
       if (!project) throw new InputError('Project was not found.');
       if (variables) {
         const current = project.environment?.encryptedContent ? parseEnvironment(vault.decrypt(project.environment.encryptedContent)) : {};
-        const knownKeys = new Set(project.environment?.keys ?? Object.keys(current));
-        const sensitiveKeys = new Set(project.environment?.sensitiveKeys ?? knownKeys);
         for (const variable of variables) {
           if (!Object.hasOwn(current, variable.key) && !variable.value) throw new InputError(`A value is required for new environment variable ${variable.key}.`);
           if (variable.value) current[variable.key] = variable.value;
-          knownKeys.add(variable.key);
-          if (variable.sensitive) sensitiveKeys.add(variable.key);
-          else sensitiveKeys.delete(variable.key);
         }
         const environment = validateEnvironmentContent(serializeEnvironment(current));
         project.environment = {
           keys: environment.keys,
-          sensitiveKeys: environment.keys.filter((key) => sensitiveKeys.has(key)),
           updatedAt: new Date().toISOString(),
           encryptedContent: vault.encrypt(environment.content)
         };
       } else {
         const environment = validateEnvironmentContent(content);
-        // Existing textarea clients remain supported. Their values are treated as
-        // sensitive until the owner deliberately changes the row classification.
-        project.environment = { keys: environment.keys, sensitiveKeys: environment.keys, updatedAt: new Date().toISOString(), encryptedContent: vault.encrypt(environment.content) };
+        project.environment = { keys: environment.keys, updatedAt: new Date().toISOString(), encryptedContent: vault.encrypt(environment.content) };
       }
       appendAudit(state, { action: 'project.save_environment', outcome: 'success', actor: 'owner', target: slug, detail: `Saved .env metadata with ${project.environment.keys.length} keys` });
     });
@@ -1328,15 +1322,10 @@ export async function createApplication(options = {}) {
     if (!requireSession(request, response)) return;
     const project = findProject(store.snapshot(), slug);
     const environment = project.environment ?? { keys: [] };
-    const values = environment.encryptedContent && vault ? parseEnvironment(vault.decrypt(environment.encryptedContent)) : {};
-    // Configurations created before row sensitivity existed default to masked.
-    const sensitiveKeys = new Set(environment.sensitiveKeys ?? environment.keys ?? []);
-    const variables = (environment.keys ?? Object.keys(values)).map((key) => ({
-      key,
-      sensitive: sensitiveKeys.has(key),
-      value: sensitiveKeys.has(key) ? null : (values[key] ?? '')
-    }));
-    return sendJson(response, 200, { environment: { variables, updatedAt: environment.updatedAt ?? null } });
+    if (environment.encryptedContent && !vault) throw new InputError('Credential vault is not configured.');
+    const content = environment.encryptedContent ? vault.decrypt(environment.encryptedContent) : '';
+    const document = parseEnvironmentDocument(content);
+    return sendJson(response, 200, { environment: { content: document.content, variables: document.variables, updatedAt: environment.updatedAt ?? null } });
   }
 
   async function handleProjectDeployConfiguration(request, response, slug) {
@@ -1906,13 +1895,7 @@ async function requestHealth(port, path) {
 }
 
 function parseEnvironment(content) {
-  const environment = {};
-  for (const line of content.replace(/\r\n/g, '\n').split('\n')) {
-    if (!line || line.startsWith('#')) continue;
-    const separator = line.indexOf('=');
-    if (separator > 0) environment[line.slice(0, separator)] = line.slice(separator + 1);
-  }
-  return environment;
+  return Object.fromEntries(parseEnvironmentDocument(content).variables.map(({ key, value }) => [key, value]));
 }
 
 function serializeEnvironment(environment) {
@@ -2191,12 +2174,15 @@ function run(command, args, options = {}) {
   });
 }
 
-async function readJson(request) {
-  let body = '';
+async function readJson(request, maxBytes = 64 * 1024) {
+  const chunks = [];
+  let bytes = 0;
   for await (const chunk of request) {
-    body += chunk;
-    if (body.length > 64 * 1024) throw new InputError('Request body is too large.');
+    bytes += chunk.length;
+    if (bytes > maxBytes) throw new InputError('Request body is too large.');
+    chunks.push(chunk);
   }
+  const body = Buffer.concat(chunks).toString('utf8');
   try { return body ? JSON.parse(body) : {}; } catch { throw new InputError('Invalid JSON body.'); }
 }
 

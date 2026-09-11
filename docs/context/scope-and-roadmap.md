@@ -74,7 +74,7 @@ host bind mounts; this is a guardrail, not a hostile-code sandbox (ADR 0021).
 
 - Create Native projects: repository, branch, directory, build/start command, port — **Implemented**; a shallow metadata scan suggests Node or Bun without executing project code
 - Docker Compose projects — **Implemented (v0.5)** for trusted repositories: selected Compose file/service, policy preflight, guarded host activation, rollback, and container logs. v0.6 can suggest this selection from a Compose manifest
-- Manage environment variables without exposing full values in the UI — **Implemented** (encrypted at rest, API returns key names only)
+- Manage environment variables through file uploads, full `.env` editing or individual rows — **Implemented** (all values visible to the authenticated owner, encrypted at rest; ADR 0026)
 - Deploy and rollback — **Implemented**, including a durable job queue that survives a Dashboard restart
 - Stop/restart as a standalone action (outside of deploy/rollback) — **Planned**
 - Health check after deploy — **Implemented** (candidate check + host check, optional per project)

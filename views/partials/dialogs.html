@@ -19,11 +19,28 @@
     <div class="drawer-body">
       <section class="field-group" data-deploy-pane="1">
         <h3>Environment Variables</h3>
-        <p id="deploy-saved-env-message">ค่าที่ไม่ sensitive จะแสดงให้แก้ไขได้ ส่วนค่า sensitive จะไม่ถูกส่งออกจากเซิร์ฟเวอร์</p>
-        <div id="deploy-environment-rows" class="deploy-env-rows" aria-live="polite"></div>
-        <button id="deploy-add-variable" class="btn btn-ghost btn-sm" type="button"><svg class="icon" aria-hidden="true"><use href="#icon-plus"></use></svg>Add variable</button>
-        <p id="deploy-env-hint" class="field-hint">ช่องค่าที่เว้นว่างจะคงค่าเดิมไว้</p>
-        <aside class="notice"><svg class="icon" aria-hidden="true"><use href="#icon-info"></use></svg><p>กดไอคอนกุญแจเพื่อกำหนดว่า key นั้นเป็น sensitive หรือไม่ ค่าเดิมของ sensitive key จะถูกปกปิดเสมอ</p></aside>
+        <p id="deploy-saved-env-message">ดูและแก้ไขค่าได้ทุกตัว หรือวางเนื้อหาทั้งไฟล์ .env</p>
+        <div class="deploy-env-toolbar">
+          <div class="deploy-env-modes" role="group" aria-label="รูปแบบการแก้ไข ENV">
+            <button id="deploy-env-file-mode" class="btn btn-ghost btn-sm" type="button" aria-pressed="true">แก้ทั้งไฟล์ .env</button>
+            <button id="deploy-env-rows-mode" class="btn btn-ghost btn-sm" type="button" aria-pressed="false">แก้ทีละรายการ</button>
+          </div>
+          <button id="deploy-env-upload" class="btn btn-ghost btn-sm" type="button">อัปโหลดไฟล์ .env</button>
+          <input id="deploy-env-file" type="file" hidden aria-label="เลือกไฟล์ .env">
+        </div>
+        <div id="deploy-env-editor-pane">
+          <label for="deploy-env-editor" class="field-hint">.env · KEY=value</label>
+          <textarea id="deploy-env-editor" class="input deploy-env-editor" rows="10" spellcheck="false" autocomplete="off" autocapitalize="off" wrap="off" aria-describedby="deploy-env-hint" placeholder="NODE_ENV=production&#10;API_URL=https://example.com&#10;API_KEY="></textarea>
+        </div>
+        <div id="deploy-env-rows-pane" hidden>
+          <div id="deploy-environment-rows" class="deploy-env-rows"></div>
+          <button id="deploy-add-variable" class="btn btn-ghost btn-sm" type="button"><svg class="icon" aria-hidden="true"><use href="#icon-plus"></use></svg>Add variable</button>
+        </div>
+        <p id="deploy-env-hint" class="field-hint">อัปโหลดเพื่อเพิ่ม key ใหม่และอัปเดตชื่อซ้ำ · ลบบรรทัดเพื่อลบ key · KEY= บันทึกค่าว่าง</p>
+        <div class="deploy-env-save-row">
+          <button id="deploy-env-save" class="btn btn-ghost btn-sm" type="button">บันทึก ENV</button>
+          <span id="deploy-env-status" class="field-hint" role="status">ยังไม่มีการเปลี่ยนแปลง</span>
+        </div>
         <div class="deploy-configuration">
           <h3>Build Configuration</h3>
           <div class="info-card deploy-build-info">

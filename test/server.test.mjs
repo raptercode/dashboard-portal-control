@@ -4,10 +4,13 @@ import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promise
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { copyCandidateSource, createApplication, installCandidateDependencies, resolveProjectPort } from '../src/server.mjs';
+import { SecretVault } from '../src/core.mjs';
 
 async function start(options = {}) {
   const dir = await mkdtemp(join(tmpdir(), 'hostmgr-server-'));
-  const app = await createApplication({ dataPath: join(dir, 'state.json'), password: 'correct-horse-battery-staple', secretKey: Buffer.alloc(32, 7).toString('base64'), mode: 'demo', sandboxClone: false, metricsEnabled: false, ...options });
+  // Sync/deploy fixtures simulate runtimes; listening ports on the workstation
+  // must not change their results. Port selection has dedicated tests below.
+  const app = await createApplication({ dataPath: join(dir, 'state.json'), password: 'correct-horse-battery-staple', secretKey: Buffer.alloc(32, 7).toString('base64'), mode: 'demo', sandboxClone: false, metricsEnabled: false, portAvailability: async () => true, ...options });
   await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
   const address = app.server.address();
   return { app, base: `http://127.0.0.1:${address.port}` };
@@ -343,7 +346,7 @@ test('local UI demo simulates sync and activates a release without cloning', asy
   assert.ok(payload.project.deployment.activeReleaseId);
 });
 
-test('environment drawer reveals only explicitly non-sensitive values and retains blank sensitive values', async (t) => {
+test('environment editor reveals all values to the owner and preserves legacy patch requests', async (t) => {
   const { app, base } = await start();
   t.after(() => app.close());
   await app.store.update((state) => {
@@ -364,10 +367,13 @@ test('environment drawer reveals only explicitly non-sensitive values and retain
   assert.equal(firstRead.status, 200);
   const firstPayload = await firstRead.json();
   assert.deepEqual(firstPayload.environment.variables, [
-    { key: 'API_KEY', sensitive: true, value: null },
-    { key: 'NODE_ENV', sensitive: false, value: 'production' }
+    { key: 'API_KEY', value: 'never-return-this' },
+    { key: 'NODE_ENV', value: 'production' }
   ]);
-  assert.equal(JSON.stringify(firstPayload).includes('never-return-this'), false);
+  assert.match(firstPayload.environment.content, /API_KEY=never-return-this/);
+  assert.equal(firstRead.headers.get('cache-control'), 'no-store');
+  assert.equal(JSON.stringify(await saved.json()).includes('never-return-this'), false);
+  assert.equal(JSON.stringify(app.store.snapshot()).includes('never-return-this'), false);
   const retained = await fetch(`${base}/api/projects/environment-app/environment`, {
     method: 'POST', headers,
     body: JSON.stringify({ variables: [
@@ -378,6 +384,46 @@ test('environment drawer reveals only explicitly non-sensitive values and retain
   assert.equal(retained.status, 200);
   const secondPayload = await (await fetch(`${base}/api/projects/environment-app/environment`, { headers: { cookie: headers.cookie } })).json();
   assert.deepEqual(secondPayload.environment.variables, firstPayload.environment.variables);
+});
+
+test('full environment editing reads old masked values, replaces atomically and never exposes plaintext outside the owner editor', async (t) => {
+  const { app, base } = await start();
+  t.after(() => app.close());
+  const vault = new SecretVault(Buffer.alloc(32, 7).toString('base64'));
+  const original = '# original\nAPI_KEY=old-private-value\nREMOVE=yes\n';
+  await app.store.update((state) => state.projects.push({ name: 'ENV test', slug: 'env-test', environment: {
+    keys: ['API_KEY', 'REMOVE'], sensitiveKeys: ['API_KEY'], encryptedContent: vault.encrypt(original)
+  } }));
+  const url = `${base}/api/projects/env-test/environment`;
+  assert.equal((await fetch(url)).status, 401);
+  const login = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'owner@local.test', password: 'correct-horse-battery-staple' }) });
+  const session = await login.json();
+  const headers = { cookie: login.headers.get('set-cookie').split(';')[0], 'content-type': 'application/json', 'x-csrf-token': session.csrfToken };
+  const read = async () => (await (await fetch(url, { headers })).json()).environment;
+  assert.equal((await read()).content, original);
+  const content = '# edited\nAPI_KEY=\nNEW_KEY=new-private-value\n';
+  assert.equal((await fetch(url, { method: 'POST', headers: { cookie: headers.cookie, 'content-type': 'application/json' }, body: JSON.stringify({ mode: 'replace', content }) })).status, 403);
+  const saved = await fetch(url, { method: 'POST', headers, body: JSON.stringify({ mode: 'replace', content }) });
+  assert.equal(saved.status, 200);
+  assert.equal(JSON.stringify(await saved.json()).includes('new-private-value'), false);
+  assert.equal((await read()).content, content);
+  assert.deepEqual((await read()).variables, [{ key: 'API_KEY', value: '' }, { key: 'NEW_KEY', value: 'new-private-value' }]);
+  const stored = app.store.snapshot();
+  assert.equal(JSON.stringify(stored).includes('new-private-value'), false);
+  assert.equal(vault.decrypt(stored.projects.find((item) => item.slug === 'env-test').environment.encryptedContent), content);
+  assert.equal((await (await fetch(`${base}/api/projects`, { headers })).text()).includes('new-private-value'), false);
+  for (const body of [{ mode: 'replace', content: 'NEW_KEY=one\nNEW_KEY=two' }, { mode: 'replace' }, { mode: 'replace', content: 'private-invalid-line' }]) {
+    const invalid = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
+    assert.equal(invalid.status, 400);
+    assert.equal((await invalid.text()).includes('private-invalid-line'), false);
+    assert.equal((await read()).content, content);
+  }
+  // More than the former 64 KB JSON limit, with multibyte text and escaped quotes.
+  const largeContent = 'VALUE=' + 'ก"'.repeat(24000) + '\n';
+  assert.equal((await fetch(url, { method: 'POST', headers, body: JSON.stringify({ mode: 'replace', content: largeContent }) })).status, 200);
+  assert.equal((await read()).content, largeContent);
+  assert.equal((await fetch(url, { method: 'POST', headers, body: JSON.stringify({ mode: 'replace', content: '' }) })).status, 200);
+  assert.deepEqual((await read()).variables, []);
 });
 
 test('deploy configuration marks a missing package lock as invalid and selects npm install', async (t) => {

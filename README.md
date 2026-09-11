@@ -61,9 +61,19 @@ so you can exercise the same pipeline production uses:
    (Optional: add a token under **Credentials** first if you want to try a
    private repository — tokens are encrypted and never sent back to the
    browser.)
-3. Open the project's **Deploy** dialog. Add at least one `.env` line, or
-   leave it blank — `NODE_ENV=production` is saved automatically — then
-   create a release. Node projects use `npm ci` for a valid lockfile and Bun
+3. Open the project's **Deploy** dialog. Edit the entire `.env` file or switch
+   to individual rows; all saved values, including previously masked values,
+   are visible to the signed-in owner. Upload a file (up to 128 KB) to add new
+   keys and update matching keys while keeping other entries. Review the draft
+   and choose **บันทึก ENV** to save without deploying, or continue to create a
+   release. Changes take effect on the next deployment. `KEY=` saves an empty
+   value; removing a line or row deletes that key. Names use uppercase letters,
+   digits and underscores, cannot start with a digit, and must be unique. Use
+   one `KEY=value` per line (no `export` or multiline values); comments and blank
+   lines are supported. Keep at least one variable before creating a release.
+   Values remain encrypted at rest; only the owner environment editor returns
+   their contents, with caching disabled. Project lists and audit events contain
+   metadata only. Node projects use `npm ci` for a valid lockfile and Bun
    projects use `bun install --frozen-lockfile`; either falls back to an
    isolated unlocked install only when the lockfile is absent or stale. Choose
    **Skip Build** for a runtime-only app, then the Portal starts and
