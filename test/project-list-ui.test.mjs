@@ -25,6 +25,9 @@ test('project list keeps technical settings behind details and protects deletion
   assert.match(app, /Sync latest/);
   assert.match(app, /function syncExistingProject\(project, button\)/);
   assert.match(app, /Deploy \$\{String\(deployVersion \|\| 'draft'\)\.slice\(0, 12\)\}/);
+  assert.match(app, /const activeRelease = deployment\.activeReleaseId/);
+  assert.match(app, /release\.id === deployment\.activeReleaseId/);
+  assert.match(app, /const deployedRevision = activeRelease\?\.revision \|\| null/);
   assert.match(app, /New commit/);
   assert.match(app, /sync\.revision/);
   assert.match(app, /function openNotificationHookDialog\(project\)/);

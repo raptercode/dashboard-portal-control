@@ -614,7 +614,13 @@ function projectRow(project) {
   const displayStatus = projectDisplayStatus(project);
   cardTitle.append(element('span', `status-dot ${displayStatus.tone}`), element('h3', '', project.name));
   const latestRelease = deployment.releases?.[0];
-  const deployedRevision = latestRelease?.revision || null;
+  // A failed candidate is kept at the head of the history, while
+  // activeReleaseId deliberately continues to point at the release users are
+  // actually being served. Never label that failed candidate as "Deploy".
+  const activeRelease = deployment.activeReleaseId
+    ? deployment.releases?.find((release) => release.id === deployment.activeReleaseId)
+    : null;
+  const deployedRevision = activeRelease?.revision || null;
   const deployVersion = deployedRevision || deployment.activeReleaseId || (deployment.state === 'active' ? 'active' : deployment.state);
   const identity = element('span', 'card-version', `Deploy ${String(deployVersion || 'draft').slice(0, 12)}`);
   const secondary = element('div', 'project-secondary');
