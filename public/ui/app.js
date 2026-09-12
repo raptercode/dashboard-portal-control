@@ -666,7 +666,9 @@ function projectRow(project) {
     ['Port', String(project.port)],
     ['Runtime', runtime],
     ['Environment', project.environment?.keys?.length ? `.env ${project.environment.keys.length} keys` : 'ไม่มีค่า .env'],
-    ['Auto sync', project.autoSync?.enabled ? `GitHub push → sync + redeploy${project.autoSync.lastResult ? ` · ${project.autoSync.lastResult.status}` : ''}` : 'ปิดอยู่']
+    ['Auto sync', project.autoSync?.enabled
+      ? `ตรวจ Git ทุก 5 นาที → sync + redeploy${project.autoSync.lastResult ? ` · ${project.autoSync.lastResult.status}` : ''}`
+      : 'ตรวจ Git ทุก 5 นาที · พบ commit ใหม่จะแสดงบนการ์ด']
   ];
   values.forEach(([label, value]) => detailList.append(element('dt', '', label), element('dd', '', value)));
   details.append(detailSummary, detailList);
@@ -1105,7 +1107,7 @@ function renderMailPreview() {
 
 async function configureAutoSync(project, button) {
   if (project.autoSync?.enabled) {
-    if (!await confirmAction('ปิด Auto sync', `หยุด sync และ redeploy อัตโนมัติของ ${project.name} หรือไม่? GitHub webhook เดิมจะถูกปฏิเสธทันที`, 'ปิด Auto sync')) return;
+    if (!await confirmAction('ปิด Auto sync', `หยุด redeploy อัตโนมัติของ ${project.name} หรือไม่? Portal จะยังตรวจ commit ทุก 5 นาทีและแสดง commit ใหม่บนการ์ด`, 'ปิด Auto sync')) return;
     await withBusy(button, async () => {
       await api(`/api/projects/${encodeURIComponent(project.slug)}/auto-sync`, { method: 'POST', body: { enabled: false } });
       toast('ปิด Auto sync แล้ว');
@@ -1114,22 +1116,10 @@ async function configureAutoSync(project, button) {
     return;
   }
   await withBusy(button, async () => {
-    const result = await api(`/api/projects/${encodeURIComponent(project.slug)}/auto-sync`, { method: 'POST', body: { enabled: true } });
+    await api(`/api/projects/${encodeURIComponent(project.slug)}/auto-sync`, { method: 'POST', body: { enabled: true } });
     await refresh();
-    openAutoSyncDialog(result.project, result.webhookSecret);
+    toast('เปิด Auto sync แล้ว — Portal จะตรวจ Git ทุก 5 นาที และ redeploy เมื่อพบ commit ใหม่');
   });
-}
-
-function openAutoSyncDialog(project, webhookSecret = null) {
-  const dialog = $('#auto-sync-dialog');
-  $('#auto-sync-project-label').textContent = `${project.name} · ${project.branch || 'main'}`;
-  $('#auto-sync-status').textContent = webhookSecret
-    ? 'เปิดแล้ว — เมื่อ GitHub ส่ง push มาที่ branch นี้ Portal จะ sync source แล้วสร้าง release อัตโนมัติ'
-    : 'Auto sync เปิดอยู่ แต่ secret จะไม่แสดงซ้ำ เพื่อความปลอดภัย';
-  $('#auto-sync-setup').hidden = !webhookSecret;
-  $('#auto-sync-url').value = webhookSecret ? `${window.location.origin}/api/deploy-hooks/${encodeURIComponent(project.slug)}` : '';
-  $('#auto-sync-secret').value = webhookSecret || '';
-  dialog.showModal();
 }
 
 function renderMailSetupNotice(mail) {
@@ -3206,8 +3196,6 @@ function bindEvents() {
   $('#domain-form')?.addEventListener('submit', (event) => confirmAddDomain(event).catch(showError));
   $('#notification-hook-close')?.addEventListener('click', () => $('#notification-hook-dialog').close());
   $('#notification-hook-cancel')?.addEventListener('click', () => $('#notification-hook-dialog').close());
-  $('#auto-sync-close')?.addEventListener('click', () => $('#auto-sync-dialog').close());
-  $('#auto-sync-dismiss')?.addEventListener('click', () => $('#auto-sync-dialog').close());
 }
 
 async function bootstrap() {

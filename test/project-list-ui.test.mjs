@@ -32,7 +32,7 @@ test('project list keeps technical settings behind details and protects deletion
   assert.match(app, /sync\.revision/);
   assert.match(app, /function openNotificationHookDialog\(project\)/);
   assert.match(app, /function configureAutoSync\(project, button\)/);
-  assert.match(app, /function openAutoSyncDialog\(project, webhookSecret = null\)/);
+  assert.match(app, /ตรวจ Git ทุก 5 นาที/);
   assert.match(app, /api\/projects\/\$\{encodeURIComponent\(project\.slug\)\}\/auto-sync/);
   assert.match(app, /function projectDisplayStatus\(project\)/);
   assert.match(app, /Ready to release/);
@@ -45,8 +45,7 @@ test('project list keeps technical settings behind details and protects deletion
   assert.match(app, /input\.value !== project\.name/);
   assert.match(dialogs, /id="project-delete-dialog"/);
   assert.match(dialogs, /id="notification-hook-dialog"/);
-  assert.match(dialogs, /id="auto-sync-dialog"/);
-  assert.match(dialogs, /id="auto-sync-secret"/);
+  assert.doesNotMatch(dialogs, /auto-sync-secret/);
   assert.match(dialogs, /id="project-notification-hook-list"/);
   assert.match(dialogs, /id="project-delete-confirmation"/);
   assert.match(dialogs, /class="modal drawer deploy-drawer"/);

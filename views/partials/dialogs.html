@@ -84,29 +84,6 @@
   </form>
 </dialog>
 
-<dialog id="auto-sync-dialog" class="modal" aria-labelledby="auto-sync-dialog-title">
-  <div class="modal-form">
-    <header class="modal-header">
-      <div>
-        <h2 id="auto-sync-dialog-title">Auto sync & redeploy</h2>
-        <p id="auto-sync-project-label" class="modal-sub">—</p>
-      </div>
-      <button class="modal-close" id="auto-sync-close" type="button" aria-label="ปิด"><svg class="icon" aria-hidden="true"><use href="#icon-close"></use></svg></button>
-    </header>
-    <div class="modal-body">
-      <p id="auto-sync-status" class="field-hint"></p>
-      <section id="auto-sync-setup" class="field-group" hidden>
-        <h3>เชื่อม GitHub webhook</h3>
-        <p>ใน repository ไปที่ Settings → Webhooks → Add webhook แล้วเลือก event <b>Pushes</b> เท่านั้น</p>
-        <label for="auto-sync-url">Payload URL<input id="auto-sync-url" type="text" readonly spellcheck="false"></label>
-        <label for="auto-sync-secret">Secret<input id="auto-sync-secret" type="text" readonly spellcheck="false"></label>
-        <aside class="notice"><svg class="icon" aria-hidden="true"><use href="#icon-alert"></use></svg><p>Secret นี้จะแสดงเพียงครั้งเดียว เก็บไว้ใน GitHub แล้วปิดหน้าต่างนี้ได้ หากสูญหายให้ปิดและเปิด Auto sync ใหม่เพื่อหมุน secret</p></aside>
-      </section>
-    </div>
-    <footer class="modal-footer"><span class="modal-spacer"></span><button id="auto-sync-dismiss" type="button">ปิด</button></footer>
-  </div>
-</dialog>
-
 <dialog id="deployment-log-dialog" class="modal" aria-labelledby="deployment-log-title">
   <header class="modal-header">
     <div>

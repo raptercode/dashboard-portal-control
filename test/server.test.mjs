@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createHmac } from 'node:crypto';
 import { candidateRuntimeEnvironment, copyCandidateSource, createApplication, installCandidateDependencies, redactBuildOutput, resolveProjectPort } from '../src/server.mjs';
 import { SecretVault } from '../src/core.mjs';
 
@@ -384,8 +383,10 @@ test('local UI demo simulates sync and activates a release without cloning', asy
   assert.ok(payload.project.deployment.activeReleaseId);
 });
 
-test('a verified GitHub push auto syncs and redeploys only the configured branch', async (t) => {
-  const { app, base } = await start();
+test('five-minute source polling updates commit state and only auto deploys a new commit when enabled', async (t) => {
+  let revision = 'a'.repeat(40);
+  const projectSyncer = async () => ({ status: 'synced', at: new Date().toISOString(), revision, detail: 'Repository checked.' });
+  const { app, base } = await start({ autoSyncIntervalMs: 15, projectSyncer });
   t.after(() => app.close());
   const login = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'owner@local.test', password: 'correct-horse-battery-staple' }) });
   const session = await login.json();
@@ -397,29 +398,22 @@ test('a verified GitHub push auto syncs and redeploys only the configured branch
   await fetch(`${base}/api/projects/auto-app/environment`, { method: 'POST', headers, body: JSON.stringify({ content: 'NODE_ENV=production\n' }) });
   const configured = await fetch(`${base}/api/projects/auto-app/auto-sync`, { method: 'POST', headers, body: JSON.stringify({ enabled: true }) });
   assert.equal(configured.status, 200);
-  const configuration = await configured.json();
-  assert.equal(typeof configuration.webhookSecret, 'string');
-  assert.equal(JSON.stringify(configuration.project).includes(configuration.webhookSecret), false);
-  const payload = JSON.stringify({ ref: 'refs/heads/main', deleted: false });
-  const signature = `sha256=${createHmac('sha256', configuration.webhookSecret).update(payload).digest('hex')}`;
-  const accepted = await fetch(`${base}/api/deploy-hooks/auto-app`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-github-event': 'push', 'x-hub-signature-256': signature, 'x-github-delivery': 'delivery-1' }, body: payload });
-  assert.equal(accepted.status, 202);
-  const bad = await fetch(`${base}/api/deploy-hooks/auto-app`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-github-event': 'push', 'x-hub-signature-256': 'sha256=' + '0'.repeat(64) }, body: payload });
-  assert.equal(bad.status, 401);
-  const otherBranch = JSON.stringify({ ref: 'refs/heads/feature', deleted: false });
-  const otherSignature = `sha256=${createHmac('sha256', configuration.webhookSecret).update(otherBranch).digest('hex')}`;
-  const ignored = await fetch(`${base}/api/deploy-hooks/auto-app`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-github-event': 'push', 'x-hub-signature-256': otherSignature }, body: otherBranch });
-  assert.equal((await ignored.json()).accepted, false);
-  let project;
+  assert.equal((await configured.json()).webhookSecret, undefined);
+  await new Promise((resolve) => setTimeout(resolve, 35));
+  let project = (await (await fetch(`${base}/api/projects`, { headers: { cookie } })).json()).projects.find((item) => item.slug === 'auto-app');
+  assert.equal(project.deployment.state, 'idle');
+  assert.equal(project.autoSync.lastResult.status, 'unchanged');
+
+  revision = 'b'.repeat(40);
   for (let attempt = 0; attempt < 40; attempt += 1) {
     project = (await (await fetch(`${base}/api/projects`, { headers: { cookie } })).json()).projects.find((item) => item.slug === 'auto-app');
-    if (project.deployment?.state === 'active') break;
+    if (project.deployment?.state === 'active' && project.deployment.releases[0]?.revision === revision) break;
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   assert.equal(project.deployment.state, 'active');
   assert.equal(project.autoSync.enabled, true);
-  assert.equal(project.autoSync.hasSecret, true);
-  assert.equal(JSON.stringify(project).includes(configuration.webhookSecret), false);
+  assert.equal(project.sync.revision, revision);
+  assert.equal(project.deployment.releases[0].revision, revision);
 });
 
 test('environment editor reveals all values to the owner and preserves legacy patch requests', async (t) => {
