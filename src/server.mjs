@@ -3,7 +3,7 @@ import { createServer as createTcpServer } from 'node:net';
 import { chmod, cp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import os from 'node:os';
 import { parseEnvironmentDocument } from '../public/ui/environment-editor.js';
 import { spawn } from 'node:child_process';
@@ -114,6 +114,8 @@ export async function createApplication(options = {}) {
     .map((session) => [session.idHash, { csrf: session.csrf, expiresAt: session.expiresAt }]));
   const loginAttempts = new Map();
   let deploymentQueueDraining = false;
+  const autoSyncRunning = new Set();
+  const autoSyncPending = new Set();
   const metricsIntervalMs = options.metricsIntervalMs ?? METRIC_INTERVAL_MS;
   const metricsEnabled = options.metricsEnabled !== false;
   let metricsTimer = null;
@@ -231,12 +233,16 @@ export async function createApplication(options = {}) {
       if (request.method === 'POST' && url.pathname === '/api/git/branches') return await handleGitBranches(request, response);
       if (request.method === 'POST' && url.pathname === '/api/projects/runtime-detect') return await handleProjectRuntimeDetect(request, response);
       if (request.method === 'POST' && url.pathname === '/api/projects/sync') return await handleProjectSync(request, response);
+      const deployHookMatch = url.pathname.match(/^\/api\/deploy-hooks\/([a-z][a-z0-9-]{0,62})$/);
+      if (request.method === 'POST' && deployHookMatch) return await handleGitHubDeployHook(request, response, deployHookMatch[1]);
       const jobMatch = url.pathname.match(/^\/api\/jobs\/([a-f0-9-]{36})$/i);
       if (request.method === 'GET' && jobMatch) return await handleJobStatus(request, response, jobMatch[1]);
       const deleteMatch = url.pathname.match(/^\/api\/projects\/([a-z][a-z0-9-]{0,62})$/);
       if (request.method === 'DELETE' && deleteMatch) return await handleProjectDelete(request, response, deleteMatch[1]);
       const deployMatch = url.pathname.match(/^\/api\/projects\/([a-z][a-z0-9-]{0,62})\/deploy$/);
       if (request.method === 'POST' && deployMatch) return await handleProjectDeploy(request, response, deployMatch[1]);
+      const autoSyncMatch = url.pathname.match(/^\/api\/projects\/([a-z][a-z0-9-]{0,62})\/auto-sync$/);
+      if (request.method === 'POST' && autoSyncMatch) return await handleProjectAutoSync(request, response, autoSyncMatch[1]);
       const rollbackMatch = url.pathname.match(/^\/api\/projects\/([a-z][a-z0-9-]{0,62})\/rollback$/);
       if (request.method === 'POST' && rollbackMatch) return await handleProjectRollback(request, response, rollbackMatch[1]);
       const deployConfigurationMatch = url.pathname.match(/^\/api\/projects\/([a-z][a-z0-9-]{0,62})\/deploy-configuration$/);
@@ -876,6 +882,130 @@ export async function createApplication(options = {}) {
     return sendJson(response, syncFailed ? 422 : 200, { ok: !syncFailed, project: saved, error: syncFailed ? sync.detail : undefined });
   }
 
+  async function handleProjectAutoSync(request, response, slug) {
+    if (!requireSession(request, response, true)) return;
+    const enabled = (await readJson(request)).enabled;
+    if (typeof enabled !== 'boolean') throw new InputError('Auto sync enabled must be true or false.');
+    const project = findProject(store.snapshot(), slug);
+    if (!isGitHubRepository(project.repository)) throw new InputError('Auto sync currently supports GitHub repositories only.');
+    if (enabled && !vault) throw new InputError('Credential vault is not configured. Set HOSTMGR_SECRET_KEY before enabling auto sync.');
+
+    const webhookSecret = enabled ? randomBytes(32).toString('base64url') : null;
+    await store.update((state) => {
+      const target = findProject(state, slug);
+      target.autoSync = enabled
+        ? { enabled: true, provider: 'github', encryptedSecret: vault.encrypt(webhookSecret), configuredAt: new Date().toISOString(), lastReceivedAt: target.autoSync?.lastReceivedAt ?? null, lastResult: null }
+        : { enabled: false, provider: 'github', configuredAt: null, lastReceivedAt: null, lastResult: null };
+      appendAudit(state, { action: 'project.auto_sync_configure', outcome: 'success', actor: 'owner', target: slug, detail: enabled ? 'GitHub push auto sync and redeploy enabled; webhook secret rotated.' : 'GitHub push auto sync disabled.' });
+    });
+    return sendJson(response, 200, { ok: true, project: publicProject(store.snapshot().projects.find((item) => item.slug === slug)), ...(enabled ? { webhookSecret } : {}) });
+  }
+
+  async function handleGitHubDeployHook(request, response, slug) {
+    const project = store.snapshot().projects.find((item) => item.slug === slug);
+    const autoSync = project?.autoSync;
+    if (!project || !autoSync?.enabled || autoSync.provider !== 'github' || !autoSync.encryptedSecret || !vault) return sendJson(response, 404, { error: 'Auto sync hook was not found.' });
+    const rawBody = await readRawBody(request, 512 * 1024);
+    const signature = request.headers['x-hub-signature-256'];
+    if (!githubSignatureIsValid(rawBody, signature, vault.decrypt(autoSync.encryptedSecret))) return sendJson(response, 401, { error: 'Webhook signature was rejected.' });
+    const event = request.headers['x-github-event'];
+    if (event === 'ping') return sendJson(response, 200, { ok: true, event: 'ping' });
+    if (event !== 'push') return sendJson(response, 202, { accepted: false, reason: 'Only GitHub push events trigger deployments.' });
+    let payload;
+    try { payload = JSON.parse(rawBody.toString('utf8')); } catch { throw new InputError('Invalid GitHub webhook payload.'); }
+    if (payload?.ref !== `refs/heads/${project.branch}` || payload?.deleted === true) return sendJson(response, 202, { accepted: false, reason: 'Push does not target the configured branch.' });
+    const deliveryId = typeof request.headers['x-github-delivery'] === 'string' ? request.headers['x-github-delivery'].slice(0, 100) : null;
+    const wasRunning = autoSyncRunning.has(slug);
+    const deploymentBusy = store.snapshot().jobs.some((job) => job.projectSlug === slug && ['queued', 'running'].includes(job.status));
+    const coalesced = wasRunning || deploymentBusy;
+    if (coalesced) autoSyncPending.add(slug);
+    await store.update((state) => {
+      const target = findProject(state, slug);
+      if (!target.autoSync?.enabled) return;
+      target.autoSync.lastReceivedAt = new Date().toISOString();
+      target.autoSync.lastResult = { status: coalesced ? 'coalesced' : 'accepted', at: new Date().toISOString(), detail: 'Verified GitHub push received.' };
+      appendAudit(state, { action: 'project.auto_sync_receive', outcome: 'success', actor: 'github', target: slug, detail: `Verified push${deliveryId ? ` delivery ${deliveryId}` : ''} for ${target.branch}.` });
+    });
+    if (!wasRunning) void runAutoSyncAndDeploy(slug);
+    return sendJson(response, 202, { accepted: true, deployment: coalesced ? 'coalesced' : 'syncing' });
+  }
+
+  async function runAutoSyncAndDeploy(slug) {
+    if (autoSyncRunning.has(slug)) return;
+    autoSyncRunning.add(slug);
+    try {
+      const snapshot = store.snapshot();
+      const project = snapshot.projects.find((item) => item.slug === slug);
+      if (!project?.autoSync?.enabled) return;
+      if (snapshot.jobs.some((job) => job.projectSlug === slug && ['queued', 'running'].includes(job.status))) return await recordAutoSyncResult(slug, 'coalesced', 'A deployment is already queued or running; the next sync will include this push.');
+      if (!project.environment?.keys?.length) return await recordAutoSyncResult(slug, 'blocked', 'Save at least one environment variable before auto deploy can run.');
+      if (!uiDemo && !project.domains?.hosts?.length) return await recordAutoSyncResult(slug, 'blocked', 'Save at least one project domain before auto deploy can run.');
+      const credential = project.credentialId ? snapshot.credentials.find((item) => item.id === project.credentialId) : null;
+      const sync = (mode === 'demo' && sandboxClone) || mode === 'host'
+        ? await cloneInSandbox(project, credential, vault, projectRoot)
+        : { status: 'synced', at: new Date().toISOString(), detail: 'Simulated repository sync from verified GitHub push.' };
+      await store.update((state) => {
+        const target = findProject(state, slug);
+        target.sync = sync;
+        target.autoSync.lastResult = { status: sync.status === 'synced' ? 'synced' : 'failed', at: new Date().toISOString(), detail: sync.detail };
+        appendAudit(state, { action: 'project.auto_sync', outcome: sync.status === 'synced' ? 'success' : 'failure', actor: 'github', target: slug, detail: sync.status === 'synced' ? 'Repository synced after verified GitHub push.' : sync.detail });
+      });
+      if (sync.status !== 'synced') return;
+      const refreshed = store.snapshot().projects.find((item) => item.slug === slug);
+      if (!refreshed?.autoSync?.enabled) return;
+      const deployProject = validateDeployProject(refreshed);
+      if (uiDemo) {
+        const release = createRelease(deployProject, 'demo-auto-sync-revision');
+        await store.update((state) => {
+          const target = findProject(state, slug);
+          let deployment = beginDeployment(target.deployment, release);
+          deployment = markReleaseHealthy(deployment, release.id);
+          target.deployment = activateRelease(deployment, release.id);
+          target.autoSync.lastResult = { status: 'deployed', at: new Date().toISOString(), detail: `Simulated auto deployment of ${release.id}.` };
+          appendAudit(state, { action: 'project.auto_deploy', outcome: 'success', actor: 'github', target: slug, detail: `Simulated activation of ${release.id} after GitHub push.` });
+        });
+        return;
+      }
+      const release = createRelease(deployProject, await projectRevision(refreshed, projectRoot));
+      const job = { id: randomUUID(), kind: 'deploy', projectSlug: slug, releaseId: release.id, status: 'queued', createdAt: new Date().toISOString(), startedAt: null, finishedAt: null, events: [{ at: new Date().toISOString(), status: 'queued', message: 'Deployment is queued from verified GitHub auto sync.' }], failure: null, failureLog: null };
+      let queued = false;
+      await store.update((state) => {
+        const target = findProject(state, slug);
+        if (state.jobs.some((item) => item.projectSlug === slug && ['queued', 'running'].includes(item.status))) {
+          target.autoSync.lastResult = { status: 'coalesced', at: new Date().toISOString(), detail: 'A deployment was already queued while the source was syncing.' };
+          return;
+        }
+        target.deployment = beginDeployment(target.deployment, release);
+        target.autoSync.lastResult = { status: 'queued', at: new Date().toISOString(), detail: `Queued auto deployment ${release.id}.` };
+        state.jobs = [...state.jobs, job].slice(-100);
+        queued = true;
+        appendAudit(state, { action: 'project.auto_deploy', outcome: 'queued', actor: 'github', target: slug, detail: `Queued candidate release ${release.id} after GitHub push.` });
+      });
+      if (queued) scheduleDeploymentQueue();
+    } catch (error) {
+      await recordAutoSyncResult(slug, 'failed', safeDeploymentFailure(error));
+    } finally {
+      autoSyncRunning.delete(slug);
+      schedulePendingAutoSync(slug);
+    }
+  }
+
+  function schedulePendingAutoSync(slug) {
+    if (!autoSyncPending.has(slug) || autoSyncRunning.has(slug)) return;
+    if (store.snapshot().jobs.some((job) => job.projectSlug === slug && ['queued', 'running'].includes(job.status))) return;
+    autoSyncPending.delete(slug);
+    void runAutoSyncAndDeploy(slug);
+  }
+
+  async function recordAutoSyncResult(slug, status, detail) {
+    await store.update((state) => {
+      const target = state.projects.find((item) => item.slug === slug);
+      if (!target?.autoSync) return;
+      target.autoSync.lastResult = { status, at: new Date().toISOString(), detail: String(detail).slice(0, 240) };
+      appendAudit(state, { action: 'project.auto_sync', outcome: status === 'failed' ? 'failure' : 'neutral', actor: 'github', target: slug, detail: String(detail).slice(0, 240) });
+    });
+  }
+
   async function handleGitBranches(request, response) {
     if (!requireSession(request, response, true)) return;
     const query = validateGitBranchRequest(await readJson(request));
@@ -1086,6 +1216,7 @@ export async function createApplication(options = {}) {
       appendJobEvent(job, 'passed', message);
     });
     void deliverProjectNotifications('deployment.succeeded', jobId, message);
+    schedulePendingAutoSync(store.snapshot().jobs.find((item) => item.id === jobId)?.projectSlug);
   }
 
   async function markJobFailed(jobId, message, failureLog = null) {
@@ -1097,6 +1228,7 @@ export async function createApplication(options = {}) {
       appendJobEvent(job, 'failed', job.failure);
     });
     void deliverProjectNotifications('deployment.failed', jobId, message);
+    schedulePendingAutoSync(store.snapshot().jobs.find((item) => item.id === jobId)?.projectSlug);
   }
 
   async function deliverProjectNotifications(event, jobId, detail) {
@@ -1517,7 +1649,8 @@ export async function cloneInSandbox(project, credential, vault, projectRoot) {
       await run('git', ['-C', target, 'checkout', '--force', project.branch], { env });
       await run('git', ['-C', target, 'reset', '--hard', `origin/${project.branch}`], { env });
     }
-    return { status: 'synced', at: new Date().toISOString(), detail: 'Repository cloned or pulled in the sandbox.' };
+    const revision = await run('git', ['-C', target, 'rev-parse', 'HEAD'], { env });
+    return { status: 'synced', at: new Date().toISOString(), revision, detail: 'Repository cloned or pulled in the sandbox.' };
   } catch (error) {
     return { status: 'failed', at: new Date().toISOString(), detail: `Repository sync failed: ${safeGitSyncFailure(error)}` };
   } finally { await cleanup(); }
@@ -2076,6 +2209,10 @@ function publicProject(project) {
   if (!project) return project;
   const safe = structuredClone(project);
   if (safe.environment) delete safe.environment.encryptedContent;
+  if (safe.autoSync) {
+    delete safe.autoSync.encryptedSecret;
+    safe.autoSync.hasSecret = Boolean(project.autoSync.encryptedSecret);
+  }
   return safe;
 }
 
@@ -2228,6 +2365,11 @@ function appendCommandOutput(existing, chunk) {
 }
 
 async function readJson(request, maxBytes = 64 * 1024) {
+  const body = (await readRawBody(request, maxBytes)).toString('utf8');
+  try { return body ? JSON.parse(body) : {}; } catch { throw new InputError('Invalid JSON body.'); }
+}
+
+async function readRawBody(request, maxBytes = 64 * 1024) {
   const chunks = [];
   let bytes = 0;
   for await (const chunk of request) {
@@ -2235,8 +2377,17 @@ async function readJson(request, maxBytes = 64 * 1024) {
     if (bytes > maxBytes) throw new InputError('Request body is too large.');
     chunks.push(chunk);
   }
-  const body = Buffer.concat(chunks).toString('utf8');
-  try { return body ? JSON.parse(body) : {}; } catch { throw new InputError('Invalid JSON body.'); }
+  return Buffer.concat(chunks);
+}
+
+function isGitHubRepository(repository) {
+  return /^https:\/\/github\.com\//i.test(repository) || /^git@github\.com:/i.test(repository);
+}
+
+function githubSignatureIsValid(body, signature, secret) {
+  if (!Buffer.isBuffer(body) || typeof signature !== 'string' || !/^sha256=[a-f0-9]{64}$/i.test(signature) || typeof secret !== 'string' || !secret) return false;
+  const expected = `sha256=${createHmac('sha256', secret).update(body).digest('hex')}`;
+  return constantEqual(signature, expected);
 }
 
 async function serveStatic(pathname, response) {

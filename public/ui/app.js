@@ -614,8 +614,9 @@ function projectRow(project) {
   const displayStatus = projectDisplayStatus(project);
   cardTitle.append(element('span', `status-dot ${displayStatus.tone}`), element('h3', '', project.name));
   const latestRelease = deployment.releases?.[0];
-  const version = latestRelease?.revision || deployment.activeReleaseId || (deployment.state === 'active' ? 'active' : deployment.state);
-  const identity = element('span', 'card-version', String(version || 'draft').slice(0, 18));
+  const deployedRevision = latestRelease?.revision || null;
+  const deployVersion = deployedRevision || deployment.activeReleaseId || (deployment.state === 'active' ? 'active' : deployment.state);
+  const identity = element('span', 'card-version', `Deploy ${String(deployVersion || 'draft').slice(0, 12)}`);
   const secondary = element('div', 'project-secondary');
   const domains = element('span', 'project-domain');
   if (project.domains?.hosts?.length) {
@@ -637,7 +638,15 @@ function projectRow(project) {
   portMeta.append(document.createTextNode('Port '), element('strong', '', String(project.port || 'auto')));
   const branchMeta = element('span', 'meta-item');
   branchMeta.append(document.createTextNode('Branch '), element('strong', '', project.branch));
-  meta.append(portMeta, branchMeta, element('span', `project-state ${displayStatus.tone}`, displayStatus.label));
+  const hasNewCommit = !project.autoSync?.enabled && sync.status === 'synced' && typeof sync.revision === 'string' && sync.revision && sync.revision !== deployedRevision;
+  if (hasNewCommit) {
+    const newCommit = element('span', 'meta-item project-new-commit');
+    newCommit.append(document.createTextNode('New commit '), element('strong', '', sync.revision.slice(0, 12)));
+    meta.append(portMeta, branchMeta, newCommit);
+  } else {
+    meta.append(portMeta, branchMeta);
+  }
+  meta.append(element('span', `project-state ${displayStatus.tone}`, displayStatus.label));
   const details = element('details', 'project-details');
   const detailSummary = element('summary', '', 'รายละเอียดการตั้งค่า');
   const detailList = element('dl', 'project-detail-list');
@@ -650,7 +659,8 @@ function projectRow(project) {
     ['Protocol', project.protocol.toUpperCase()],
     ['Port', String(project.port)],
     ['Runtime', runtime],
-    ['Environment', project.environment?.keys?.length ? `.env ${project.environment.keys.length} keys` : 'ไม่มีค่า .env']
+    ['Environment', project.environment?.keys?.length ? `.env ${project.environment.keys.length} keys` : 'ไม่มีค่า .env'],
+    ['Auto sync', project.autoSync?.enabled ? `GitHub push → sync + redeploy${project.autoSync.lastResult ? ` · ${project.autoSync.lastResult.status}` : ''}` : 'ปิดอยู่']
   ];
   values.forEach(([label, value]) => detailList.append(element('dt', '', label), element('dd', '', value)));
   details.append(detailSummary, detailList);
@@ -704,6 +714,10 @@ function projectRow(project) {
   hooks.type = 'button';
   hooks.addEventListener('click', closeMenu(() => openNotificationHookDialog(project).catch(showError)));
   actionList.append(hooks);
+  const autoSync = element('button', 'secondary', project.autoSync?.enabled ? 'ปิด Auto sync' : 'เปิด Auto sync');
+  autoSync.type = 'button';
+  autoSync.addEventListener('click', closeMenu(() => configureAutoSync(project, autoSync).catch(showError)));
+  actionList.append(autoSync);
   const logsPage = element('a', 'secondary button', 'Logs');
   logsPage.href = `/projects/${encodeURIComponent(project.slug)}/logs`;
   actionList.append(logsPage);
@@ -754,7 +768,8 @@ async function syncExistingProject(project, button) {
   }
   await withBusy(button, async () => {
     const result = await api('/api/projects/sync', { method: 'POST', body: payload });
-    toast(result.project?.sync?.status === 'synced' ? `Synced latest ${payload.branch}` : (result.project?.sync?.detail || 'Project sync queued.'));
+    const revision = result.project?.sync?.revision;
+    toast(result.project?.sync?.status === 'synced' ? `Synced latest ${payload.branch}${revision ? ` · ${revision.slice(0, 12)}` : ''}` : (result.project?.sync?.detail || 'Project sync queued.'));
     await refresh();
   });
 }
@@ -1080,6 +1095,35 @@ function renderMailPreview() {
     toggleMailCompose(false);
     toast('ตัวอย่างก่อนติดตั้ง — ยังไม่ได้ส่งอีเมลจริง');
   });
+}
+
+async function configureAutoSync(project, button) {
+  if (project.autoSync?.enabled) {
+    if (!await confirmAction('ปิด Auto sync', `หยุด sync และ redeploy อัตโนมัติของ ${project.name} หรือไม่? GitHub webhook เดิมจะถูกปฏิเสธทันที`, 'ปิด Auto sync')) return;
+    await withBusy(button, async () => {
+      await api(`/api/projects/${encodeURIComponent(project.slug)}/auto-sync`, { method: 'POST', body: { enabled: false } });
+      toast('ปิด Auto sync แล้ว');
+      await refresh();
+    });
+    return;
+  }
+  await withBusy(button, async () => {
+    const result = await api(`/api/projects/${encodeURIComponent(project.slug)}/auto-sync`, { method: 'POST', body: { enabled: true } });
+    await refresh();
+    openAutoSyncDialog(result.project, result.webhookSecret);
+  });
+}
+
+function openAutoSyncDialog(project, webhookSecret = null) {
+  const dialog = $('#auto-sync-dialog');
+  $('#auto-sync-project-label').textContent = `${project.name} · ${project.branch || 'main'}`;
+  $('#auto-sync-status').textContent = webhookSecret
+    ? 'เปิดแล้ว — เมื่อ GitHub ส่ง push มาที่ branch นี้ Portal จะ sync source แล้วสร้าง release อัตโนมัติ'
+    : 'Auto sync เปิดอยู่ แต่ secret จะไม่แสดงซ้ำ เพื่อความปลอดภัย';
+  $('#auto-sync-setup').hidden = !webhookSecret;
+  $('#auto-sync-url').value = webhookSecret ? `${window.location.origin}/api/deploy-hooks/${encodeURIComponent(project.slug)}` : '';
+  $('#auto-sync-secret').value = webhookSecret || '';
+  dialog.showModal();
 }
 
 function renderMailSetupNotice(mail) {
@@ -3156,6 +3200,8 @@ function bindEvents() {
   $('#domain-form')?.addEventListener('submit', (event) => confirmAddDomain(event).catch(showError));
   $('#notification-hook-close')?.addEventListener('click', () => $('#notification-hook-dialog').close());
   $('#notification-hook-cancel')?.addEventListener('click', () => $('#notification-hook-dialog').close());
+  $('#auto-sync-close')?.addEventListener('click', () => $('#auto-sync-dialog').close());
+  $('#auto-sync-dismiss')?.addEventListener('click', () => $('#auto-sync-dialog').close());
 }
 
 async function bootstrap() {

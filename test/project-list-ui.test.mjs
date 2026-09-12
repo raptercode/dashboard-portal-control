@@ -6,11 +6,12 @@ const root = new URL('..', import.meta.url);
 const read = (path) => readFile(new URL(path, root), 'utf8');
 
 test('project list keeps technical settings behind details and protects deletion by exact name', async () => {
-  const [app, dialogs, css, compat, layout, sidebar, repository, icons] = await Promise.all([
+  const [app, dialogs, css, compat, source, layout, sidebar, repository, icons] = await Promise.all([
     read('public/ui/app.js'),
     read('views/partials/dialogs.html'),
     read('public/ui/admin.css'),
     read('public/ui/v2-compat.css'),
+    read('public/ui/v2-source.css'),
     read('views/layout.html'),
     read('views/partials/sidebar.html'),
     read('views/pages/projects-new-repository.html'),
@@ -23,7 +24,13 @@ test('project list keeps technical settings behind details and protects deletion
   assert.match(app, /event\.target\.closest\('\.project-actions-menu'\)/);
   assert.match(app, /Sync latest/);
   assert.match(app, /function syncExistingProject\(project, button\)/);
+  assert.match(app, /Deploy \$\{String\(deployVersion \|\| 'draft'\)\.slice\(0, 12\)\}/);
+  assert.match(app, /New commit/);
+  assert.match(app, /sync\.revision/);
   assert.match(app, /function openNotificationHookDialog\(project\)/);
+  assert.match(app, /function configureAutoSync\(project, button\)/);
+  assert.match(app, /function openAutoSyncDialog\(project, webhookSecret = null\)/);
+  assert.match(app, /api\/projects\/\$\{encodeURIComponent\(project\.slug\)\}\/auto-sync/);
   assert.match(app, /function projectDisplayStatus\(project\)/);
   assert.match(app, /Ready to release/);
   assert.match(app, /Needs attention/);
@@ -35,6 +42,8 @@ test('project list keeps technical settings behind details and protects deletion
   assert.match(app, /input\.value !== project\.name/);
   assert.match(dialogs, /id="project-delete-dialog"/);
   assert.match(dialogs, /id="notification-hook-dialog"/);
+  assert.match(dialogs, /id="auto-sync-dialog"/);
+  assert.match(dialogs, /id="auto-sync-secret"/);
   assert.match(dialogs, /id="project-notification-hook-list"/);
   assert.match(dialogs, /id="project-delete-confirmation"/);
   assert.match(dialogs, /class="modal drawer deploy-drawer"/);
@@ -51,6 +60,7 @@ test('project list keeps technical settings behind details and protects deletion
   assert.match(app, /collectDeployEnvironmentVariables/);
   assert.match(app, /deploy-configuration/);
   assert.match(compat, /project-action-divider/);
+  assert.match(source, /\.project-new-commit/);
   assert.match(compat, /project-card\.menu-open/);
   assert.match(compat, /body\[data-shell="dashboard"\] \.app \{\s*grid-template-rows: var\(--topbar-h\) minmax\(0, 1fr\);\s*height: 100dvh;/);
   assert.match(compat, /body\[data-shell="dashboard"\] \.main,\s*body\[data-shell="dashboard"\] \.sidebar \{\s*min-height: 0;/);

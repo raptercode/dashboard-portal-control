@@ -298,6 +298,7 @@ input, textarea, select { font-family: inherit; font-size: inherit; }
 }
 .card-meta .meta-item { display: flex; align-items: center; gap: 5px; }
 .card-meta .meta-item strong { color: var(--text-primary); font-weight: 600; }
+.project-new-commit { color: var(--brand-accent); font-family: 'JetBrains Mono', ui-monospace, monospace; }
 .project-state { margin-left: auto; font-size: 12px; }
 .project-state.success { color: var(--brand-accent); }
 .project-state.building { color: #b45309; }

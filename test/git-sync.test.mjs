@@ -54,9 +54,11 @@ test('re-syncing an existing project after its repository URL changes repoints o
 
   const first = await cloneInSandbox(project, null, null, projectRoot);
   assert.equal(first.status, 'synced');
+  assert.equal(first.revision, execFileSync('git', ['-C', join(projectRoot, 'rebased-app', 'repository'), 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim());
   assert.equal(await readFile(join(projectRoot, 'rebased-app', 'repository', 'marker.txt'), 'utf8'), 'repo-a');
 
   const second = await cloneInSandbox({ ...project, repository: repoB }, null, null, projectRoot);
   assert.equal(second.status, 'synced');
+  assert.equal(second.revision, execFileSync('git', ['-C', join(projectRoot, 'rebased-app', 'repository'), 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim());
   assert.equal(await readFile(join(projectRoot, 'rebased-app', 'repository', 'marker.txt'), 'utf8'), 'repo-b');
 });
