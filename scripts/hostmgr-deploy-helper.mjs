@@ -610,7 +610,8 @@ async function prepareDockerProjectRelease(project, releaseId) {
 
 async function startAndCheckProject(project, transaction) {
   await run('/usr/bin/systemctl', ['daemon-reload']);
-  await run('/usr/bin/systemctl', ['enable', '--now', transaction.identity.service], { failure: 'The project systemd service could not be enabled or started.' });
+  await run('/usr/bin/systemctl', ['enable', transaction.identity.service], { failure: 'The project systemd service could not be enabled.' });
+  await run('/usr/bin/systemctl', ['restart', transaction.identity.service], { failure: 'The project systemd service could not be restarted.' });
   if (project.healthCheckEnabled === false) return;
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {

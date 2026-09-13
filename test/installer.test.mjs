@@ -80,6 +80,14 @@ test('helper permits Bun projects and starts them through the fixed Bun executab
   assert.match(helper, /WorkingDirectory=\$\{workingDirectory\}/);
 });
 
+test('helper restarts an active native project after switching its release', async () => {
+  const helper = await readFile(new URL('../scripts/hostmgr-deploy-helper.mjs', import.meta.url), 'utf8');
+  const activation = helper.match(/async function startAndCheckProject\(project, transaction\) \{[\s\S]*?\n\}/)?.[0] ?? '';
+  assert.match(activation, /\['enable', transaction\.identity\.service\]/);
+  assert.match(activation, /\['restart', transaction\.identity\.service\]/);
+  assert.doesNotMatch(activation, /\['enable', '--now', transaction\.identity\.service\]/);
+});
+
 test('helper trims dependencies only from historical releases outside the rollback window', async () => {
   const helper = await readFile(new URL('../scripts/hostmgr-deploy-helper.mjs', import.meta.url), 'utf8');
   assert.match(helper, /async function pruneHistoricalNodeModules/);
