@@ -68,6 +68,14 @@ test('Bun native projects render Bun as the constrained systemd launcher', () =>
   assert.equal(validatePackageScripts({ scripts: { start: 'bun server.ts' } }, bunProject).startScript, 'start');
 });
 
+test('Bun start scripts must invoke Bun instead of relying on a TypeScript file to be executable', () => {
+  const bunProject = { ...project, runtime: 'bun', buildScript: null };
+  assert.throws(
+    () => validatePackageScripts({ scripts: { start: 'src/index.ts' } }, bunProject),
+    /Bun start script must invoke Bun/
+  );
+});
+
 test('release records safe deployment phases and supports an explicit health-check skip', () => {
   const release = createRelease({ ...project, healthCheckEnabled: false });
   assert.equal(release.health.enabled, false);

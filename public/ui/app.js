@@ -2486,12 +2486,15 @@ function renderProjectReleaseLogs(project) {
     return;
   }
   root.replaceChildren(...releases.map((release) => {
-    const row = element('article', 'readiness-item');
-    const copy = element('div', 'readiness-copy');
-    const text = element('div');
-    text.append(element('strong', '', release.id), element('small', '', release.createdAt ? new Date(release.createdAt).toLocaleString('th-TH') : ''));
+    const row = element('article', 'readiness-item log-release-row');
+    const copy = element('div', 'readiness-copy log-release-copy');
+    const text = element('div', 'log-release-meta');
+    text.append(
+      element('strong', 'log-release-id', release.id),
+      element('small', 'log-release-time', release.createdAt ? new Date(release.createdAt).toLocaleString('th-TH') : '')
+    );
     copy.append(text);
-    const trailing = element('div', 'form-actions');
+    const trailing = element('div', 'form-actions log-release-actions');
     const button = element('button', 'secondary', 'ดู log');
     button.type = 'button';
     button.addEventListener('click', () => openDeploymentLog(project, release));

@@ -56,8 +56,15 @@ export function validatePackageScripts(packageJson, projectInput) {
     if (typeof packageJson.scripts[script] !== 'string' || !packageJson.scripts[script].trim()) {
       throw new InputError(`Project package.json is missing the ${script} npm script.`);
     }
+    if (script === project.startScript && project.runtime === 'bun' && isBareTypeScriptEntry(packageJson.scripts[script])) {
+      throw new InputError('Bun start script must invoke Bun (for example, "bun src/index.ts") instead of naming a TypeScript file directly.');
+    }
   }
   return project;
+}
+
+function isBareTypeScriptEntry(value) {
+  return /^\s*(?:\.\/)?[A-Za-z0-9_./-]+\.(?:[cm]?ts|tsx)\s*$/.test(value);
 }
 
 export function createRelease(projectInput, revision = null) {

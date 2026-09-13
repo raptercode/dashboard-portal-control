@@ -715,8 +715,10 @@ label input, label select, label textarea {
 
 .log-viewer {
   margin: 0;
-  max-height: 440px;
-  overflow-y: auto;
+  max-height: min(440px, 52dvh);
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   background: var(--line-soft);
   color: var(--ink);
   border: 1px solid var(--line-strong);
@@ -727,6 +729,16 @@ label input, label select, label textarea {
   line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-all;
+}
+.log-release-row { align-items: flex-start; }
+.log-release-copy { align-items: flex-start; }
+.log-release-meta { display: grid; gap: 3px; min-width: 0; }
+.log-release-id { color: var(--ink); font-family: var(--mono); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+.log-release-time { color: var(--muted); display: block; font-size: 12px; line-height: 1.4; }
+.log-release-actions { align-items: center; flex: 0 0 auto; flex-wrap: wrap; justify-content: flex-end; }
+@media (max-width: 640px) {
+  .log-release-row { align-items: stretch; flex-direction: column; }
+  .log-release-actions { justify-content: flex-start; }
 }
 .toast.error { background: #8f1d18; }
 
