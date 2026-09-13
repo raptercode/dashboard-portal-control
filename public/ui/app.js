@@ -1,5 +1,7 @@
 import { pageForPathname } from './router.js';
 import { ENVIRONMENT_MAX_BYTES, parseEnvironmentDocument, updateEnvironmentDocument, mergeEnvironmentDocument } from './environment-editor.js';
+import { projectActionMenuPlacement } from './project-action-menu-positioning.js';
+import { shouldOfferManualSync } from './project-manual-sync-action.js';
 
 const DRAFT_KEY = 'hostmgr.projectDraft';
 const SIDEBAR_COLLAPSED_KEY = 'hostmgr.sidebarCollapsed';
@@ -136,6 +138,27 @@ function slugify(value) {
   if (!slug) return '';
   if (!/^[a-z]/.test(slug)) slug = `p-${slug}`.slice(0, 63);
   return slug;
+}
+
+function positionProjectActionMenu(menu, actionList) {
+  const trigger = menu.getBoundingClientRect();
+  const boundary = menu.closest('.main')?.getBoundingClientRect();
+  const viewportHeight = document.documentElement.clientHeight || window.innerHeight;
+  const placement = projectActionMenuPlacement({
+    triggerTop: trigger.top,
+    triggerBottom: trigger.bottom,
+    menuHeight: actionList.getBoundingClientRect().height,
+    boundaryTop: Math.max(0, boundary?.top ?? 0),
+    boundaryBottom: Math.min(viewportHeight, boundary?.bottom ?? viewportHeight)
+  });
+  menu.classList.toggle('opens-upward', placement === 'up');
+}
+
+function repositionOpenProjectActionMenus() {
+  $$('details.project-actions-menu[open]').forEach((menu) => {
+    const actionList = $('.project-action-list', menu);
+    if (actionList) positionProjectActionMenu(menu, actionList);
+  });
 }
 
 function shortGitCommit(revision) {
@@ -733,7 +756,12 @@ function projectRow(project) {
   portMeta.append(document.createTextNode('Port '), element('strong', '', String(project.port || 'auto')));
   const branchMeta = element('span', 'meta-item');
   branchMeta.append(document.createTextNode('Branch '), element('strong', '', project.branch));
-  const hasNewCommit = !project.autoSync?.enabled && sync.status === 'synced' && typeof sync.revision === 'string' && sync.revision && sync.revision !== deployedRevision;
+  const hasNewCommit = shouldOfferManualSync({
+    autoSyncEnabled: project.autoSync?.enabled,
+    syncStatus: sync.status,
+    syncRevision: sync.revision,
+    deployedRevision
+  });
   if (hasNewCommit) {
     const newCommit = element('span', 'meta-item project-new-commit');
     newCommit.append(document.createTextNode('New commit '), projectCommitReference(project, sync.revision, 'project-commit-link'));
@@ -771,6 +799,12 @@ function projectRow(project) {
   if (displayStatus.key === 'attention' && deployment.previousReleaseId) primaryAction.addEventListener('click', () => rollbackProject(project, primaryAction));
   else primaryAction.addEventListener('click', () => openDeployDialog(project).catch(showError));
   actions.append(primaryAction);
+  if (hasNewCommit) {
+    const manualSync = element('button', 'btn btn-ghost btn-sm project-manual-sync', 'Sync');
+    manualSync.type = 'button';
+    manualSync.addEventListener('click', () => syncExistingProject(project, manualSync).catch(showError));
+    actions.append(manualSync);
+  }
   const logsPageLink = element('a', 'btn btn-ghost btn-sm', 'Logs');
   logsPageLink.href = `/projects/${encodeURIComponent(project.slug)}/logs`;
   actions.append(logsPageLink);
@@ -784,8 +818,15 @@ function projectRow(project) {
   };
   menu.addEventListener('toggle', () => {
     row.classList.toggle('menu-open', menu.open);
-    if (menu.open) $$('details.project-actions-menu[open]').forEach((otherMenu) => {
+    if (!menu.open) {
+      menu.classList.remove('opens-upward');
+      return;
+    }
+    $$('details.project-actions-menu[open]').forEach((otherMenu) => {
       if (otherMenu !== menu) otherMenu.open = false;
+    });
+    requestAnimationFrame(() => {
+      if (menu.open) positionProjectActionMenu(menu, actionList);
     });
   });
   const syncLatest = element('button', 'secondary', 'Sync latest');
@@ -3098,6 +3139,7 @@ function bindEvents() {
     button.addEventListener('click', () => loadMetrics(Number(button.dataset.range)).catch(showError));
   });
   window.addEventListener('resize', () => {
+    repositionOpenProjectActionMenus();
     if (state.metrics?.samples) drawMetricsChart(state.metrics.samples);
   });
   $('#mobile-menu')?.addEventListener('click', () => {

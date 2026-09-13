@@ -21,6 +21,11 @@ test('project list keeps technical settings behind details and protects deletion
 
   assert.match(app, /project-details/);
   assert.match(app, /project-actions-menu/);
+  assert.match(app, /projectActionMenuPlacement/);
+  assert.match(app, /positionProjectActionMenu/);
+  assert.match(app, /opens-upward/);
+  assert.match(app, /shouldOfferManualSync/);
+  assert.match(app, /project-manual-sync/);
   assert.match(app, /details\.project-actions-menu\[open\]/);
   assert.match(app, /event\.target\.closest\('\.project-actions-menu'\)/);
   assert.match(app, /Sync latest/);
@@ -68,6 +73,7 @@ test('project list keeps technical settings behind details and protects deletion
   assert.match(app, /collectDeployEnvironmentVariables/);
   assert.match(app, /deploy-configuration/);
   assert.match(compat, /project-action-divider/);
+  assert.match(compat, /project-actions-menu\.opens-upward \.project-action-list/);
   assert.match(source, /\.project-new-commit/);
   assert.match(compat, /project-card\.menu-open/);
   assert.match(compat, /body\[data-shell="dashboard"\] \.app \{\s*grid-template-rows: var\(--topbar-h\) minmax\(0, 1fr\);\s*height: 100dvh;/);

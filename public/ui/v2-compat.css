@@ -217,6 +217,7 @@ button.danger, .button.danger { background: var(--status-error); border-color: v
 .project-card .project-actions-menu summary { list-style: none; background: transparent; border: 1px solid var(--border); border-radius: var(--r-md); color: var(--text-secondary); cursor: pointer; font-size: 12px; padding: 5px 10px; }
 .project-card .project-actions-menu summary::-webkit-details-marker { display: none; }
 .project-card .project-action-list { background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--r-md); box-shadow: var(--shadow-lg); display: grid; gap: 4px; min-width: 180px; padding: 6px; position: absolute; right: 0; top: calc(100% + 6px); z-index: 10; }
+.project-card .project-actions-menu.opens-upward .project-action-list { bottom: calc(100% + 6px); top: auto; }
 .project-card .project-action-list button, .project-card .project-action-list .button { justify-content: flex-start; text-align: left; white-space: nowrap; }
 .project-card .project-action-list button:hover, .project-card .project-action-list .button:hover { background: var(--slate-50); color: var(--text-primary); box-shadow: none; transform: none; }
 .project-card .project-action-danger { background: transparent; border-color: transparent; color: var(--status-error); }
