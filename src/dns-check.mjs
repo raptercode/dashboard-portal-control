@@ -62,7 +62,7 @@ async function resolveWithLookup(hostname, lookup, timeoutMs) {
 }
 
 async function resolveFromPublicDns(hostname, timeoutMs, options = {}) {
-  if (options.lookup || options.resolve4 || options.resolve6) {
+  if ((options.lookup || options.resolve4 || options.resolve6) && !options.Resolver) {
     if (!options.publicResolve4 && !options.publicResolve6) return [];
     const addresses = [];
     try {
@@ -78,19 +78,26 @@ async function resolveFromPublicDns(hostname, timeoutMs, options = {}) {
     return addresses;
   }
   const Resolver = options.Resolver ?? dns.Resolver;
-  const resolver = new Resolver();
-  resolver.setServers(options.publicDnsServers ?? [...PUBLIC_DNS_SERVERS]);
+  const servers = options.publicDnsServers ?? [...PUBLIC_DNS_SERVERS];
   const addresses = [];
-  try {
-    addresses.push(...await resolveRecordList((name, opts) => resolver.resolve4(name, opts), hostname, timeoutMs));
-  } catch (error) {
-    if (!isUnresolvedDnsError(error)) throw error;
+  let unexpectedError = null;
+  const attempts = servers.flatMap((server) => {
+    const resolver = new Resolver();
+    resolver.setServers([server]);
+    return [
+      resolveRecordList((name, opts) => resolver.resolve4(name, opts), hostname, timeoutMs),
+      resolveRecordList((name, opts) => resolver.resolve6(name, opts), hostname, timeoutMs),
+    ];
+  });
+  const outcomes = await Promise.allSettled(attempts);
+  for (const outcome of outcomes) {
+    if (outcome.status === 'fulfilled') {
+      addresses.push(...outcome.value);
+    } else if (!isUnresolvedDnsError(outcome.reason) && !unexpectedError) {
+      unexpectedError = outcome.reason;
+    }
   }
-  try {
-    addresses.push(...await resolveRecordList((name, opts) => resolver.resolve6(name, opts), hostname, timeoutMs));
-  } catch (error) {
-    if (!isUnresolvedDnsError(error)) throw error;
-  }
+  if (!addresses.length && unexpectedError) throw unexpectedError;
   return addresses;
 }
 

@@ -81,6 +81,32 @@ test('checkDomainDns falls back to public resolvers when the host stub has no re
   assert.deepEqual(result.resolved, ['187.52.115.194']);
 });
 
+test('checkDomainDns tries the next public resolver when the first returns no record', async () => {
+  class PerServerResolver {
+    setServers([server]) { this.server = server; }
+
+    async resolve4() {
+      if (this.server === '1.1.1.1') throw Object.assign(new Error('ENOTFOUND'), { code: 'ENOTFOUND' });
+      return ['187.52.115.194'];
+    }
+
+    async resolve6() {
+      throw Object.assign(new Error('ENODATA'), { code: 'ENODATA' });
+    }
+  }
+
+  const result = await checkDomainDns('hola-api.tovenly.com', {
+    expected: ['187.52.115.194'],
+    lookup: noLookup,
+    resolve4: noLookup,
+    resolve6: noLookup,
+    Resolver: PerServerResolver,
+  });
+
+  assert.equal(result.status, 'ok');
+  assert.deepEqual(result.resolved, ['187.52.115.194']);
+});
+
 test('checkDomainDns accepts a public origin record when the host resolver has a stale proxy address', async () => {
   const result = await checkDomainDns('api.speedtopup.shop', {
     expected: ['187.52.115.194'],

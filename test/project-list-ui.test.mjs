@@ -6,7 +6,7 @@ const root = new URL('..', import.meta.url);
 const read = (path) => readFile(new URL(path, root), 'utf8');
 
 test('project list keeps technical settings behind details and protects deletion by exact name', async () => {
-  const [app, dialogs, css, compat, source, layout, sidebar, repository, icons] = await Promise.all([
+  const [app, dialogs, css, compat, source, layout, sidebar, repository, icons, projects] = await Promise.all([
     read('public/ui/app.js'),
     read('views/partials/dialogs.html'),
     read('public/ui/admin.css'),
@@ -15,7 +15,8 @@ test('project list keeps technical settings behind details and protects deletion
     read('views/layout.html'),
     read('views/partials/sidebar.html'),
     read('views/pages/projects-new-repository.html'),
-    read('views/partials/icons.html')
+    read('views/partials/icons.html'),
+    read('views/pages/projects.html')
   ]);
 
   assert.match(app, /project-details/);
@@ -24,7 +25,12 @@ test('project list keeps technical settings behind details and protects deletion
   assert.match(app, /event\.target\.closest\('\.project-actions-menu'\)/);
   assert.match(app, /Sync latest/);
   assert.match(app, /function syncExistingProject\(project, button\)/);
-  assert.match(app, /Deploy \$\{String\(deployVersion \|\| 'draft'\)\.slice\(0, 12\)\}/);
+  assert.match(app, /function shortGitCommit\(revision\)/);
+  assert.match(app, /function publicRepositoryUrl\(repository\)/);
+  assert.match(app, /function projectCommitUrl\(repository, revision\)/);
+  assert.match(app, /projectCommitReference\(project, deployedRevision, 'card-version project-commit-link'/);
+  assert.match(app, /projectCommitReference\(project, sync\.revision, 'project-commit-link'/);
+  assert.match(app, /repository\.href = repositoryUrl/);
   assert.match(app, /const activeRelease = deployment\.activeReleaseId/);
   assert.match(app, /release\.id === deployment\.activeReleaseId/);
   assert.match(app, /const deployedRevision = activeRelease\?\.revision \|\| null/);
@@ -93,4 +99,24 @@ test('project list keeps technical settings behind details and protects deletion
   assert.doesNotMatch(css, /Dark workspace/);
   assert.match(layout, /name="color-scheme" content="light dark"/);
   assert.match(layout, /\/ui\/v2-source\.css/);
+  assert.match(app, /const PROJECT_GROUPING_KEY = 'hostmgr\.projectGrouping'/);
+  assert.match(app, /function projectGrouping\(\)/);
+  assert.match(app, /function setProjectGrouping\(grouping\)/);
+  assert.match(app, /if \(grouping === 'all'\)/);
+  assert.match(app, /data-project-grouping/);
+  assert.match(projects, /data-project-grouping="grouped"/);
+  assert.match(projects, /data-project-grouping="all"/);
+  assert.match(compat, /\.project-view-toggle/);
+  assert.match(compat, /\.card-meta \{ align-items: center; flex-wrap: wrap; row-gap: 7px; \}/);
+  assert.match(compat, /project-commit-link:hover, \.project-card \.project-repository-link:hover/);
+});
+
+test('standard modals stay within the viewport and keep dark inputs readable', async () => {
+  const compat = await read('public/ui/v2-compat.css');
+
+  assert.match(compat, /dialog\.modal:not\(\.deploy-drawer\) \{[\s\S]*max-height: calc\(100dvh - 32px\);[\s\S]*width: min\(680px, calc\(100vw - 32px\)\);/);
+  assert.match(compat, /\.modal-form:not\(\.deploy-drawer-form\) \{ display: grid; grid-template-rows: auto minmax\(0, 1fr\) auto;/);
+  assert.match(compat, /\.modal-body \{ min-height: 0; overflow: auto;/);
+  assert.match(compat, /\.modal-close \{[\s\S]*background: transparent !important;[\s\S]*height: 34px;/);
+  assert.match(compat, /html\[data-theme="dark"\] dialog\.modal input:not\(\[type="checkbox"\]\):not\(\[type="radio"\]\):not\(\[type="file"\]\),[\s\S]*color: #f8fafc;/);
 });

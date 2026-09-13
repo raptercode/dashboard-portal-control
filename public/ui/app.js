@@ -3,6 +3,7 @@ import { ENVIRONMENT_MAX_BYTES, parseEnvironmentDocument, updateEnvironmentDocum
 
 const DRAFT_KEY = 'hostmgr.projectDraft';
 const SIDEBAR_COLLAPSED_KEY = 'hostmgr.sidebarCollapsed';
+const PROJECT_GROUPING_KEY = 'hostmgr.projectGrouping';
 const THEME_KEY = 'hostmgr.theme';
 const THEME_COLOR_LIGHT = '#f8fafc';
 const THEME_COLOR_DARK = '#0b1220';
@@ -137,6 +138,61 @@ function slugify(value) {
   return slug;
 }
 
+function shortGitCommit(revision) {
+  const value = String(revision || '').trim();
+  return /^[0-9a-f]{7,64}$/i.test(value) ? value.slice(0, 7) : null;
+}
+
+function publicRepositoryUrl(repository) {
+  const value = String(repository || '').trim();
+  if (!value) return null;
+  let host = '';
+  let path = '';
+  try {
+    const url = new URL(value);
+    if (!['http:', 'https:'].includes(url.protocol)) return null;
+    host = url.host;
+    path = url.pathname;
+  } catch {
+    const scpStyle = value.match(/^(?:[^@\s/:]+@)?([^:\s/]+):(.+)$/);
+    const sshStyle = value.match(/^ssh:\/\/(?:[^@\s/]+@)?([^/\s]+)\/(.+)$/);
+    if (scpStyle) [, host, path] = scpStyle;
+    else if (sshStyle) [, host, path] = sshStyle;
+    else return null;
+  }
+  const cleanPath = `/${String(path).replace(/^\/+|\/+$/g, '').replace(/\.git$/i, '')}`;
+  if (!host || cleanPath === '/') return null;
+  return `https://${host}${cleanPath}`;
+}
+
+function projectCommitUrl(repository, revision) {
+  const commit = shortGitCommit(revision);
+  const repositoryUrl = publicRepositoryUrl(repository);
+  if (!commit || !repositoryUrl) return null;
+  const url = new URL(repositoryUrl);
+  const separator = /(^|\.)gitlab\./i.test(url.hostname) ? '/-/commit/' : /(^|\.)bitbucket\./i.test(url.hostname) ? '/commits/' : '/commit/';
+  url.pathname = `${url.pathname.replace(/\/$/, '')}${separator}${String(revision).trim()}`;
+  return url.href;
+}
+
+function projectCommitReference(project, revision, className, fallback = 'draft') {
+  const short = shortGitCommit(revision);
+  const url = projectCommitUrl(project.repository, revision);
+  const node = element(url ? 'a' : 'span', className, short || fallback);
+  if (url) {
+    node.href = url;
+    node.target = '_blank';
+    node.rel = 'noopener noreferrer';
+    node.title = `เปิด commit ${short}`;
+  }
+  return node;
+}
+
+function repositoryLabel(repository, repositoryUrl) {
+  if (repositoryUrl) return repositoryUrl.replace(/^https:\/\//, '');
+  return String(repository || '').replace(/^https?:\/\//, '').replace(/^git@/, '').replace(/\.git$/, '');
+}
+
 function flowPath(step) {
   if (flowMode === 'edit' && editSlug) {
     if (step === 'identity') return `/projects/${editSlug}/edit`;
@@ -183,6 +239,24 @@ function projectStatusCounts(projects) {
 function currentProjectStatusFilter() {
   const value = new URLSearchParams(location.search).get('status');
   return PROJECT_STATUS[value] ? value : '';
+}
+
+function projectGrouping() {
+  try { return localStorage.getItem(PROJECT_GROUPING_KEY) === 'all' ? 'all' : 'grouped'; }
+  catch { return 'grouped'; }
+}
+
+function setProjectGrouping(grouping) {
+  const next = grouping === 'all' ? 'all' : 'grouped';
+  try { localStorage.setItem(PROJECT_GROUPING_KEY, next); } catch {}
+  renderProjects();
+}
+
+function renderProjectGroupingControl(grouping) {
+  $$('[data-project-grouping]').forEach((button) => {
+    const selected = button.dataset.projectGrouping === grouping;
+    button.setAttribute('aria-pressed', String(selected));
+  });
 }
 
 function setShell(mode) {
@@ -549,6 +623,8 @@ function renderProjects() {
     }
   }
   const query = ($('#project-search')?.value || '').trim().toLocaleLowerCase('th-TH');
+  const grouping = projectGrouping();
+  renderProjectGroupingControl(grouping);
   const projects = state.projects.filter((project) => {
     if (statusFilter && projectRuntimeStatus(project) !== statusFilter) return false;
     if (!query) return true;
@@ -568,6 +644,13 @@ function renderProjects() {
     const name = project.organization || 'ไม่ระบุองค์กร';
     groups.set(name, [...(groups.get(name) || []), project]);
   });
+  if (grouping === 'all') {
+    const list = element('section', 'project-list project-list-all');
+    list.setAttribute('aria-label', 'โปรเจคทั้งหมด');
+    list.append(...projects.map(projectRow));
+    root.replaceChildren(list);
+    return;
+  }
   const entries = [...groups.entries()];
   root.replaceChildren(...entries.flatMap(([organization, items]) => {
     const heading = element('h2', 'organization', organization);
@@ -621,8 +704,7 @@ function projectRow(project) {
     ? deployment.releases?.find((release) => release.id === deployment.activeReleaseId)
     : null;
   const deployedRevision = activeRelease?.revision || null;
-  const deployVersion = deployedRevision || deployment.activeReleaseId || (deployment.state === 'active' ? 'active' : deployment.state);
-  const identity = element('span', 'card-version', `Deploy ${String(deployVersion || 'draft').slice(0, 12)}`);
+  const identity = projectCommitReference(project, deployedRevision, 'card-version project-commit-link', deployment.state === 'active' ? 'active' : 'draft');
   const secondary = element('div', 'project-secondary');
   const domains = element('span', 'project-domain');
   if (project.domains?.hosts?.length) {
@@ -638,7 +720,14 @@ function projectRow(project) {
     domains.classList.add('muted');
     domains.textContent = 'ยังไม่ได้ตั้งค่า domain';
   }
-  const repository = element('div', 'card-repo', String(project.repository || '').replace(/^https?:\/\//, '').replace(/^git@/, '').replace(/\.git$/, ''));
+  const repositoryUrl = publicRepositoryUrl(project.repository);
+  const repository = element(repositoryUrl ? 'a' : 'span', 'card-repo project-repository-link', repositoryLabel(project.repository, repositoryUrl));
+  if (repositoryUrl) {
+    repository.href = repositoryUrl;
+    repository.target = '_blank';
+    repository.rel = 'noopener noreferrer';
+    repository.title = 'เปิด repository ในแท็บใหม่';
+  }
   const meta = element('div', 'card-meta');
   const portMeta = element('span', 'meta-item');
   portMeta.append(document.createTextNode('Port '), element('strong', '', String(project.port || 'auto')));
@@ -647,7 +736,7 @@ function projectRow(project) {
   const hasNewCommit = !project.autoSync?.enabled && sync.status === 'synced' && typeof sync.revision === 'string' && sync.revision && sync.revision !== deployedRevision;
   if (hasNewCommit) {
     const newCommit = element('span', 'meta-item project-new-commit');
-    newCommit.append(document.createTextNode('New commit '), element('strong', '', sync.revision.slice(0, 12)));
+    newCommit.append(document.createTextNode('New commit '), projectCommitReference(project, sync.revision, 'project-commit-link'));
     meta.append(portMeta, branchMeta, newCommit);
   } else {
     meta.append(portMeta, branchMeta);
@@ -3113,6 +3202,9 @@ function bindEvents() {
     } catch { toast('คัดลอกคำสั่งไม่ได้ กรุณาเลือกข้อความด้านล่าง', true); }
   });
   $('#project-search')?.addEventListener('input', () => renderProjects());
+  $$('[data-project-grouping]').forEach((button) => {
+    button.addEventListener('click', () => setProjectGrouping(button.dataset.projectGrouping));
+  });
   $('#create-project')?.addEventListener('click', () => clearDraft());
 
   $('#project-identity-form')?.addEventListener('submit', (event) => {

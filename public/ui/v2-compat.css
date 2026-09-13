@@ -177,6 +177,10 @@ button.danger, .button.danger { background: var(--status-error); border-color: v
 
 /* Projects use the source card grid while preserving live actions and details. */
 .toolbar { margin: 0 0 20px; }
+.project-toolbar-controls { align-items: center; display: flex; flex-wrap: wrap; gap: 10px; min-width: 0; }
+.project-view-toggle { align-items: center; background: var(--slate-50); border: 1px solid var(--border); border-radius: var(--r-md); display: inline-flex; gap: 2px; padding: 3px; }
+.project-view-toggle .btn { border-color: transparent; color: var(--text-secondary); white-space: nowrap; }
+.project-view-toggle .btn[aria-pressed="true"] { background: var(--bg-surface); border-color: var(--border); box-shadow: var(--shadow-sm); color: var(--brand-primary); }
 .search-field { background: var(--bg-surface); border-color: var(--border); border-radius: var(--r-md); }
 .search-field input { background: transparent; border: 0; color: var(--text-primary); }
 .filter-banner { background: var(--brand-primary-soft); border-color: #c7d2fe; color: #3730a3; }
@@ -185,15 +189,23 @@ button.danger, .button.danger { background: var(--status-error); border-color: v
 .project-card { cursor: default; display: block; grid-template-columns: none; overflow: visible; }
 .project-card.menu-open { position: relative; z-index: 5; }
 .project-card .project-copy { min-width: 0; }
-.project-card .project-headline { margin-bottom: 8px; }
-.project-card .project-headline h3 { margin: 0; color: var(--text-primary); font-size: 15px; }
-.project-card .project-identity { color: var(--text-tertiary); background: var(--slate-50); border-radius: var(--r-sm); font-family: var(--mono); font-size: 11px; margin: 0; padding: 2px 6px; white-space: nowrap; }
+.project-card .project-headline { align-items: flex-start; gap: 10px; margin-bottom: 8px; min-width: 0; }
+.project-card .card-title { min-width: 0; }
+.project-card .project-headline h3 { margin: 0; color: var(--text-primary); font-size: 15px; overflow-wrap: anywhere; }
+.project-card .project-identity { color: var(--text-tertiary); background: var(--slate-50); border-radius: var(--r-sm); flex: 0 1 auto; font-family: var(--mono); font-size: 11px; margin: 0; max-width: 52%; overflow: hidden; padding: 2px 6px; text-overflow: ellipsis; white-space: nowrap; }
 .project-card .project-secondary { border-bottom: 1px dashed var(--border); border-top: 1px dashed var(--border); color: var(--text-secondary); display: grid; font-size: 12px; gap: 8px; margin-bottom: 12px; padding: 10px 0; }
 .project-card .card-repo { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.project-card .card-meta > .meta-item { display: inline-flex; align-items: center; gap: 4px; }
+.project-card .card-meta { align-items: center; flex-wrap: wrap; row-gap: 7px; }
+.project-card .card-meta > .meta-item { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.project-card .card-meta .project-new-commit { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.project-card .card-meta .project-state { flex-basis: 100%; margin-left: 0; white-space: nowrap; }
 .project-card .card-meta > strong { color: var(--text-primary); }
-.project-card .project-domain { color: var(--text-tertiary); font-family: var(--mono); }
+.project-card .project-domain { color: var(--text-tertiary); font-family: var(--mono); overflow-wrap: anywhere; }
 .project-card .project-domain a { color: var(--text-secondary); }
+.project-card .project-commit-link,
+.project-card .project-repository-link { color: inherit; text-decoration: none; }
+.project-card .project-commit-link:hover, .project-card .project-repository-link:hover { color: var(--brand-primary); text-decoration: underline; text-underline-offset: 3px; }
+.project-card .project-commit-link:focus-visible, .project-card .project-repository-link:focus-visible { border-radius: var(--r-sm); outline: 2px solid var(--brand-primary); outline-offset: 2px; }
 .project-card .project-details summary { color: var(--text-secondary); cursor: pointer; }
 .project-card .project-detail-list { display: grid; grid-template-columns: auto 1fr; gap: 5px 10px; margin: 10px 0 0; }
 .project-card .project-detail-list dt { color: var(--text-tertiary); }
@@ -213,6 +225,14 @@ button.danger, .button.danger { background: var(--status-error); border-color: v
 .project-card .card-actions { align-items: center; }
 .project-card .card-actions .btn { flex: 1; justify-content: center; }
 .project-card .card-actions .project-actions-menu { flex: 0; }
+
+@media (max-width: 640px) {
+  .project-toolbar-controls { align-items: stretch; flex-direction: column; width: 100%; }
+  .project-toolbar-controls .search-field { width: 100%; }
+  .project-view-toggle { width: fit-content; }
+  .toolbar { align-items: flex-start; flex-direction: column; }
+  .toolbar .count { align-self: flex-end; }
+}
 
 .runtime-detect-actions { align-items: center; justify-content: flex-start; gap: 10px; }
 .runtime-detect-actions .field-hint { margin: 0; }
@@ -277,6 +297,60 @@ button.danger, .button.danger { background: var(--status-error); border-color: v
 .notice { color: #92400e; background: var(--status-warning-soft); border-color: rgba(245,158,11,.3); }
 .toast { background: var(--bg-surface); border: 1px solid var(--border); box-shadow: var(--shadow-lg); color: var(--text-primary); }
 .toast.error { background: var(--status-error-soft); border-color: rgba(239,68,68,.3); color: #b91c1c; }
+
+/* Standard dialogs are compact work panels: keep their actions reachable,
+   allow a long body to scroll, and never let the close control inherit the
+   primary-action button treatment. */
+dialog.modal:not(.deploy-drawer) {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-lg);
+  color: var(--text-primary);
+  margin: auto;
+  max-height: calc(100dvh - 32px);
+  overflow: hidden;
+  padding: 0;
+  width: min(680px, calc(100vw - 32px));
+}
+dialog.modal:not(.deploy-drawer)::backdrop { background: rgba(15, 23, 42, .58); backdrop-filter: blur(2px); }
+dialog.modal > .modal-form:not(.deploy-drawer-form) { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; max-height: calc(100dvh - 32px); }
+dialog.modal:not(.deploy-drawer) .modal-header,
+dialog.modal:not(.deploy-drawer) .modal-footer { background: var(--bg-surface); border-color: var(--border); padding: 16px 20px; }
+dialog.modal:not(.deploy-drawer) .modal-body { min-height: 0; overflow: auto; padding: 18px 20px; }
+.modal-close {
+  align-items: center;
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  color: var(--text-secondary) !important;
+  display: inline-flex;
+  flex: 0 0 auto;
+  height: 34px;
+  justify-content: center;
+  padding: 0 !important;
+  width: 34px;
+}
+.modal-close:hover { background: var(--slate-100) !important; color: var(--text-primary) !important; box-shadow: none !important; transform: none !important; }
+dialog.modal input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+dialog.modal textarea,
+dialog.modal select {
+  background: var(--bg-surface);
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+dialog.modal input::placeholder,
+dialog.modal textarea::placeholder { color: var(--text-tertiary); opacity: 1; }
+html[data-theme="dark"] dialog.modal input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+html[data-theme="dark"] dialog.modal textarea,
+html[data-theme="dark"] dialog.modal select { background: #0f172a; color: #f8fafc; color-scheme: dark; }
+
+@media (max-width: 640px) {
+  dialog.modal:not(.deploy-drawer) { max-height: calc(100dvh - 16px); width: calc(100vw - 16px); }
+  dialog.modal > .modal-form:not(.deploy-drawer-form) { max-height: calc(100dvh - 16px); }
+  dialog.modal:not(.deploy-drawer) .modal-header,
+  dialog.modal:not(.deploy-drawer) .modal-footer { padding-inline: 16px; }
+  dialog.modal:not(.deploy-drawer) .modal-body { padding-inline: 16px; }
+}
 
 /* The live deployment form uses the supplied project's three-step side drawer. */
 dialog.deploy-drawer {
