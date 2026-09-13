@@ -56,6 +56,8 @@ function icon(name) {
 const runtimeLogoPaths = Object.freeze({
   node: '/ui/runtime-logos/nodejs.svg',
   bun: '/ui/runtime-logos/bun.svg',
+  go: '/ui/runtime-logos/go.svg',
+  python: '/ui/runtime-logos/python.svg',
   docker: '/ui/runtime-logos/docker.svg'
 });
 
@@ -805,6 +807,8 @@ function projectRow(project) {
   const detailList = element('dl', 'project-detail-list');
   const runtime = project.runtime === 'docker-compose'
     ? `Docker Compose · ${project.composeFile || 'compose.yaml'} · service=${project.composeService || 'web'}`
+    : project.runtime === 'python' ? `Python · .venv · ${project.pythonMode || 'script'} · ${project.pythonEntry || 'main.py'}`
+    : project.runtime === 'go' ? `Go · package=${project.goPackage || '.'} · hostmgr-app`
     : `${project.runtime === 'bun' ? 'Bun' : 'Node.js'} · ${project.buildScript === null ? 'ไม่ build' : `build=${project.buildScript || 'build'}`} · start=${project.startScript || 'start'}`;
   const values = [
     ['Repository', project.repository],
@@ -930,6 +934,10 @@ async function syncExistingProject(project, button) {
   if (payload.runtime === 'docker-compose') {
     payload.composeFile = project.composeFile || 'compose.yaml';
     payload.composeService = project.composeService || '';
+  } else if (payload.runtime === 'python') {
+    Object.assign(payload, pythonProjectFields(project));
+  } else if (payload.runtime === 'go') {
+    payload.goPackage = project.goPackage || '.';
   } else {
     payload.buildScript = project.buildScript ?? '';
     payload.startScript = project.startScript || 'start';
@@ -2882,6 +2890,8 @@ async function ensureEditDraft() {
     skipBuild: project.buildScript === null,
     startScript: project.startScript || 'start',
     runtime: project.runtime || 'node',
+    goPackage: project.goPackage || '.',
+    ...pythonProjectFields(project),
     composeFile: project.composeFile || 'compose.yaml',
     composeService: project.composeService || '',
     healthCheckEnabled: project.healthCheckEnabled !== false,
@@ -2911,6 +2921,10 @@ async function hydrateRepositoryStep() {
   }
   $('#flow-title').textContent = flowMode === 'edit' ? `แก้ไข ${draft.name}` : 'สร้างโปรเจค';
   $('#flow-back').href = flowPath('identity');
+  $('#project-source-edit').href = flowPath('identity');
+  $('#project-source-name').textContent = draft.name || '—';
+  const sourceMeta = [draft.organization && `องค์กร: ${draft.organization}`, draft.slug && `slug: ${draft.slug}`].filter(Boolean);
+  $('#project-source-meta').textContent = sourceMeta.join(' · ') || '—';
   fillCredentialSelect(draft.credentialId || '');
   $('#repository').value = draft.repository || '';
   $('#project-directory').value = draft.directory || '/';
@@ -2920,6 +2934,11 @@ async function hydrateRepositoryStep() {
   $('#build-script').value = draft.buildScript ?? 'build';
   $('#skip-build').checked = draft.skipBuild === true || draft.buildScript === null;
   $('#start-script').value = draft.startScript || 'start';
+  $('#go-package').value = draft.goPackage || '.';
+  $('#python-mode').value = draft.pythonMode || 'script';
+  $('#python-entry').value = draft.pythonEntry || 'main.py';
+  $('#python-install').value = draft.pythonInstall || 'requirements';
+  $('#python-requirements').value = draft.pythonRequirements || 'requirements.txt';
   setProjectRuntime(draft.runtime || 'node');
   $('#compose-file').value = draft.composeFile || 'compose.yaml';
   $('#compose-service').value = draft.composeService || '';
@@ -2946,8 +2965,9 @@ async function hydrateReviewStep() {
     ['Repository', draft.repository || '—'],
     ['Directory', draft.directory || '/'],
     ['Branch', draft.branch || '—'],
-    ['Runtime', draft.runtime === 'docker-compose' ? `Docker Compose · ${draft.composeFile || 'compose.yaml'} · service ${draft.composeService || '—'}` : (draft.runtime === 'bun' ? 'Bun / systemd' : 'Node.js / systemd')],
-    ['Build', draft.skipBuild === true || draft.buildScript === null ? 'Skipped' : (draft.buildScript || 'build')],
+    ['Runtime', draft.runtime === 'docker-compose' ? `Docker Compose · ${draft.composeFile || 'compose.yaml'} · service ${draft.composeService || '—'}` : (draft.runtime === 'python' ? 'Python / .venv / systemd' : draft.runtime === 'go' ? 'Go / systemd' : draft.runtime === 'bun' ? 'Bun / systemd' : 'Node.js / systemd')],
+    ['Build', draft.runtime === 'python' ? `สร้าง .venv · ${draft.pythonInstall === 'none' ? 'ไม่ติดตั้ง dependencies' : draft.pythonInstall === 'project' ? 'pip install .' : draft.pythonRequirements || 'requirements.txt'}` : draft.runtime === 'go' ? `go build ${draft.goPackage || '.'}` : draft.skipBuild === true || draft.buildScript === null ? 'Skipped' : (draft.buildScript || 'build')],
+    ...(draft.runtime === 'python' ? [['Start', `${draft.pythonMode || 'script'} · ${draft.pythonEntry || 'main.py'}`]] : []),
     ['การเชื่อมต่อ', connectionLabel(draft)],
     ['Port ภายในเครื่อง', draft.autoPort === true || draft.autoPort === 'on' || !draft.port ? 'สุ่มพอร์ตว่างตอนบันทึก' : draft.port],
     ['Health check', draft.healthCheckEnabled === false ? 'Skipped' : (draft.healthCheckPath || '/')]
@@ -2984,9 +3004,11 @@ function runtimeValue() {
 }
 
 function setProjectRuntime(value) {
-  const runtime = ['node', 'bun', 'docker-compose'].includes(value) ? value : 'node';
+  const runtime = ['node', 'bun', 'go', 'python', 'docker-compose'].includes(value) ? value : 'node';
   const choices = {
     node: { label: 'Node.js', detail: 'build และ run ด้วย npm script ใน systemd', icon: 'node' },
+    python: { label: 'Python', detail: 'ติดตั้งและรันใน .venv ด้วย user ของโปรเจกต์', icon: 'python' },
+    go: { label: 'Go', detail: 'build เป็น binary และรันด้วย systemd', icon: 'go' },
     bun: { label: 'Bun', detail: 'ติดตั้ง dependencies และ run package script ด้วย Bun ใน systemd', icon: 'bun' },
     'docker-compose': { label: 'Docker Compose', detail: 'Compose ที่ผ่าน policy check ก่อน activate', icon: 'docker' }
   };
@@ -3004,14 +3026,22 @@ function setProjectRuntime(value) {
 function toggleRuntimeFields() {
   const runtime = runtimeValue();
   const docker = runtime === 'docker-compose';
+  const go = runtime === 'go';
+  const python = runtime === 'python';
+  const packageRuntime = !docker && !go && !python;
+  $('#python-fields').hidden = !python;
+  for (const id of ['#python-mode', '#python-entry', '#python-install']) $(id).disabled = !python;
+  $('#python-entry').required = python;
+  togglePythonFields();
   $('#docker-compose-fields').hidden = !docker;
-  $('#skip-build-row').hidden = docker;
-  $('#build-script-row').hidden = docker;
-  $('#start-script-row').hidden = docker;
-  $('#skip-build').disabled = docker;
-  $('#build-script').disabled = docker;
-  $('#start-script').disabled = docker;
-  $('#start-script').required = !docker;
+  $('#go-fields').hidden = !go;
+  $('#go-package').disabled = !go;
+  $('#go-package').required = go;
+  $('#skip-build-row').hidden = !packageRuntime;
+  $('#start-script-row').hidden = !packageRuntime;
+  $('#skip-build').disabled = !packageRuntime;
+  $('#start-script').disabled = !packageRuntime;
+  $('#start-script').required = packageRuntime;
   $('#compose-file').disabled = !docker;
   $('#compose-service').disabled = !docker;
   $('#compose-service').required = docker;
@@ -3020,9 +3050,24 @@ function toggleRuntimeFields() {
 
 function toggleBuildFields() {
   const skip = $('#skip-build').checked;
-  const docker = runtimeValue() === 'docker-compose';
-  $('#build-script-row').hidden = docker || skip;
-  $('#build-script').disabled = docker || skip;
+  const packageRuntime = ['node', 'bun'].includes(runtimeValue());
+  $('#build-script-row').hidden = !packageRuntime || skip;
+  $('#build-script').disabled = !packageRuntime || skip;
+}
+
+function pythonProjectFields(project) {
+  return { pythonMode: project.pythonMode || 'script', pythonEntry: project.pythonEntry || 'main.py', pythonInstall: project.pythonInstall || 'requirements', pythonRequirements: project.pythonRequirements || 'requirements.txt' };
+}
+
+function togglePythonFields() {
+  const python = runtimeValue() === 'python';
+  const requirements = $('#python-install').value === 'requirements';
+  $('#python-requirements-row').hidden = !requirements;
+  $('#python-requirements').disabled = !python || !requirements;
+  $('#python-requirements').required = python && requirements;
+  const script = $('#python-mode').value === 'script';
+  $('#python-entry').placeholder = script ? 'main.py' : 'app.main:app';
+  $('#python-entry-hint').textContent = script ? 'ไฟล์ .py เช่น main.py หรือ src/server.py; แอปต้องอ่าน PORT จาก environment' : 'ใช้ module:object เช่น app.main:app · ใส่ uvicorn (ASGI) หรือ gunicorn (WSGI) ใน dependencies ด้วย';
 }
 
 function toggleProjectPort() {
@@ -3089,6 +3134,14 @@ async function detectProjectRuntimeFromRepository({ quiet = false } = {}) {
     });
     const detection = result.detection;
     if (detection?.recommendedRuntime) setProjectRuntime(detection.recommendedRuntime);
+    if (detection?.recommendedRuntime === 'python') {
+      $('#python-mode').value = detection.pythonMode || 'script';
+      $('#python-entry').value = detection.pythonEntry || 'main.py';
+      $('#python-install').value = detection.pythonInstall || 'requirements';
+      $('#python-requirements').value = detection.pythonRequirements || 'requirements.txt';
+      togglePythonFields();
+    }
+    if (detection?.goPackage) $('#go-package').value = detection.goPackage;
     if (detection?.buildScript) $('#build-script').value = detection.buildScript;
     if (detection?.startScript) $('#start-script').value = detection.startScript;
     if (detection?.composeFile) $('#compose-file').value = detection.composeFile;
@@ -3097,7 +3150,7 @@ async function detectProjectRuntimeFromRepository({ quiet = false } = {}) {
       const evidence = (detection?.evidence || []).map((item) => item.path).join(' · ');
       note.textContent = [detection?.notice, evidence].filter(Boolean).join(' — ') || 'ยังตรวจ runtime ไม่ได้';
     }
-    if (!quiet && detection?.recommendedRuntime) toast(`เลือก ${detection.recommendedRuntime === 'docker-compose' ? 'Docker Compose' : detection.recommendedRuntime === 'bun' ? 'Bun' : 'Node.js'} ให้แล้ว`);
+    if (!quiet && detection?.recommendedRuntime) toast(`เลือก ${detection.recommendedRuntime === 'docker-compose' ? 'Docker Compose' : detection.recommendedRuntime === 'python' ? 'Python' : detection.recommendedRuntime === 'go' ? 'Go' : detection.recommendedRuntime === 'bun' ? 'Bun' : 'Node.js'} ให้แล้ว`);
   } catch (error) {
     if (note) note.textContent = `ตรวจอัตโนมัติไม่สำเร็จ: ${error.message}`;
     if (!quiet) throw error;
@@ -3122,6 +3175,8 @@ async function syncProjectDraft() {
     buildScript: draft.skipBuild === true || draft.buildScript === null ? '' : (draft.buildScript ?? 'build'),
     startScript: draft.startScript || 'start',
     runtime: draft.runtime || 'node',
+    goPackage: draft.goPackage || '.',
+    ...pythonProjectFields(draft),
     composeFile: draft.composeFile || 'compose.yaml',
     composeService: draft.composeService || '',
     healthCheckEnabled: draft.healthCheckEnabled !== false,
@@ -3339,6 +3394,12 @@ function bindEvents() {
   $('#project-directory')?.addEventListener('change', () => detectProjectRuntimeFromRepository({ quiet: true }));
   $('#health-check-enabled')?.addEventListener('change', toggleHealthCheckFields);
   $('#auto-project-port')?.addEventListener('change', toggleProjectPort);
+  $('#python-mode')?.addEventListener('change', () => {
+    const entry = $('#python-entry');
+    if (['main.py', 'app:app', 'app.main:app'].includes(entry.value)) entry.value = $('#python-mode').value === 'script' ? 'main.py' : 'app:app';
+    togglePythonFields();
+  });
+  $('#python-install')?.addEventListener('change', togglePythonFields);
   $('#skip-build')?.addEventListener('change', toggleBuildFields);
   $$('[data-runtime-option]').forEach((option) => option.addEventListener('click', () => setProjectRuntime(option.dataset.runtimeOption)));
 

@@ -16,12 +16,16 @@ export async function scanProjectRuntimeDirectory(repositoryRoot, directory = '/
   const appRoot = await realpath(target).catch(() => null);
   if (!appRoot || !inside(root, appRoot)) throw new InputError('The selected directory was not found inside the repository.');
 
-  const [packageText, packageLock, bunLock, bunConfig, dockerfile, ...composeTexts] = await Promise.all([
+  const [packageText, packageLock, bunLock, bunConfig, dockerfile, goMod, requirements, pyproject, pythonMain, ...composeTexts] = await Promise.all([
     safeRead(root, appRoot, 'package.json'),
     safeRead(root, appRoot, 'package-lock.json'),
     safeRead(root, appRoot, 'bun.lock'),
     safeRead(root, appRoot, 'bunfig.toml'),
     safeRead(root, appRoot, 'Dockerfile'),
+    safeRead(root, appRoot, 'go.mod'),
+    safeRead(root, appRoot, 'requirements.txt'),
+    safeRead(root, appRoot, 'pyproject.toml'),
+    safeRead(root, appRoot, 'main.py'),
     ...COMPOSE_FILES.map((file) => safeRead(root, appRoot, file))
   ]);
 
@@ -39,6 +43,10 @@ export async function scanProjectRuntimeDirectory(repositoryRoot, directory = '/
   const node = Boolean(packageJson || packageLock);
   const scripts = packageScripts(packageJson);
   const evidence = [
+    ...(requirements !== null ? [{ kind: 'python-requirements', path: 'requirements.txt', label: 'Python dependencies' }] : []),
+    ...(pyproject !== null ? [{ kind: 'python-project', path: 'pyproject.toml', label: 'Python project' }] : []),
+    ...(pythonMain !== null ? [{ kind: 'python-entry', path: 'main.py', label: 'Python entry' }] : []),
+    ...(goMod ? [{ kind: 'go-module', path: 'go.mod', label: 'Go module' }] : []),
     ...(composeFile ? [{ kind: 'compose', path: composeFile, label: 'Docker Compose' }] : []),
     ...(dockerfile ? [{ kind: 'dockerfile', path: 'Dockerfile', label: 'Dockerfile' }] : []),
     ...(packageJson ? [{ kind: 'package', path: 'package.json', label: 'Node package' }] : []),
@@ -61,6 +69,24 @@ export async function scanProjectRuntimeDirectory(repositoryRoot, directory = '/
       notice: composeServices.length
         ? `พบ ${composeFile} และ service ${composeServices[0]}`
         : `พบ ${composeFile}; เลือก web service ก่อน sync`
+    };
+  }
+  if (goMod) {
+    return {
+      available: true, recommendedRuntime: 'go', confidence: 'needs-review', evidence,
+      composeFile: null, composeService: null, composeServices: [],
+      buildScript: null, startScript: null, goPackage: '.',
+      notice: 'พบ go.mod; เลือก main package เช่น . หรือ ./cmd/api และให้แอปอ่าน PORT จาก environment'
+    };
+  }
+  if (requirements !== null || pyproject !== null || pythonMain !== null) {
+    return {
+      available: true, recommendedRuntime: 'python', confidence: 'needs-review', evidence,
+      composeFile: null, composeService: null, composeServices: [], buildScript: null, startScript: null,
+      pythonMode: 'script', pythonEntry: 'main.py',
+      pythonInstall: requirements !== null ? 'requirements' : pyproject !== null ? 'project' : 'none',
+      pythonRequirements: 'requirements.txt',
+      notice: 'พบ Python project; ตรวจชนิดแอปและ entry point ก่อน deploy ระบบจะสร้าง .venv และติดตั้งด้วย user ของโปรเจกต์'
     };
   }
   if (bun) {
@@ -105,7 +131,7 @@ export async function scanProjectRuntimeDirectory(repositoryRoot, directory = '/
     startScript: null,
     notice: dockerfile
       ? 'พบ Dockerfile แต่ยังไม่พบ Compose file ที่ Portal รองรับ; เพิ่ม compose.yaml แล้วตรวจอีกครั้ง'
-      : 'ไม่พบ package.json, Bun metadata หรือ Compose file ใน directory นี้; เลือก runtime เองได้'
+      : 'ไม่พบ Python metadata, go.mod, package.json, Bun metadata หรือ Compose file ใน directory นี้; เลือก runtime เองได้'
   };
 }
 

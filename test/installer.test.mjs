@@ -73,7 +73,7 @@ test('helper keeps Docker Compose project activation bounded to guarded policy c
 test('helper permits Bun projects and starts them through the fixed Bun executable', async () => {
   const helper = await readFile(new URL('../scripts/hostmgr-deploy-helper.mjs', import.meta.url), 'utf8');
   assert.match(helper, /const BUN = '\/usr\/local\/bin\/bun';/);
-  assert.match(helper, /\['node', 'bun', 'docker-compose'\]/);
+  assert.match(helper, /\['node', 'bun', 'go', 'python', 'docker-compose'\]/);
   assert.match(helper, /project\.runtime === 'bun' \? BUN : NPM/);
   assert.match(helper, /RuntimeDirectory=\$\{identity\.runtimeDirectory\}\/app/);
   assert.match(helper, /BindPaths=\$\{identity\.current\}:\$\{identity\.runtimeApplicationPath\}/);
@@ -135,6 +135,35 @@ test('installer provisions a checksum-verified Bun runtime for Bun projects', as
   assert.match(script, /bun-linux-x64-baseline\.zip/);
   assert.match(script, /\/usr\/local\/bin\/bun/);
   assert.match(script, /unzip git/);
+});
+
+test('Go installation pins the compiler and the helper activates only an executable release binary', async () => {
+  const script = await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8');
+  const helper = await readFile(new URL('../scripts/hostmgr-deploy-helper.mjs', import.meta.url), 'utf8');
+  assert.match(script, /GO_VERSION='1\.27\.1'/);
+  assert.match(script, /GO_SHA256='63d339f0da5ab53635a56f2490a7984dfe12dfcff22ad749f63edaf590168445'/);
+  assert.ok(script.indexOf('Go archive checksum verification failed') < script.indexOf('mv "$TMP_DIR/go"'));
+  assert.match(script, /GOTOOLCHAIN=local \/usr\/local\/bin\/go version/);
+  assert.match(helper, /project\.runtime === 'go' \? `\$\{identity\.current\}\/hostmgr-app`/);
+  assert.match(helper, /lstat\(join\(destination, 'hostmgr-app'\)\)/);
+  assert.match(helper, /binary\?\.isFile\(\)/);
+  assert.match(helper, /ExecStart=\$\{start\}/);
+});
+
+test('Python host setup installs venv support and drops privileges before any Python project command', async () => {
+  const script = await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8');
+  const helper = await readFile(new URL('../scripts/hostmgr-deploy-helper.mjs', import.meta.url), 'utf8');
+  const client = await readFile(new URL('../src/helper-client.mjs', import.meta.url), 'utf8');
+  assert.match(script, /apt-get install .* python3 python3-venv/);
+  assert.doesNotMatch(script, /pip(?:3)? install|break-system-packages/);
+  assert.match(script, /install -m 0750 -o root -g root "\$APP_ROOT\/scripts\/python-project.mjs"/);
+  assert.match(helper, /const options = pythonUserOptions\(identity, destination\)/);
+  assert.match(helper, /preparePythonEnvironment\(destination, project, \(command, args\) => run\(command, args, \{\s*\.\.\.options/);
+  assert.match(helper, /identity\.uid = Number\(await run\('\/usr\/bin\/id', \['-u', identity\.user\]\)\)/);
+  assert.match(helper, /\.venv\/bin\/python \$\{pythonStartArgs/);
+  assert.match(helper, /if \(previousUnit !== null\) await writeFile\(identity\.unitFile, previousUnit/);
+  assert.match(helper, /writeFile\(identity\.environmentFile, previousEnvironment/);
+  assert.match(client, /operation === 'activate-project' \? 900_000 : 90_000/);
 });
 
 test('installer enrolls new hosts in the signed stable update channel without a manual configure step', async () => {

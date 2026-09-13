@@ -42,6 +42,8 @@ NODE_VERSION='24.18.0'
 NODE_SHA256='55aa7153f9d88f28d765fcdad5ae6945b5c0f98a36881703817e4c450fa76742'
 BUN_VERSION='1.3.13'
 BUN_SHA256='9d8a24292a7068090205daac0a5a223f5f69736f5287e37bf88d3b4031edc750'
+GO_VERSION='1.27.1'
+GO_SHA256='63d339f0da5ab53635a56f2490a7984dfe12dfcff22ad749f63edaf590168445'
 
 TMP_DIR=''
 BACKUP_DIR=''
@@ -149,7 +151,7 @@ export DEBIAN_FRONTEND=noninteractive
 # prior deployment to leave `/tmp` inaccessible to package verification.
 chmod 1777 /tmp
 apt-get update
-apt-get install -y --no-install-recommends nginx certbot python3-certbot-nginx curl ca-certificates xz-utils unzip git
+apt-get install -y --no-install-recommends nginx certbot python3-certbot-nginx curl ca-certificates xz-utils unzip git python3 python3-venv
 
 if ! id -u "$APP_USER" >/dev/null 2>&1; then
   useradd --system --create-home --home-dir "$DATA_ROOT" --shell /usr/sbin/nologin "$APP_USER"
@@ -188,6 +190,22 @@ fi
 ln -sfn "/opt/bun-v${BUN_VERSION}/bin/bun" /usr/local/bin/bun
 "/usr/local/bin/bun" --version | grep -qx "${BUN_VERSION}" || die 'Installed Bun version did not match the pinned release.'
 
+# Keep the compiler versioned and independent of any existing /usr/local/go.
+# Download and verify before creating the version directory; a partial install
+# is never selected as the active Go compiler.
+if [[ ! -x "/opt/go${GO_VERSION}/bin/go" ]]; then
+  go_archive="go${GO_VERSION}.linux-amd64.tar.gz"
+  curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location \
+    "https://go.dev/dl/${go_archive}" -o "$TMP_DIR/$go_archive"
+  printf '%s  %s\n' "$GO_SHA256" "$TMP_DIR/$go_archive" | sha256sum --check --status || die 'Go archive checksum verification failed.'
+  tar --extract --gzip --file "$TMP_DIR/$go_archive" --directory "$TMP_DIR"
+  GOTOOLCHAIN=local "$TMP_DIR/go/bin/go" version | grep -qx "go version go${GO_VERSION} linux/amd64" || die 'Go archive did not contain the expected compiler.'
+  mv "$TMP_DIR/go" "/opt/go${GO_VERSION}"
+fi
+ln -sfn "/opt/go${GO_VERSION}/bin/go" /usr/local/bin/go
+ln -sfn "/opt/go${GO_VERSION}/bin/gofmt" /usr/local/bin/gofmt
+GOTOOLCHAIN=local /usr/local/bin/go version | grep -qx "go version go${GO_VERSION} linux/amd64" || die 'Installed Go version did not match the pinned release.'
+
 # Validate a staged release before replacing the live application files.
 STAGING_ROOT="$TMP_DIR/app"
 install -d -m 0755 "$STAGING_ROOT"
@@ -205,6 +223,7 @@ chmod 0755 "$APP_ROOT"
 chmod -R go-w "$APP_ROOT"
 install -d -m 0750 -o root -g root "$HELPER_ROOT"
 install -m 0750 -o root -g root "$APP_ROOT/scripts/hostmgr-deploy-helper.mjs" "$HELPER_SCRIPT"
+install -m 0750 -o root -g root "$APP_ROOT/scripts/python-project.mjs" "$HELPER_ROOT/python-project.mjs"
 install -m 0750 -o root -g root "$APP_ROOT/scripts/mail-host-config.mjs" "$HELPER_ROOT/mail-host-config.mjs"
 install -m 0750 -o root -g root "$APP_ROOT/scripts/nginx-edge.mjs" "$HELPER_ROOT/nginx-edge.mjs"
 install -m 0750 -o root -g root "$APP_ROOT/scripts/password-config.mjs" "$PASSWORD_SCRIPT"

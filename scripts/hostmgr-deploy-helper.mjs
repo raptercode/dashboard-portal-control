@@ -1,6 +1,7 @@
 #!/usr/local/bin/node
 import { createServer } from 'node:net';
 import { spawn } from 'node:child_process';
+import { preparePythonEnvironment, pythonSettings, pythonStartArgs, pythonUserOptions } from './python-project.mjs';
 import { access, chmod, chown, copyFile, cp, lstat, mkdir, readFile, readdir, readlink, rename, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { createDecipheriv } from 'node:crypto';
@@ -67,7 +68,7 @@ function handleSocket(socket) {
       const result = await dispatch(request);
       socket.end(`${JSON.stringify({ ok: true, ...result })}\n`);
     } catch (error) {
-      // Only a bounded, redacted Docker build output may cross this boundary.
+      // Only bounded, redacted project build output may cross this boundary.
       // Every other helper failure remains a static message.
       const response = { ok: false, error: safeError(error) };
       if (error instanceof HelperError && error.buildOutput) response.buildOutput = error.buildOutput;
@@ -419,6 +420,7 @@ async function activateProject(slug, releaseId) {
   validateReleaseId(releaseId);
   const release = project.deployment?.releases?.find((item) => item.id === releaseId);
   if (!release || !['candidate', 'healthy'].includes(release.status)) throw new HelperError('The requested release is not eligible for activation.');
+  if (project.runtime === 'python' && release.runtime === 'python') Object.assign(project, pythonSettings(release));
   let transaction;
   try {
     transaction = project.runtime === 'docker-compose'
@@ -508,7 +510,11 @@ function validateProject(project) {
   validateSlug(project.slug);
   if (!Number.isInteger(project.port) || project.port < 1024 || project.port > 65535) throw new HelperError('Project port is invalid.');
   project.runtime ??= 'node';
-  if (!['node', 'bun', 'docker-compose'].includes(project.runtime)) throw new HelperError('Project runtime is invalid.');
+  if (!['node', 'bun', 'go', 'python', 'docker-compose'].includes(project.runtime)) throw new HelperError('Project runtime is invalid.');
+  if (project.runtime === 'python') {
+    try { Object.assign(project, pythonSettings(project)); }
+    catch (error) { throw new HelperError(error.message); }
+  }
   if (['node', 'bun'].includes(project.runtime) && (typeof project.startScript !== 'string' || !/^[a-zA-Z0-9:_-]{1,64}$/.test(project.startScript))) throw new HelperError('Project start script is invalid.');
   if (project.runtime === 'docker-compose') {
     if (typeof project.composeFile !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._/-]{0,239}\.ya?ml$/i.test(project.composeFile) || project.composeFile.includes('..')) throw new HelperError('Docker Compose file is invalid.');
@@ -535,12 +541,31 @@ async function prepareProjectRelease(project, releaseId) {
   if (!(await exists(destination))) {
     const staging = join(identity.root, `.release-${releaseId}.staging`);
     await rm(staging, { recursive: true, force: true });
-    await cp(source, staging, { recursive: true, dereference: false, filter: (entry) => basename(entry) !== '.git' });
+    await cp(source, staging, { recursive: true, dereference: false, filter: (entry) => !['.git', ...(project.runtime === 'python' ? ['.venv', 'venv', '__pycache__', '.hostmgr-python-ready'] : [])].includes(basename(entry)) });
     await run('/usr/bin/chown', ['-R', '--no-dereference', `${identity.user}:${identity.user}`, staging]);
     await rename(staging, destination);
   }
+  if (project.runtime === 'go') {
+    const binary = await lstat(join(destination, 'hostmgr-app')).catch(() => null);
+    if (!binary?.isFile() || !(binary.mode & 0o111)) throw new HelperError('Go release binary is missing or not executable.');
+  }
+  if (project.runtime === 'python') {
+    // Build at the final release path: venv console scripts contain absolute
+    // shebangs. Drop uid/gid before starting Python, pip or a build backend.
+    try {
+      const options = pythonUserOptions(identity, destination);
+      await preparePythonEnvironment(destination, project, (command, args) => run(command, args, {
+        ...options, failure: 'Python venv installation failed. Check dependencies and the Python version.'
+      }));
+    } catch (error) {
+      const environment = await readFile(join(destination, '.env'), 'utf8').catch(() => '');
+      throw new HelperError('Python venv installation failed before activation. Check project files, dependencies and python3-venv on the host.', redactBuildOutput(error?.commandOutput, environment));
+    }
+  }
   const environmentSource = join(destination, '.env');
   if (!(await exists(environmentSource))) throw new HelperError('Candidate environment file is unavailable.');
+  const previousUnit = await readFile(identity.unitFile, 'utf8').catch(() => null);
+  const previousEnvironment = await readFile(identity.environmentFile).catch(() => null);
   const environmentTemp = `${identity.environmentFile}.${releaseId}.tmp`;
   await copyFile(environmentSource, environmentTemp);
   await chown(environmentTemp, 0, identity.gid);
@@ -556,6 +581,11 @@ async function prepareProjectRelease(project, releaseId) {
     identity,
     previousTarget,
     rollback: async () => {
+      if (previousUnit !== null) await writeFile(identity.unitFile, previousUnit, { mode: 0o644 });
+      if (previousEnvironment !== null) {
+        await writeFile(identity.environmentFile, previousEnvironment, { mode: 0o640 });
+        await chown(identity.environmentFile, 0, identity.gid);
+      }
       if (previousTarget) {
         const revert = `${identity.current}.rollback`;
         await rm(revert, { force: true });
@@ -835,6 +865,7 @@ async function ensureProjectUser(identity) {
     await clearPasswordLock();
   }
   identity.gid = await lookupUserGroupId(identity.user);
+  identity.uid = Number(await run('/usr/bin/id', ['-u', identity.user]));
   await mkdir(identity.root, { recursive: true, mode: 0o750 });
   await run('/usr/bin/chown', ['-R', '--no-dereference', `${identity.user}:${identity.user}`, identity.root]);
 }
@@ -846,10 +877,11 @@ async function clearPasswordLock() {
 }
 
 function renderProjectUnit(project, identity) {
+  const start = project.runtime === 'python' ? `${identity.current}/.venv/bin/python ${pythonStartArgs(project, project.port).join(' ')}` : project.runtime === 'go' ? `${identity.current}/hostmgr-app` : `${project.runtime === 'bun' ? BUN : NPM} run ${project.startScript}`;
   const bunRuntime = project.runtime === 'bun';
   const workingDirectory = bunRuntime ? identity.runtimeApplicationPath : identity.current;
   const bunSandbox = bunRuntime ? `RuntimeDirectory=${identity.runtimeDirectory}/app\nRuntimeDirectoryMode=0750\nBindPaths=${identity.current}:${identity.runtimeApplicationPath}\n` : '';
-  return `[Unit]\nDescription=Dashboard Portal project ${project.slug}\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nUser=${identity.user}\nGroup=${identity.user}\n${bunSandbox}WorkingDirectory=${workingDirectory}\nEnvironmentFile=${identity.environmentFile}\nEnvironment=PORT=${project.port}\nExecStart=${project.runtime === 'bun' ? BUN : NPM} run ${project.startScript}\nRestart=on-failure\nRestartSec=5\nNoNewPrivileges=true\nPrivateTmp=true\nProtectHome=true\nProtectSystem=strict\nReadWritePaths=${identity.root}\n\n[Install]\nWantedBy=multi-user.target\n`;
+  return `[Unit]\nDescription=Dashboard Portal project ${project.slug}\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nUser=${identity.user}\nGroup=${identity.user}\n${bunSandbox}WorkingDirectory=${workingDirectory}\nEnvironmentFile=${identity.environmentFile}\nEnvironment=PORT=${project.port}\nExecStart=${start}\nRestart=on-failure\nRestartSec=5\nNoNewPrivileges=true\nPrivateTmp=true\nProtectHome=true\nProtectSystem=strict\nReadWritePaths=${identity.root}\n\n[Install]\nWantedBy=multi-user.target\n`;
 }
 
 async function pruneHistoricalNodeModules(identity, activeReleaseId, previousTarget) {

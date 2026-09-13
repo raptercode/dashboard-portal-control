@@ -14,7 +14,10 @@ export function callHostHelper(socketPath, request) {
     if (typeof socketPath !== 'string' || !socketPath.startsWith('/')) return reject(new Error('Host helper socket is not configured.'));
     const socket = net.createConnection(socketPath);
     let response = '';
-    const timer = setTimeout(() => socket.destroy(new Error('Host helper timed out.')), 90_000);
+    // Activation can create a per-release venv or build Compose images before
+    // health checks and TLS. Keep other helper operations on the short budget.
+    const timeoutMs = request?.operation === 'activate-project' ? 900_000 : 90_000;
+    const timer = setTimeout(() => socket.destroy(new Error('Host helper timed out.')), timeoutMs);
     socket.once('connect', () => socket.write(`${JSON.stringify(request)}\n`));
     socket.on('data', (chunk) => {
       response += chunk;

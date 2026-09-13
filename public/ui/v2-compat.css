@@ -238,6 +238,26 @@ button.danger, .button.danger { background: var(--status-error); border-color: v
 .runtime-detect-actions { align-items: center; justify-content: flex-start; gap: 10px; }
 .runtime-detect-actions .field-hint { margin: 0; }
 .runtime-picker { min-inline-size: 0; }
+.project-config-panel { padding: 0; overflow: hidden; }
+.project-config-form { gap: 0; }
+.project-config-layout { display: grid; grid-template-columns: minmax(300px, .86fr) minmax(0, 1.14fr); }
+.project-config-column { display: grid; min-width: 0; align-content: start; gap: 14px; padding: 22px; }
+.project-source-column { border-right: 1px solid var(--border); background: color-mix(in srgb, var(--slate-50) 74%, var(--panel)); }
+.project-settings-column { background: var(--panel); }
+.project-config-heading { display: grid; gap: 3px; margin-bottom: 2px; }
+.project-config-heading p { margin: 0; color: var(--brand-primary); font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.project-config-heading h2 { margin: 0; color: var(--text-primary); font-size: 18px; line-height: 1.3; }
+.project-source-identity { display: grid; gap: 4px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); }
+.project-source-identity-title { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.project-source-identity-title a { color: var(--brand-primary); font-size: 12px; font-weight: 650; }
+.project-source-identity-label { color: var(--text-tertiary); font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.project-source-identity strong { color: var(--text-primary); font-size: 16px; overflow-wrap: anywhere; }
+.project-source-identity small { margin: 0; overflow-wrap: anywhere; }
+.project-config-column .runtime-menu { max-width: none; }
+.project-config-column .runtime-picker { margin: 0; }
+.project-port-fields { align-items: stretch; }
+.project-auto-port { min-height: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--slate-50); }
+.project-config-form > .form-actions { margin: 0; padding: 16px 22px; border-top: 1px solid var(--border); background: var(--panel); }
 .runtime-menu { position: relative; max-width: 520px; }
 .runtime-menu > summary { list-style: none; display: grid; grid-template-columns: 34px minmax(0, 1fr) 20px; align-items: center; gap: 10px; cursor: pointer; border: 1px solid var(--line); border-radius: 12px; padding: 11px 12px; background: var(--panel); }
 .runtime-menu > summary::-webkit-details-marker { display: none; }
@@ -255,6 +275,17 @@ button.danger, .button.danger { background: var(--status-error); border-color: v
 .deployment-log-output-panel { border-top: 1px solid var(--border); margin-top: 16px; padding-top: 16px; }
 .deployment-log-output-panel h3 { color: var(--text-primary); font-size: 13px; margin: 0 0 8px; }
 .deployment-log-output { background: var(--slate-950); border: 1px solid var(--border); border-radius: var(--r-sm); color: var(--slate-100); font: 12px/1.5 var(--mono); margin: 0; max-height: min(360px, 46dvh); overflow: auto; overscroll-behavior: contain; padding: 12px; scrollbar-gutter: stable; white-space: pre-wrap; word-break: break-word; }
+
+@media (max-width: 900px) {
+  .project-config-layout { grid-template-columns: 1fr; }
+  .project-source-column { border-right: 0; border-bottom: 1px solid var(--border); }
+}
+
+@media (max-width: 640px) {
+  .project-config-column { padding: 16px; }
+  .project-config-form > .form-actions { padding: 14px 16px; }
+  .project-port-fields { grid-template-columns: 1fr; }
+}
 
 /* On desktop the navigation can collapse to its icons without changing the
    mobile drawer, which must retain full text labels. */

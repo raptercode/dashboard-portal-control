@@ -1,7 +1,7 @@
 # Dashboard Portal
 
 A constrained control plane for one self-managed Linux host: connect Git,
-deploy Node apps, bind domains, issue TLS certificates, and manage Nginx —
+deploy Node.js, Bun, Go, Python and Docker Compose apps, bind domains, issue TLS certificates, and manage Nginx —
 from one dashboard.
 
 > Production install is deliberately TLS-only and targets Ubuntu 24.04/25.04.
@@ -55,7 +55,7 @@ so you can exercise the same pipeline production uses:
    commits.
 2. **Projects** (`/projects`) — create a project, pick a branch, and sync.
    The wizard reads a shallow metadata-only checkout to suggest Docker Compose,
-   Bun, or Node (you can override it), then clones the repository inside the
+   Python, Go, Bun, or Node (you can override it), then clones the repository inside the
    container. The Portal automatically reserves an available internal port for
    each new project.
    (Optional: add a token under **Credentials** first if you want to try a
@@ -89,6 +89,16 @@ so you can exercise the same pipeline production uses:
 5. **Activity** (`/activity`) shows the audit trail of everything above.
 
 ### Run it directly with Node instead
+
+For Go applications, see [Deploy a Go project](docs/go-projects.md). The host
+installer provisions the compiler; local Go builds require Go installed and
+`HOSTMGR_GO_PATH` set to its executable when outside `/usr/local/bin/go`.
+The Portal evaluation Docker image does not include the Go compiler.
+
+For Python applications, see [Deploy Python in a project venv](docs/python-projects.md).
+The host helper installs each release into its own `.venv` as the dedicated
+project user and systemd runs its venv interpreter. Python source preflight can
+run locally; final venv installation and host activation need the installed helper.
 
 No Docker, no build step, no `npm install`:
 

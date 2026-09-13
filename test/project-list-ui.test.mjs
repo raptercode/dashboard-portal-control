@@ -96,6 +96,17 @@ test('project list keeps technical settings behind details and protects deletion
   assert.doesNotMatch(repository, /#icon-(node|bun|docker)/);
   assert.doesNotMatch(icons, /id="icon-(node|bun|docker)"/);
   assert.match(repository, /id="repository-connection-note"/);
+  assert.match(repository, /class="project-config-layout"/);
+  assert.match(repository, /class="project-config-column project-source-column"/);
+  assert.match(repository, /class="project-config-column project-settings-column"/);
+  assert.match(repository, /id="project-source-name"/);
+  assert.match(repository, /id="project-source-meta"/);
+  assert.match(repository, /id="project-source-edit"/);
+  assert.match(app, /\$\('#project-source-edit'\)\.href = flowPath\('identity'\)/);
+  assert.match(app, /\$\('#project-source-name'\)\.textContent = draft\.name/);
+  assert.match(app, /\$\('#project-source-meta'\)\.textContent = sourceMeta\.join/);
+  assert.match(compat, /\.project-config-layout \{ display: grid; grid-template-columns: minmax\(300px, \.86fr\) minmax\(0, 1\.14fr\); \}/);
+  assert.match(compat, /@media \(max-width: 900px\) \{[\s\S]*\.project-config-layout \{ grid-template-columns: 1fr; \}/);
   assert.doesNotMatch(repository, /name="protocol"/);
   assert.ok(repository.indexOf('id="https-credential"') < repository.indexOf('id="project-directory"'));
   assert.match(repository, /id="health-check-details"/);

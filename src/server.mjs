@@ -1,12 +1,13 @@
 import { createServer } from 'node:http';
 import { createServer as createTcpServer } from 'node:net';
-import { chmod, cp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, cp, lstat, mkdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import os from 'node:os';
 import { parseEnvironmentDocument } from '../public/ui/environment-editor.js';
 import { spawn } from 'node:child_process';
+import { assertPythonSource, pythonSettings, pythonStartArgs } from '../scripts/python-project.mjs';
 import { StateStore, TOOLS, SUPPORTED_NODE_MAJOR, SecretVault, appendAudit, initialMailState, validateDomain, validateEnvironmentContent, validateEnvironmentVariables, validateGitBranchRequest, validateGitIdentity, validateHttpsCredential, validateNotificationHook, validatePasswordChange, validateProjectDomains, validateProjectRuntimeDetection, validateProjectSync, validateTool, InputError } from './core.mjs';
 import { checkDomainDns } from './dns-check.mjs';
 import { activateRelease, appendReleaseEvent, beginDeployment, beginRollback, createRelease, defaultCandidatePort, failRelease, initialDeployment, markReleaseHealthy, markReleasePendingActivation, projectIdentity, validateDockerComposeProject, validateNativeProject, validatePackageScripts } from './native-project.mjs';
@@ -1111,28 +1112,43 @@ export async function createApplication(options = {}) {
     };
     try {
       if (deployProject.runtime === 'docker-compose') await prepareDockerRelease(deployProject, release, project, vault, projectRoot, recordPhase);
+      else if (deployProject.runtime === 'python') await preparePythonRelease(deployProject, release, project, vault, projectRoot, recordPhase);
+      else if (deployProject.runtime === 'go') await prepareGoRelease(deployProject, release, project, vault, projectRoot, recordPhase);
       else await prepareNativeRelease(deployProject, release, project, vault, projectRoot, recordPhase);
       await store.update((state) => {
         const target = findProject(state, job.projectSlug);
         target.deployment = markReleaseHealthy(target.deployment, release.id);
-        const healthMessage = deployProject.runtime === 'docker-compose'
+        const healthMessage = deployProject.runtime === 'python'
+          ? 'Python source preflight passed; host activation creates the venv as the project user and checks the service.'
+          : deployProject.runtime === 'docker-compose'
           ? 'Docker Compose source preflight passed; host activation validates the configuration and performs the runtime health check.'
           : (deployProject.healthCheckEnabled ? 'Candidate health check passed.' : 'Candidate health check was skipped by project configuration.');
-        target.deployment = appendReleaseEvent(target.deployment, release.id, 'candidate_health', deployProject.healthCheckEnabled ? 'passed' : 'skipped', healthMessage);
+        if (deployProject.runtime === 'python' && deployProject.healthCheckEnabled) {
+          const candidate = target.deployment.releases.find((item) => item.id === release.id);
+          candidate.health.status = 'pending';
+          candidate.health.checkedAt = null;
+          candidate.health.port = deployProject.port;
+        }
+        target.deployment = appendReleaseEvent(target.deployment, release.id, deployProject.runtime === 'python' ? 'python_preflight' : 'candidate_health', deployProject.healthCheckEnabled ? 'passed' : 'skipped', healthMessage);
       });
       const helperSocket = process.env.HOSTMGR_DEPLOY_HELPER_SOCKET;
       if (!helperSocket) {
         await store.update((state) => {
           const target = findProject(state, job.projectSlug);
           target.deployment = markReleasePendingActivation(target.deployment, release.id);
-          appendAudit(state, { action: 'project.deploy', outcome: 'pending_activation', actor: 'owner', target: job.projectSlug, detail: 'Candidate is healthy; a reviewed deployment helper is required to switch the systemd release.' });
+          appendAudit(state, { action: 'project.deploy', outcome: 'pending_activation', actor: 'owner', target: job.projectSlug, detail: deployProject.runtime === 'python' ? 'Python source is ready; host activation must create its venv as the project user.' : 'Candidate is healthy; a reviewed deployment helper is required to switch the systemd release.' });
         });
-        return markJobSucceeded(jobId, 'Candidate is healthy and awaits reviewed host activation.');
+        return markJobSucceeded(jobId, deployProject.runtime === 'python' ? 'Python source awaits host venv installation and health checks.' : 'Candidate is healthy and awaits reviewed host activation.');
       }
       await recordPhase('host_activation', 'started', 'Activating the verified candidate on the host.');
       await activateOnHost(helperSocket, job.projectSlug, release.id);
       await store.update((state) => {
         const target = findProject(state, job.projectSlug);
+        if (deployProject.runtime === 'python' && deployProject.healthCheckEnabled) {
+          const candidate = target.deployment.releases.find((item) => item.id === release.id);
+          candidate.health.status = 'passed';
+          candidate.health.checkedAt = new Date().toISOString();
+        }
         target.deployment = activateRelease(target.deployment, release.id);
         target.deployment = appendReleaseEvent(target.deployment, release.id, 'host_activation', 'passed', 'Host service and domain activation completed.');
         if (target.domains?.hosts?.length) target.domains.syncedAt = new Date().toISOString();
@@ -1445,6 +1461,29 @@ export async function createApplication(options = {}) {
           runtime: 'Docker Compose', packageManager: 'docker compose', lockfile: { name: 'Not applicable', valid: null },
           nodeVersion: 'Not applicable', buildScript: `${project.composeFile || 'compose.yaml'} · ${project.composeService || 'service'}`,
           startScript: 'docker compose up', skipBuild: false
+        }
+      });
+    }
+    if (project.runtime === 'python') {
+      const settings = pythonSettings(project);
+      return sendJson(response, 200, {
+        configuration: {
+          runtime: 'Python / venv', packageManager: settings.pythonInstall === 'none' ? 'No dependencies' : `.venv/bin/python -m pip install ${settings.pythonInstall === 'project' ? '.' : `-r ${settings.pythonRequirements}`}`,
+          lockfile: { name: settings.pythonInstall === 'requirements' ? settings.pythonRequirements : settings.pythonInstall === 'project' ? 'pyproject.toml' : 'Not applicable', valid: null },
+          nodeVersion: 'Host Python 3 · isolated venv',
+          buildScript: 'Create .venv and install as the project user',
+          startScript: `.venv/bin/python ${pythonStartArgs(settings, project.port).join(' ')}`, skipBuild: false
+        }
+      });
+    }
+    if (project.runtime === 'go') {
+      const goPackage = validateNativeProject({ ...project, environment: {} }).goPackage;
+      return sendJson(response, 200, {
+        configuration: {
+          runtime: 'Go', packageManager: 'go mod download',
+          lockfile: { name: 'go.sum (module checksums)', valid: null },
+          nodeVersion: 'Host Go toolchain', buildScript: `go build -mod=readonly -trimpath -o hostmgr-app ${goPackage}`,
+          startScript: './hostmgr-app', skipBuild: false
         }
       });
     }
@@ -1817,6 +1856,85 @@ async function isTcpPortAvailable(port) {
   });
 }
 
+function goBinaryName() {
+  return process.platform === 'win32' ? 'hostmgr-app.exe' : 'hostmgr-app';
+}
+
+export async function preparePythonRelease(projectInput, release, storedProject, vault, projectRoot, reportPhase = async () => {}) {
+  const project = validateNativeProject(projectInput);
+  if (project.runtime !== 'python') throw new InputError('This operation requires the Python runtime.');
+  const source = repositoryDirectory(project, projectRoot);
+  const destination = join(projectRoot, project.slug, 'releases', release.id);
+  const content = storedProject.environment?.encryptedContent ? vault?.decrypt(storedProject.environment.encryptedContent) : '';
+  if (content === undefined) throw new InputError('Credential vault is not configured.');
+  try {
+    await reportPhase('source_copy', 'started', 'Preparing Python source for a per-release venv on the host.');
+    await mkdir(join(projectRoot, project.slug, 'releases'), { recursive: true, mode: 0o750 });
+    await copyCandidateSource(source, destination, { python: true });
+    await assertPythonSource(destination, project);
+    const environment = content.split(/\r?\n/).filter((line) => !/^\s*(?:PORT|HOST|PATH|VIRTUAL_ENV|PYTHONHOME|PYTHONPATH)\s*=/.test(line)).join('\n');
+    const venv = `${projectIdentity(project.slug).releases}/${release.id}/.venv`;
+    await rm(join(destination, '.env'), { force: true });
+    await writeFile(join(destination, '.env'), `${environment}\nPORT=${project.port}\nHOST=127.0.0.1\nVIRTUAL_ENV=${venv}\nPATH=${venv}/bin:/usr/local/bin:/usr/bin:/bin\n`, { mode: 0o600 });
+    await reportPhase('source_copy', 'passed', 'Python source is ready; the host will install and run it as the project user.');
+  } catch (error) {
+    await rm(destination, { recursive: true, force: true });
+    throw error instanceof InputError ? error : new InputError('Python source preflight failed. Check the entry point and dependency file in the selected directory.');
+  }
+}
+
+function goBaseEnvironment() {
+  return Object.fromEntries(['PATH', 'SystemRoot', 'WINDIR', 'TEMP', 'TMP', 'TMPDIR', 'TZ'].filter((key) => process.env[key]).map((key) => [key, process.env[key]]));
+}
+
+export async function prepareGoRelease(projectInput, release, storedProject, vault, projectRoot, reportPhase = async () => {}) {
+  const project = validateNativeProject(projectInput);
+  if (project.runtime !== 'go') throw new InputError('This operation requires the Go runtime.');
+  const source = repositoryDirectory(project, projectRoot);
+  const destination = join(projectRoot, project.slug, 'releases', release.id);
+  const environmentContent = storedProject.environment?.encryptedContent ? vault?.decrypt(storedProject.environment.encryptedContent) : '';
+  if (environmentContent === undefined) throw new InputError('Credential vault is not configured.');
+  const moduleExists = await lstat(join(source, 'go.mod')).then((item) => item.isFile()).catch(() => false);
+  if (!moduleExists) throw new InputError('The selected repository directory must contain go.mod.');
+  try {
+    await reportPhase('source_copy', 'started', 'Copying the Go module into an isolated candidate release.');
+    await mkdir(join(projectRoot, project.slug, 'releases'), { recursive: true, mode: 0o750 });
+    await copyCandidateSource(source, destination);
+    const packagePath = await realpath(join(destination, project.goPackage)).catch(() => null);
+    const candidateRoot = await realpath(destination);
+    const packageRelative = packagePath && relative(candidateRoot, packagePath);
+    if (!packagePath || packageRelative.startsWith('..') || isAbsolute(packageRelative)) throw new InputError('Go main package must stay inside the candidate release.');
+    const runtimeEnvironment = environmentContent.split(/\r?\n/).filter((line) => !/^\s*(?:PORT|HOST)\s*=/.test(line)).join('\n');
+    await rm(join(destination, '.env'), { force: true });
+    await writeFile(join(destination, '.env'), `${runtimeEnvironment}\nPORT=${project.port}\nHOST=127.0.0.1\n`, { mode: 0o600 });
+    await reportPhase('source_copy', 'passed', 'Go candidate source was prepared.');
+    // Go's default cache may live in a protected home directory under systemd.
+    // Keep caches outside immutable releases and ignore ambient Go workspaces,
+    // flags and automatic toolchain downloads so the host compiler is explicit.
+    const cache = join(projectRoot, project.slug, 'go-cache');
+    await mkdir(cache, { recursive: true, mode: 0o750 });
+    const env = goBaseEnvironment();
+    Object.assign(env, { GOCACHE: join(cache, 'build'), GOMODCACHE: join(cache, 'modules'), GOPATH: join(cache, 'gopath'), GOENV: 'off', GOWORK: 'off', GOTOOLCHAIN: 'local', GOFLAGS: '-modcacherw', CGO_ENABLED: '0' });
+    const options = { cwd: destination, env, timeout: 300_000 };
+    await runCandidateRuntime('go', ['version'], options, 'The host Go compiler is missing. Re-run the Dashboard Portal installer.', environmentContent);
+    await reportPhase('dependencies', 'started', 'Downloading Go module dependencies.');
+    await runCandidateRuntime('go', ['mod', 'download'], options, 'Go dependency download failed. Check go.mod, module access and the required Go version.', environmentContent);
+    await reportPhase('dependencies', 'passed', 'Go module dependencies downloaded.');
+    await reportPhase('build', 'started', `Building Go main package ${project.goPackage}.`);
+    const name = await runCandidateRuntime('go', ['list', '-mod=readonly', '-f', '{{.Name}}', project.goPackage], options, 'Go package could not be loaded. Check the package path, go.mod and go.sum.', environmentContent);
+    if (name.trim() !== 'main') throw new InputError('Go package must be an executable main package.');
+    // Remove any repository-provided output, including a symlink, before build.
+    await rm(join(destination, goBinaryName()), { force: true });
+    await runCandidateRuntime('go', ['build', '-mod=readonly', '-trimpath', '-o', goBinaryName(), project.goPackage], options, 'Go build failed. Check source, module checksums and the installed Go version.', environmentContent);
+    await chmod(join(destination, goBinaryName()), 0o750);
+    await reportPhase('build', 'passed', 'Go binary built successfully.');
+    await healthCheckCandidate(destination, project, storedProject, vault, reportPhase);
+  } catch (error) {
+    await rm(destination, { recursive: true, force: true });
+    throw error;
+  }
+}
+
 async function prepareNativeRelease(project, release, storedProject, vault, projectRoot, reportPhase = async () => {}) {
   const source = repositoryDirectory(project, projectRoot);
   const destination = join(projectRoot, project.slug, 'releases', release.id);
@@ -1861,10 +1979,10 @@ async function prepareNativeRelease(project, release, storedProject, vault, proj
 
 // fs.cp() accepts numeric copy-file flags for `mode`; passing the string
 // "preserve" fails on Node.js 24 before a candidate can be built.
-export async function copyCandidateSource(source, destination) {
+export async function copyCandidateSource(source, destination, { python = false } = {}) {
   await cp(source, destination, {
     recursive: true,
-    filter: (path) => !['.git', 'node_modules'].includes(basename(path))
+    filter: (path) => !['.git', 'node_modules', ...(python ? ['.venv', 'venv', '__pycache__', '.hostmgr-python-ready'] : [])].includes(basename(path))
   });
 }
 
@@ -1907,9 +2025,12 @@ export async function healthCheckCandidate(cwd, project, storedProject, vault, r
   const environmentContent = storedProject.environment?.encryptedContent ? vault?.decrypt(storedProject.environment.encryptedContent) ?? '' : '';
   const environment = candidateRuntimeEnvironment({
     environmentContent,
+    ...(project.runtime === 'go' ? { baseEnvironment: goBaseEnvironment() } : {}),
     candidatePort: project.candidatePort
   });
-  const candidate = spawn(runtimeExecutable(project.runtime), ['run', project.startScript], { cwd, env: environment, shell: false, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] });
+  const command = project.runtime === 'go' ? join(cwd, goBinaryName()) : runtimeExecutable(project.runtime);
+  const args = project.runtime === 'go' ? [] : ['run', project.startScript];
+  const candidate = spawn(command, args, { cwd, env: environment, shell: false, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] });
   let candidateOutput = '';
   let startupError = null;
   const appendCandidateOutput = (chunk) => { candidateOutput = appendCommandOutput(candidateOutput, chunk); };
@@ -1926,7 +2047,7 @@ export async function healthCheckCandidate(cwd, project, storedProject, vault, r
     }
     const failureLog = redactBuildOutput([candidateOutput, startupError?.message].filter(Boolean).join('\n'), environmentContent);
     if (startupError) throw new DeploymentFailure(`The host ${runtimeLabel(project.runtime)} runtime could not start the project. Re-run the Dashboard Portal installer.`, failureLog);
-    if (exited) throw new DeploymentFailure(`Candidate start script "${project.startScript}" exited before the health check passed.`, failureLog);
+    if (exited) throw new DeploymentFailure(`Candidate ${project.runtime === 'go' ? 'Go binary' : `start script "${project.startScript}"`} exited before the health check passed.`, failureLog);
     throw new DeploymentFailure('Candidate health check did not pass before its timeout.');
   } finally {
     if (!exited) stopCandidate(candidate, 'SIGTERM');
@@ -2002,10 +2123,12 @@ async function hasRuntimeLockfile(source, runtime) {
 }
 
 function runtimeExecutable(runtime) {
+  if (runtime === 'go') return process.env.HOSTMGR_GO_PATH || '/usr/local/bin/go';
   return runtime === 'bun' ? (process.env.HOSTMGR_BUN_PATH || '/usr/local/bin/bun') : (process.env.HOSTMGR_NPM_PATH || '/usr/local/bin/npm');
 }
 
 function runtimeLabel(runtime) {
+  if (runtime === 'go') return 'Go';
   return runtime === 'bun' ? 'Bun' : 'Node.js/npm';
 }
 

@@ -1,3 +1,4 @@
+import { pythonSettings } from '../scripts/python-project.mjs';
 import { mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { createCipheriv, createDecipheriv, randomBytes, randomUUID } from 'node:crypto';
@@ -261,7 +262,7 @@ export function validateProjectSync(input) {
   const credentialId = optionalText(input.credentialId, 64);
   if (protocol === 'https' && credentialId && !/^[a-f0-9-]{36}$/i.test(credentialId)) throw new InputError('Credential selection is invalid.');
   const runtime = input.runtime === undefined ? 'node' : input.runtime;
-  if (!['node', 'bun', 'docker-compose'].includes(runtime)) throw new InputError('Project runtime is invalid.');
+  if (!['node', 'bun', 'go', 'python', 'docker-compose'].includes(runtime)) throw new InputError('Project runtime is invalid.');
   const buildScript = ['node', 'bun'].includes(runtime) ? optionalPackageScript(input.buildScript, 'Build script') : null;
   const startScript = ['node', 'bun'].includes(runtime) ? optionalPackageScript(input.startScript, 'Start script') : null;
   const composeFile = runtime === 'docker-compose' ? validateComposeFile(input.composeFile) : null;
@@ -274,11 +275,25 @@ export function validateProjectSync(input) {
     credentialId: protocol === 'https' ? credentialId || null : null,
     sshKeyId: protocol === 'ssh' ? `deploy-key-${project.slug}` : null,
     runtime,
+    ...(runtime === 'go' ? { goPackage: validateGoPackage(input.goPackage) } : {}),
+    ...(runtime === 'python' ? validatePythonProjectSettings(input) : {}),
     ...(runtime === 'docker-compose' ? { composeFile, composeService } : {}),
     ...(buildScript !== undefined ? { buildScript } : {}),
     ...(startScript !== undefined ? { startScript } : {}),
     ...(domains !== undefined ? { domains: { hosts: domains, updatedAt: new Date().toISOString(), syncedAt: null } } : {})
   };
+}
+
+export function validatePythonProjectSettings(input) {
+  try { return pythonSettings(input); }
+  catch (error) { throw new InputError(error.message); }
+}
+
+export function validateGoPackage(value = '.') {
+  if (typeof value !== 'string' || value.length > 240 || !/^(?:\.|\.\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*)$/.test(value)) {
+    throw new InputError('Go package must be . or a local package path such as ./cmd/api.');
+  }
+  return value;
 }
 
 export function validateGitBranchRequest(input) {
