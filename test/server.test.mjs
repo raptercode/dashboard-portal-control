@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { candidateRuntimeEnvironment, copyCandidateSource, createApplication, installCandidateDependencies, redactBuildOutput, resolveProjectPort } from '../src/server.mjs';
+import { candidateRuntimeEnvironment, copyCandidateSource, createApplication, healthCheckCandidate, installCandidateDependencies, redactBuildOutput, resolveProjectPort } from '../src/server.mjs';
 import { SecretVault } from '../src/core.mjs';
 
 async function start(options = {}) {
@@ -85,6 +85,31 @@ test('candidate health checks reserve their PORT and HOST after loading project 
   assert.equal(environment.HOST, '127.0.0.1');
   assert.equal(environment.HOSTMGR_CANDIDATE, 'true');
   assert.equal(environment.DATABASE_URL, 'postgres://example');
+});
+
+test('candidate health failures retain redacted startup output for the release log', async (t) => {
+  const previousNpmPath = process.env.HOSTMGR_NPM_PATH;
+  process.env.HOSTMGR_NPM_PATH = process.execPath;
+  t.after(() => {
+    if (previousNpmPath === undefined) delete process.env.HOSTMGR_NPM_PATH;
+    else process.env.HOSTMGR_NPM_PATH = previousNpmPath;
+  });
+
+  await assert.rejects(
+    healthCheckCandidate(process.cwd(), {
+      runtime: 'node',
+      startScript: 'start',
+      healthCheckEnabled: true,
+      healthCheckPath: '/',
+      healthCheckTimeoutMs: 1_000,
+      candidatePort: 25_678
+    }, { environment: {} }, null),
+    (error) => {
+      assert.match(error.message, /exited before the health check passed/);
+      assert.match(error.failureLog, /Cannot find module/);
+      return true;
+    }
+  );
 });
 
 test('Bun candidate installs use a frozen lockfile and fall back only for a lock mismatch', async () => {

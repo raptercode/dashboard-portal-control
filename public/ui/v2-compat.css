@@ -298,6 +298,14 @@ button.danger, .button.danger { background: var(--status-error); border-color: v
 .notice { color: #92400e; background: var(--status-warning-soft); border-color: rgba(245,158,11,.3); }
 .toast { background: var(--bg-surface); border: 1px solid var(--border); box-shadow: var(--shadow-lg); color: var(--text-primary); }
 .toast.error { background: var(--status-error-soft); border-color: rgba(239,68,68,.3); color: #b91c1c; }
+.dialog-error {
+  background: var(--status-error-soft);
+  border: 1px solid rgba(239, 68, 68, .38);
+  border-radius: var(--r-sm);
+  color: #b91c1c;
+  margin: 0 0 16px;
+  padding: 10px 12px;
+}
 
 /* Standard dialogs are compact work panels: keep their actions reachable,
    allow a long body to scroll, and never let the close control inherit the
@@ -439,6 +447,7 @@ html[data-theme="dark"] .status-chip.ready { color: #6ee7b7; }
 html[data-theme="dark"] .status-chip.needs { color: #fca5a5; }
 html[data-theme="dark"] .notice { color: #fcd34d; }
 html[data-theme="dark"] .toast.error { color: #fca5a5; }
+html[data-theme="dark"] .dialog-error { color: #fca5a5; }
 
 /* Mail setup is deliberately a focused task flow: compact progress on the
    left, one bounded work area on the right.  This keeps the wizard readable

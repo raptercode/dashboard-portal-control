@@ -118,11 +118,26 @@ test('project list keeps technical settings behind details and protects deletion
 });
 
 test('standard modals stay within the viewport and keep dark inputs readable', async () => {
-  const compat = await read('public/ui/v2-compat.css');
+  const [app, dialogs, compat] = await Promise.all([
+    read('public/ui/app.js'),
+    read('views/partials/dialogs.html'),
+    read('public/ui/v2-compat.css')
+  ]);
 
   assert.match(compat, /dialog\.modal:not\(\.deploy-drawer\) \{[\s\S]*max-height: calc\(100dvh - 32px\);[\s\S]*width: min\(680px, calc\(100vw - 32px\)\);/);
   assert.match(compat, /\.modal-form:not\(\.deploy-drawer-form\) \{ display: grid; grid-template-rows: auto minmax\(0, 1fr\) auto;/);
   assert.match(compat, /\.modal-body \{ min-height: 0; overflow: auto;/);
   assert.match(compat, /\.modal-close \{[\s\S]*background: transparent !important;[\s\S]*height: 34px;/);
   assert.match(compat, /html\[data-theme="dark"\] dialog\.modal input:not\(\[type="checkbox"\]\):not\(\[type="radio"\]\):not\(\[type="file"\]\),[\s\S]*color: #f8fafc;/);
+  assert.match(compat, /\.dialog-error \{[\s\S]*border: 1px solid rgba\(239, 68, 68, \.38\);/);
+  assert.match(app, /function showDialogError\(dialog, message\)/);
+  assert.match(app, /\$\$\('dialog\[open\]'\)\.at\(-1\)/);
+  assert.match(app, /function bindDialogDismissals\(\)/);
+  assert.match(app, /dialog\.addEventListener\('cancel'/);
+  assert.match(app, /await closeDeployDialog\(\);/);
+  assert.match(app, /function showDialog\(dialog\)/);
+  assert.match(dialogs, /id="deploy-close"[^>]*data-dialog-close/);
+  assert.match(dialogs, /id="deployment-log-dismiss"[^>]*data-dialog-close/);
+  assert.match(dialogs, /id="domain-cancel"[^>]*data-dialog-close/);
+  assert.match(dialogs, /id="notification-hook-cancel"[^>]*data-dialog-close/);
 });

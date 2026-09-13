@@ -1898,20 +1898,25 @@ async function prepareDockerRelease(project, release, storedProject, vault, proj
   }
 }
 
-async function healthCheckCandidate(cwd, project, storedProject, vault, reportPhase = async () => {}) {
+export async function healthCheckCandidate(cwd, project, storedProject, vault, reportPhase = async () => {}) {
   if (!project.healthCheckEnabled) {
     await reportPhase('candidate_health', 'skipped', 'Candidate health check is disabled for this project.');
     return;
   }
   await reportPhase('candidate_health', 'started', `Starting the candidate and checking ${project.healthCheckPath}.`);
+  const environmentContent = storedProject.environment?.encryptedContent ? vault?.decrypt(storedProject.environment.encryptedContent) ?? '' : '';
   const environment = candidateRuntimeEnvironment({
-    environmentContent: storedProject.environment?.encryptedContent ? vault?.decrypt(storedProject.environment.encryptedContent) ?? '' : '',
+    environmentContent,
     candidatePort: project.candidatePort
   });
-  const candidate = spawn(runtimeExecutable(project.runtime), ['run', project.startScript], { cwd, env: environment, shell: false, detached: process.platform !== 'win32', stdio: ['ignore', 'ignore', 'ignore'] });
+  const candidate = spawn(runtimeExecutable(project.runtime), ['run', project.startScript], { cwd, env: environment, shell: false, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] });
+  let candidateOutput = '';
+  let startupError = null;
+  const appendCandidateOutput = (chunk) => { candidateOutput = appendCommandOutput(candidateOutput, chunk); };
+  candidate.stdout?.on('data', appendCandidateOutput);
+  candidate.stderr?.on('data', appendCandidateOutput);
   let exited = false;
-  let startupError = false;
-  candidate.once('error', () => { startupError = true; exited = true; });
+  candidate.once('error', (error) => { startupError = error; exited = true; });
   candidate.once('exit', () => { exited = true; });
   try {
     const deadline = Date.now() + project.healthCheckTimeoutMs;
@@ -1919,8 +1924,9 @@ async function healthCheckCandidate(cwd, project, storedProject, vault, reportPh
       if (await requestHealth(project.candidatePort, project.healthCheckPath)) return;
       await delay(250);
     }
-    if (startupError) throw new DeploymentFailure(`The host ${runtimeLabel(project.runtime)} runtime could not start the project. Re-run the Dashboard Portal installer.`);
-    if (exited) throw new DeploymentFailure(`Candidate start script "${project.startScript}" exited before the health check passed.`);
+    const failureLog = redactBuildOutput([candidateOutput, startupError?.message].filter(Boolean).join('\n'), environmentContent);
+    if (startupError) throw new DeploymentFailure(`The host ${runtimeLabel(project.runtime)} runtime could not start the project. Re-run the Dashboard Portal installer.`, failureLog);
+    if (exited) throw new DeploymentFailure(`Candidate start script "${project.startScript}" exited before the health check passed.`, failureLog);
     throw new DeploymentFailure('Candidate health check did not pass before its timeout.');
   } finally {
     if (!exited) stopCandidate(candidate, 'SIGTERM');

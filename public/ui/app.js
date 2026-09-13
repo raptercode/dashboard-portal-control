@@ -91,7 +91,37 @@ function toast(message, error = false) {
   toast.timer = setTimeout(() => node.classList.remove('show'), 3200);
 }
 
-function showError(error) { toast(error.message || String(error), true); }
+function clearDialogError(dialog) {
+  const notice = dialog?.querySelector('[data-dialog-error]');
+  if (notice) notice.remove();
+}
+
+function showDialogError(dialog, message) {
+  if (!dialog?.open) return;
+  clearDialogError(dialog);
+  const notice = element('p', 'dialog-error', message);
+  notice.dataset.dialogError = 'true';
+  notice.setAttribute('role', 'alert');
+  notice.tabIndex = -1;
+  const target = $('.drawer-body, .modal-body, .confirm-form', dialog) || dialog;
+  target.prepend(notice);
+  notice.focus({ preventScroll: true });
+}
+
+function showError(error) {
+  const message = error?.message || String(error);
+  showDialogError($$('dialog[open]').at(-1), message);
+  // Keep the normal toast for errors outside a modal and for errors that
+  // remain useful after the modal is closed. Native dialogs render in the top
+  // layer, so this is intentionally not the only feedback path.
+  toast(message, true);
+}
+
+function showDialog(dialog) {
+  if (!dialog.open) dialog.showModal();
+  clearDialogError(dialog);
+  return dialog;
+}
 
 function resetForm(form) {
   if (form instanceof HTMLFormElement) form.reset();
@@ -2086,7 +2116,7 @@ async function openNotificationHookDialog(project) {
   state.notificationProject = project;
   $('#notification-hook-project-label').textContent = `${project.name} · ${project.slug}`;
   $('#project-notification-hook-form').reset();
-  $('#notification-hook-dialog').showModal();
+  showDialog($('#notification-hook-dialog'));
   await renderProjectNotificationHooks();
 }
 
@@ -2202,7 +2232,7 @@ function confirmAction(title, message, acceptLabel = 'ยืนยัน') {
   $('#confirm-title').textContent = title;
   $('#confirm-message').textContent = message;
   $('#confirm-accept').textContent = acceptLabel;
-  dialog.showModal();
+  showDialog(dialog);
   return new Promise((resolve) => {
     dialog.addEventListener('close', () => resolve(dialog.returnValue === 'confirm'), { once: true });
   });
@@ -2231,7 +2261,7 @@ function confirmProjectDeletion(project) {
   accept.disabled = true;
   const updateAcceptance = () => { accept.disabled = input.value !== project.name; };
   input.addEventListener('input', updateAcceptance);
-  dialog.showModal();
+  showDialog(dialog);
   requestAnimationFrame(() => input.focus());
   return new Promise((resolve) => {
     dialog.addEventListener('close', () => {
@@ -2292,8 +2322,7 @@ async function openDeployDialog(project) {
   const keyCount = payload.environment?.variables?.length || 0;
   $('#deploy-release-environment').textContent = keyCount ? `${keyCount} configured keys` : 'New .env required';
   setDeployStep(1);
-  const dialog = $('#deploy-dialog');
-  dialog.showModal();
+  const dialog = showDialog($('#deploy-dialog'));
   requestAnimationFrame(() => dialog.classList.add('open'));
 }
 
@@ -2415,10 +2444,34 @@ function setDeployStep(step) {
 
 function closeDeployDialog() {
   const dialog = $('#deploy-dialog');
+  if (!dialog.open) return Promise.resolve();
   dialog.classList.remove('open');
-  window.setTimeout(() => {
-    if (!dialog.classList.contains('open') && dialog.open) dialog.close();
-  }, 250);
+  return new Promise((resolve) => {
+    window.setTimeout(() => {
+      if (!dialog.classList.contains('open') && dialog.open) dialog.close();
+      resolve();
+    }, 250);
+  });
+}
+
+function closeDialog(dialog) {
+  if (!dialog?.open) return Promise.resolve();
+  if (dialog.id === 'deploy-dialog') return closeDeployDialog();
+  dialog.close();
+  return Promise.resolve();
+}
+
+function bindDialogDismissals() {
+  $$('dialog.modal').forEach((dialog) => {
+    dialog.addEventListener('cancel', (event) => {
+      event.preventDefault();
+      void closeDialog(dialog);
+    });
+    dialog.addEventListener('close', () => clearDialogError(dialog));
+    $$('[data-dialog-close]', dialog).forEach((button) => {
+      button.addEventListener('click', () => { void closeDialog(dialog); });
+    });
+  });
 }
 
 async function submitDeploy(event) {
@@ -2441,7 +2494,7 @@ async function submitDeploy(event) {
   try {
     await api(`/api/projects/${encodeURIComponent(project.slug)}/environment`, { method: 'POST', body: { mode: 'replace', content } });
     const result = await api(`/api/projects/${encodeURIComponent(project.slug)}/deploy`, { method: 'POST', body: {} });
-    closeDeployDialog();
+    await closeDeployDialog();
     toast(result.activation === 'queued' ? 'จัดคิว deploy แล้ว' : 'สร้าง release แล้ว');
     if (result.job?.id) showDeploymentProgress(project, result.job);
     else await refresh();
@@ -2453,7 +2506,7 @@ function openDeploymentLog(project, release) {
   $('#deployment-log-title').textContent = `${project.name} · ${release.id || 'release'}`;
   $('#deployment-log-summary').textContent = `${release.status || 'unknown'} · ${release.createdAt ? new Date(release.createdAt).toLocaleString('th-TH') : ''}`;
   renderDeploymentLog(release.events, release.failureLog);
-  $('#deployment-log-dialog').showModal();
+  showDialog($('#deployment-log-dialog'));
 }
 
 function renderDeploymentLog(events, failureLog) {
@@ -2547,7 +2600,7 @@ async function hydrateProjectLogs() {
 function showDeploymentProgress(project, initialJob) {
   clearTimeout(deploymentProgressTimer);
   $('#deployment-log-title').textContent = `${project.name} · กำลัง deploy`;
-  $('#deployment-log-dialog').showModal();
+  showDialog($('#deployment-log-dialog'));
   const render = (job) => {
     $('#deployment-log-summary').textContent = `${job.status} · ${job.releaseId || ''}`;
     renderDeploymentLog(job.events, job.failureLog);
@@ -2598,7 +2651,7 @@ function openDomainDialog(project) {
   $('#domain-project-label').textContent = `${project.name} · ${project.slug}`;
   setDomainView('list');
   renderDomainList();
-  $('#domain-dialog').showModal();
+  showDialog($('#domain-dialog'));
   refreshDomainStatuses();
 }
 
@@ -3083,6 +3136,7 @@ async function syncProjectDraft() {
 }
 
 function bindEvents() {
+  bindDialogDismissals();
   $('#login-form')?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const error = $('#login-error');
@@ -3298,8 +3352,6 @@ function bindEvents() {
   });
 
   $('#deploy-form')?.addEventListener('submit', (event) => submitDeploy(event).catch(showError));
-  $('#deploy-close')?.addEventListener('click', closeDeployDialog);
-  $('#deploy-cancel')?.addEventListener('click', closeDeployDialog);
   $('#deploy-back')?.addEventListener('click', () => setDeployStep(Math.max(1, state.deployStep - 1)));
   $('#deploy-add-variable')?.addEventListener('click', () => {
     const row = deployEnvironmentRow();
@@ -3315,12 +3367,6 @@ function bindEvents() {
   $('#deploy-env-upload')?.addEventListener('click', () => $('#deploy-env-file').click());
   $('#deploy-env-file')?.addEventListener('change', (event) => importDeployEnvironmentFile(event).catch(showError));
   $('#deploy-env-save')?.addEventListener('click', () => saveDeployEnvironment().catch(showError));
-  $('#deploy-dialog')?.addEventListener('cancel', (event) => { event.preventDefault(); closeDeployDialog(); });
-  $('#deployment-log-close')?.addEventListener('click', () => $('#deployment-log-dialog').close());
-  $('#deployment-log-dismiss')?.addEventListener('click', () => $('#deployment-log-dialog').close());
-
-  $('#domain-close')?.addEventListener('click', () => $('#domain-dialog').close());
-  $('#domain-cancel')?.addEventListener('click', () => $('#domain-dialog').close());
   $('#domain-add-start')?.addEventListener('click', () => setDomainView('add'));
   $('#domain-back')?.addEventListener('click', () => {
     const step = Number($('[data-domain-view]').dataset.domainStep || 1);
@@ -3331,8 +3377,6 @@ function bindEvents() {
   $('#domain-recheck')?.addEventListener('click', () => checkDomainInput().catch(showError));
   $('#domain-refresh')?.addEventListener('click', () => refreshDomainStatuses().catch(showError));
   $('#domain-form')?.addEventListener('submit', (event) => confirmAddDomain(event).catch(showError));
-  $('#notification-hook-close')?.addEventListener('click', () => $('#notification-hook-dialog').close());
-  $('#notification-hook-cancel')?.addEventListener('click', () => $('#notification-hook-dialog').close());
 }
 
 async function bootstrap() {

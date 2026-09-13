@@ -6,7 +6,7 @@
           <h2 id="deploy-dialog-title">Deploy project</h2>
           <p id="deploy-project-label" class="subtitle">—</p>
         </div>
-        <button class="close-btn" id="deploy-close" type="button" aria-label="ปิด"><svg class="icon" aria-hidden="true"><use href="#icon-close"></use></svg></button>
+        <button class="close-btn" id="deploy-close" type="button" data-dialog-close aria-label="ปิด"><svg class="icon" aria-hidden="true"><use href="#icon-close"></use></svg></button>
       </div>
     </header>
     <div class="stepper" aria-label="Deployment steps">
@@ -76,7 +76,7 @@
       </section>
     </div>
     <footer class="drawer-foot">
-      <button class="btn btn-ghost" id="deploy-cancel" type="button">Cancel</button>
+      <button class="btn btn-ghost" id="deploy-cancel" type="button" data-dialog-close>Cancel</button>
       <button class="btn btn-ghost" id="deploy-back" type="button" hidden>Back</button>
       <span class="modal-spacer"></span>
       <button id="deploy-submit" class="btn btn-primary" type="submit">Next: Build</button>
@@ -90,7 +90,7 @@
       <h2 id="deployment-log-title">รายละเอียด release</h2>
       <p id="deployment-log-summary" class="modal-sub">—</p>
     </div>
-    <button id="deployment-log-close" class="modal-close" type="button" aria-label="ปิด"><svg class="icon" aria-hidden="true"><use href="#icon-close"></use></svg></button>
+    <button id="deployment-log-close" class="modal-close" type="button" data-dialog-close aria-label="ปิด"><svg class="icon" aria-hidden="true"><use href="#icon-close"></use></svg></button>
   </header>
   <div class="modal-body">
     <ol id="deployment-log-events" class="deployment-log-events"></ol>
@@ -99,7 +99,7 @@
       <pre id="deployment-log-output" class="deployment-log-output" aria-label="Build output" tabindex="0"></pre>
     </section>
   </div>
-  <footer class="modal-footer"><span class="modal-spacer"></span><button id="deployment-log-dismiss" type="button">ปิด</button></footer>
+  <footer class="modal-footer"><span class="modal-spacer"></span><button id="deployment-log-dismiss" type="button" data-dialog-close>ปิด</button></footer>
 </dialog>
 
 <dialog id="domain-dialog" class="modal" aria-labelledby="domain-dialog-title">
@@ -109,7 +109,7 @@
         <h2 id="domain-dialog-title">ตั้งค่าโดเมนโปรเจค</h2>
         <p id="domain-project-label" class="modal-sub">—</p>
       </div>
-      <button class="modal-close" id="domain-close" type="button" aria-label="ปิด"><svg class="icon" aria-hidden="true"><use href="#icon-close"></use></svg></button>
+      <button class="modal-close" id="domain-close" type="button" data-dialog-close aria-label="ปิด"><svg class="icon" aria-hidden="true"><use href="#icon-close"></use></svg></button>
     </header>
     <div class="modal-body" data-domain-view="list">
       <section class="domain-list-panel">
@@ -137,7 +137,7 @@
       <aside class="notice domain-list-notice"><svg class="icon" aria-hidden="true"><use href="#icon-info"></use></svg><p>การ sync จะเปลี่ยนเฉพาะ Nginx files ที่ Dashboard Portal เป็นเจ้าของ และทดสอบ config ก่อน reload</p></aside>
     </div>
     <footer class="modal-footer">
-      <button class="secondary" id="domain-cancel" type="button">ปิด</button>
+      <button class="secondary" id="domain-cancel" type="button" data-dialog-close>ปิด</button>
       <button class="secondary" id="domain-back" type="button" hidden>ย้อนกลับ</button>
       <button class="secondary" id="domain-recheck" type="button" hidden>ตรวจอีกครั้ง</button>
       <span class="modal-spacer"></span>
@@ -155,7 +155,7 @@
         <h2 id="notification-hook-dialog-title">Deployment notifications</h2>
         <p id="notification-hook-project-label" class="modal-sub">—</p>
       </div>
-      <button class="modal-close" id="notification-hook-close" type="button" aria-label="ปิด"><svg class="icon" aria-hidden="true"><use href="#icon-close"></use></svg></button>
+      <button class="modal-close" id="notification-hook-close" type="button" data-dialog-close aria-label="ปิด"><svg class="icon" aria-hidden="true"><use href="#icon-close"></use></svg></button>
     </header>
     <div class="modal-body">
       <section class="notification-hook-list-panel">
@@ -174,7 +174,7 @@
       </section>
     </div>
     <footer class="modal-footer">
-      <button class="secondary" id="notification-hook-cancel" type="button">ปิด</button>
+      <button class="secondary" id="notification-hook-cancel" type="button" data-dialog-close>ปิด</button>
       <span class="modal-spacer"></span>
       <button id="notification-hook-submit" type="submit">Save webhook</button>
     </footer>
