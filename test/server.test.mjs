@@ -252,6 +252,9 @@ test('dashboard API authenticates, protects CSRF, and audits a sandbox install',
   assert.equal(rejected.status, 403);
   const installed = await fetch(`${base}/api/tools/nginx/install`, { method: 'POST', headers: { cookie, 'content-type': 'application/json', 'x-csrf-token': session.csrfToken }, body: JSON.stringify({ confirm: true }) });
   assert.equal(installed.status, 200);
+  const managedRuntime = await fetch(`${base}/api/tools/go/install`, { method: 'POST', headers: { cookie, 'content-type': 'application/json', 'x-csrf-token': session.csrfToken }, body: JSON.stringify({ confirm: true }) });
+  assert.equal(managedRuntime.status, 400);
+  assert.match((await managedRuntime.json()).error, /Dashboard Portal installer/);
   const doctor = await fetch(`${base}/api/doctor`, { headers: { cookie } });
   const report = await doctor.json();
   assert.equal(report.mode, 'demo');

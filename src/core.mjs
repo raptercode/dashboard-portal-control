@@ -11,8 +11,21 @@ export const TOOLS = {
   certbot: { label: 'Certbot', package: 'certbot', required: true, purpose: 'ออกและต่ออายุ Let’s Encrypt certificate' },
   git: { label: 'Git', package: 'git', required: true, purpose: 'Clone และ pull source code' },
   docker: { label: 'Docker Engine + Compose', package: 'docker.io docker-compose-v2', required: false, purpose: 'ใช้งาน Docker mode' },
+  go: { label: 'Go compiler', package: 'Go 1.27.1', required: false, installable: false, purpose: 'คอมไพล์ Go project — ติดตั้งและ pin version โดย Dashboard Portal installer' },
+  python: { label: 'Python + venv', package: 'python3 python3-venv', required: false, installable: false, purpose: 'สร้าง environment แยกต่อ release สำหรับ Python project — ติดตั้งโดย Dashboard Portal installer' },
   mail: { label: 'Mail server (Postfix + Dovecot)', package: 'postfix dovecot-imapd dovecot-lmtpd opendkim opendkim-tools', required: false, purpose: 'รับ/ส่งอีเมลด้วยโดเมนของคุณเอง — ตั้งค่าผ่าน Mail Setup Wizard' }
 };
+
+function initialToolState(id, tool) {
+  return {
+    id,
+    status: id === 'docker' ? 'Installed' : 'Missing',
+    version: id === 'docker' ? 'Docker sandbox' : null,
+    simulated: true,
+    updatedAt: new Date().toISOString(),
+    ...tool
+  };
+}
 
 export function initialMailState() {
   return {
@@ -32,14 +45,7 @@ export function createInitialState() {
   return {
     schemaVersion: 3,
     createdAt: new Date().toISOString(),
-    tools: Object.fromEntries(Object.entries(TOOLS).map(([id, tool]) => [id, {
-      id,
-      status: id === 'docker' ? 'Installed' : 'Missing',
-      version: id === 'docker' ? 'Docker sandbox' : null,
-      simulated: true,
-      updatedAt: new Date().toISOString(),
-      ...tool
-    }])),
+    tools: Object.fromEntries(Object.entries(TOOLS).map(([id, tool]) => [id, initialToolState(id, tool)])),
     git: { identity: null },
     sessions: [],
     credentials: [],
@@ -472,7 +478,8 @@ function migrateState(state) {
   state.notificationHooks ??= [];
   state.mail ??= initialMailState();
   state.mail.readiness ??= { checkedAt: null, outbound: null, inbound: null };
-  // Databases created before the mail tool existed lack its tools entry.
-  state.tools.mail ??= { id: 'mail', status: 'Missing', version: null, simulated: true, updatedAt: new Date().toISOString(), ...TOOLS.mail };
+  state.tools ??= {};
+  // Older Portal states lack tools that were added after their first install.
+  for (const [id, tool] of Object.entries(TOOLS)) state.tools[id] ??= initialToolState(id, tool);
   return state;
 }

@@ -64,7 +64,10 @@ saved with each release so a later settings edit does not change its launcher.
 An installation without the host helper stops after source preflight and does
 not claim the application passed its HTTP check. The UI demo still simulates
 deployment, as for other runtimes. Existing production hosts need an installer
-update containing Python support before deploying Python projects.
+update containing Python support before deploying Python projects. **Setup**
+shows the observed Python version only when both `python3` and its `venv`
+module are present. If it is missing, update or re-run the Dashboard Portal
+installer; the individual Setup tool card does not install Python packages.
 
 ## Verification
 

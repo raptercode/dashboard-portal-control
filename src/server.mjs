@@ -58,6 +58,8 @@ const HOST_TOOL_COMMANDS = {
   certbot: [['/usr/bin/certbot', ['--version']]],
   git: [['/usr/bin/git', ['--version']]],
   docker: [['/usr/bin/docker', ['--version']], ['/usr/bin/docker', ['compose', 'version']]],
+  go: [['/usr/local/bin/go', ['version']]],
+  python: [['/usr/bin/python3', ['--version']], ['/usr/bin/python3', ['-c', 'import venv']]],
   mail: [['/usr/sbin/postconf', ['mail_version']], ['/usr/bin/doveadm', ['--version']]]
 };
 
@@ -304,7 +306,7 @@ export async function createApplication(options = {}) {
       if (request.method === 'POST' && databaseQueryMatch) return await handleDatabaseQuery(request, response, databaseQueryMatch[1]);
       const databaseDeleteMatch = url.pathname.match(/^\/api\/databases\/([a-f0-9-]{36})$/i);
       if (request.method === 'DELETE' && databaseDeleteMatch) return await handleDatabaseDelete(request, response, databaseDeleteMatch[1]);
-      const toolMatch = url.pathname.match(/^\/api\/tools\/(nginx|certbot|git|docker|mail)\/install$/);
+      const toolMatch = url.pathname.match(/^\/api\/tools\/(nginx|certbot|git|docker|go|python|mail)\/install$/);
       if (request.method === 'POST' && toolMatch) return await handleInstall(request, response, toolMatch[1]);
       if (request.method === 'POST' && url.pathname === '/api/mail/outbound-check') return await handleMailOutboundCheck(request, response);
       if (request.method === 'POST' && url.pathname === '/api/mail/readiness-check') return await handleMailReadinessCheck(request, response);
@@ -830,6 +832,7 @@ export async function createApplication(options = {}) {
     const session = requireSession(request, response, true);
     if (!session) return;
     validateTool(tool);
+    if (TOOLS[tool].installable === false) throw new InputError(`${TOOLS[tool].label} is installed by the Dashboard Portal installer. Re-run the installer or update the Portal.`);
     const body = await readJson(request);
     if (body.confirm !== true) throw new InputError('Explicit confirmation is required.');
     const result = mode === 'demo' ? demoInstall(tool) : await hostInstall(tool);

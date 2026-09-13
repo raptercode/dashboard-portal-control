@@ -45,7 +45,9 @@ against the [official download metadata](https://go.dev/dl/?mode=json).
 It installs under `/opt/go1.27.1` and exposes `/usr/local/bin/go` and `gofmt`.
 Existing installations need an installer update containing this change before
 their first native Go deployment. This does not install Go on a host merely
-by selecting it in the browser.
+by selecting it in the browser. **Setup** shows the observed Go version from
+the host. If it reports that Go is missing, update or re-run the Dashboard
+Portal installer; the individual Setup tool card does not install a compiler.
 
 Each candidate runs fixed argument vectors without a shell:
 

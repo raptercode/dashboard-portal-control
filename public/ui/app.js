@@ -597,7 +597,7 @@ function renderSetup() {
     copy.append(element('h3', '', tool.label), element('p', 'muted', `${tool.required ? 'จำเป็น' : 'ทางเลือก'} · ${tool.purpose}`), element('small', '', tool.version || 'ไม่พบในระบบ'));
     const side = element('div');
     side.append(statusChip(tool.status === 'Installed' ? 'พร้อม' : 'ยังไม่ติดตั้ง', tool.status === 'Installed' ? 'ready' : 'muted'));
-    if (tool.status !== 'Installed') {
+    if (tool.status !== 'Installed' && tool.installable !== false) {
       const install = element('button', '', 'ติดตั้ง');
       install.type = 'button';
       install.addEventListener('click', () => installTool(tool.id, install));
