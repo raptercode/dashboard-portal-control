@@ -67,12 +67,12 @@ test('candidate dependency install uses npm install only when a lockfile is abse
 
 test('failed build output is bounded and redacts project environment values', () => {
   const secret = 'production-secret-value';
-  const output = redactBuildOutput('x'.repeat(13 * 1024) + '\nnpm error API_KEY=' + secret + '\nAuthorization: Bearer bearer-value', 'API_KEY=' + secret + '\n');
+  const output = redactBuildOutput('x'.repeat(60 * 1024) + '\nnpm error API_KEY=' + secret + '\nAuthorization: Bearer bearer-value', 'API_KEY=' + secret + '\n');
   assert.match(output, /API_KEY=<redacted>/);
   assert.match(output, /Authorization: Bearer <redacted>/);
   assert.equal(output.includes(secret), false);
-  assert.match(output, /earlier build output omitted/);
-  assert.ok(Buffer.byteLength(output, 'utf8') <= 13 * 1024);
+  assert.match(output, /earlier deployment output omitted/);
+  assert.ok(Buffer.byteLength(output, 'utf8') <= 48 * 1024);
 });
 
 test('candidate health checks reserve their PORT and HOST after loading project environment', () => {

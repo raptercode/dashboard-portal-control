@@ -1,4 +1,5 @@
 import { pythonStartArgs } from '../scripts/python-project.mjs';
+import { projectServiceUser } from '../scripts/project-service-user.mjs';
 import { randomUUID } from 'node:crypto';
 import { InputError, validateProject, validateGoPackage, validatePythonProjectSettings } from './core.mjs';
 
@@ -32,7 +33,7 @@ export function validateDockerComposeProject(input) {
 
 export function projectIdentity(slug) {
   if (!/^[a-z][a-z0-9-]{0,62}$/.test(slug)) throw new InputError('Project slug is invalid.');
-  return { user: `hostmgr-${slug}`, service: `hostmgr-project-${slug}.service`, root: `/srv/hostmgr/projects/${slug}`, releases: `/srv/hostmgr/projects/${slug}/releases`, shared: `/srv/hostmgr/projects/${slug}/shared`, environmentFile: `/etc/hostmgr/projects/${slug}.env` };
+  return { user: projectServiceUser(slug), service: `hostmgr-project-${slug}.service`, root: `/srv/hostmgr/projects/${slug}`, releases: `/srv/hostmgr/projects/${slug}/releases`, shared: `/srv/hostmgr/projects/${slug}/shared`, environmentFile: `/etc/hostmgr/projects/${slug}.env` };
 }
 
 export function defaultCandidatePort(port) {

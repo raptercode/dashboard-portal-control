@@ -31,7 +31,7 @@ const here = fileURLToPath(new URL('.', import.meta.url));
 const publicDir = join(here, '..', 'public');
 const uiDir = join(publicDir, 'ui');
 const viewsDir = join(here, '..', 'views');
-const MAX_BUILD_LOG_BYTES = 12 * 1024;
+const MAX_BUILD_LOG_BYTES = 48 * 1024;
 const MAX_COMMAND_OUTPUT_BYTES = 64 * 1024;
 const renderView = createRenderer(viewsDir);
 const contentTypes = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.json': 'application/json; charset=utf-8' };
@@ -1161,8 +1161,11 @@ export async function createApplication(options = {}) {
       });
       return markJobSucceeded(jobId, 'Deployment completed and the new release is active.');
     } catch (error) {
-      const failure = safeDeploymentFailure(error);
-      const failureLog = error instanceof DeploymentFailure ? error.failureLog : null;
+      let environmentContent = '';
+      try { environmentContent = project.environment?.encryptedContent && vault ? vault.decrypt(project.environment.encryptedContent) : ''; }
+      catch { /* A vault failure must still terminate the durable job. */ }
+      const failure = redactBuildOutput(safeDeploymentFailure(error), environmentContent);
+      const failureLog = redactBuildOutput(error?.failureLog || error?.commandOutput || `${error?.name || 'Error'}: ${error?.message || failure}`, environmentContent);
       await store.update((state) => {
         const target = findProject(state, job.projectSlug);
         target.deployment = failRelease(target.deployment, release.id, failure);
@@ -2060,7 +2063,7 @@ export async function healthCheckCandidate(cwd, project, storedProject, vault, r
     const failureLog = redactBuildOutput([candidateOutput, startupError?.message].filter(Boolean).join('\n'), environmentContent);
     if (startupError) throw new DeploymentFailure(`The host ${runtimeLabel(project.runtime)} runtime could not start the project. Re-run the Dashboard Portal installer.`, failureLog);
     if (exited) throw new DeploymentFailure(`Candidate ${project.runtime === 'go' ? 'Go binary' : `start script "${project.startScript}"`} exited before the health check passed.`, failureLog);
-    throw new DeploymentFailure('Candidate health check did not pass before its timeout.');
+    throw new DeploymentFailure(`Candidate health check did not pass before its timeout (port ${project.candidatePort}, path ${project.healthCheckPath}).`, failureLog);
   } finally {
     if (!exited) stopCandidate(candidate, 'SIGTERM');
     // Do not leave a candidate listening on its temporary port if a project
@@ -2435,8 +2438,9 @@ export function redactBuildOutput(output, environmentContent = '') {
     .replace(/\b(authorization\s*:\s*(?:bearer\s+)?)[^\s'"\\]+/gi, '$1<redacted>')
     .replace(/\b([A-Z][A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|API_KEY|PRIVATE_KEY)[A-Z0-9_]*)\s*([=:])\s*([^\s'"\\]+)/g, '$1$2<redacted>');
   if (Buffer.byteLength(safe, 'utf8') > MAX_BUILD_LOG_BYTES) {
-    const tail = Buffer.from(safe, 'utf8').subarray(-MAX_BUILD_LOG_BYTES).toString('utf8');
-    safe = `… earlier build output omitted …\n${tail}`;
+    const marker = '… earlier deployment output omitted …\n';
+    const tail = Buffer.from(safe, 'utf8').subarray(-(MAX_BUILD_LOG_BYTES - Buffer.byteLength(marker) - 3)).toString('utf8');
+    safe = marker + tail;
   }
   return safe;
 }

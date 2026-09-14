@@ -89,7 +89,7 @@ test('project list keeps technical settings behind details and protects deletion
   assert.match(compat, /\.project-list \{ display: grid; grid-template-columns: repeat\(3, minmax\(0, 1fr\)\);/);
   assert.match(compat, /\.deployment-log-output/);
   assert.match(app, /function runtimeLogo\(name\)/);
-  assert.match(app, /function renderDeploymentLog\(events, failureLog\)/);
+  assert.match(app, /function renderDeploymentLog\(events, failureLog, failure\)/);
   assert.match(repository, /\/ui\/runtime-logos\/nodejs\.svg/);
   assert.match(repository, /\/ui\/runtime-logos\/bun\.svg/);
   assert.match(repository, /\/ui\/runtime-logos\/docker\.svg/);

@@ -1,6 +1,7 @@
 #!/usr/local/bin/node
 import { createServer } from 'node:net';
 import { spawn } from 'node:child_process';
+import { projectServiceUser } from './project-service-user.mjs';
 import { preparePythonEnvironment, pythonSettings, pythonStartArgs, pythonUserOptions } from './python-project.mjs';
 import { access, chmod, chown, copyFile, cp, lstat, mkdir, readFile, readdir, readlink, rename, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
@@ -421,20 +422,24 @@ async function activateProject(slug, releaseId) {
   const release = project.deployment?.releases?.find((item) => item.id === releaseId);
   if (!release || !['candidate', 'healthy'].includes(release.status)) throw new HelperError('The requested release is not eligible for activation.');
   if (project.runtime === 'python' && release.runtime === 'python') Object.assign(project, pythonSettings(release));
+  const environment = await readTextOrEmpty(join(PROJECT_ROOT, slug, 'releases', releaseId, '.env'));
   let transaction;
   try {
     transaction = project.runtime === 'docker-compose'
       ? await prepareDockerProjectRelease(project, releaseId)
       : await prepareProjectRelease(project, releaseId);
   } catch (error) {
-    throw helperFailure(error, 'Host preparation failed before the project service could be activated.');
+    throw helperFailure(error, 'Host preparation failed before the project service could be activated.', environment);
   }
+  const activationStartedAt = new Date().toISOString();
   try {
     if (project.runtime === 'docker-compose') await startAndCheckDockerProject(project, transaction);
     else await startAndCheckProject(project, transaction);
   } catch (error) {
-    await transaction.rollback();
-    throw helperFailure(error, 'The project service could not be started or did not pass its host health check.');
+    const failure = helperFailure(error, 'The project service could not be started or did not pass its host health check.', environment);
+    await captureActivationDiagnostics(project, transaction, activationStartedAt, failure, environment);
+    await rollbackFailedActivation(transaction, failure, environment);
+    throw failure;
   }
   try {
     await applyDomains(project);
@@ -443,8 +448,26 @@ async function activateProject(slug, releaseId) {
       : await pruneHistoricalReleases(transaction.identity, releaseId, transaction.previousTarget).catch(() => 0);
     return { releaseId, domains: project.domains.hosts, cleanedReleases };
   } catch (error) {
-    await transaction.rollback();
-    throw helperFailure(error, 'Domain or TLS activation failed; the previous active release was restored.');
+    const failure = helperFailure(error, 'Domain or TLS activation failed.', environment);
+    await captureActivationDiagnostics(project, transaction, activationStartedAt, failure, environment);
+    await rollbackFailedActivation(transaction, failure, environment);
+    throw failure;
+  }
+}
+
+async function captureActivationDiagnostics(project, transaction, since, failure, environment) {
+  const runtimeOutput = await (project.runtime === 'docker-compose'
+    ? runDockerCompose(project, transaction.releaseRoot, ['logs', '--tail', '150', '--no-color', '--since', since])
+    : run('/usr/bin/journalctl', ['-u', transaction.identity.service, '--since', since, '-n', '150', '--no-pager', '-o', 'short-iso'])).catch(() => 'Runtime diagnostics could not be read.');
+  failure.buildOutput = redactBuildOutput([failure.buildOutput, 'Candidate runtime diagnostics (before rollback):', runtimeOutput].filter(Boolean).join('\n\n'), environment);
+}
+
+async function rollbackFailedActivation(transaction, failure, environment) {
+  try { await transaction.rollback(); }
+  catch (error) {
+    const rollback = helperFailure(error, 'Rollback failed.', environment);
+    failure.buildOutput = redactBuildOutput([failure.buildOutput, `Rollback error: ${rollback.message}`, rollback.buildOutput].filter(Boolean).join('\n\n'), environment);
+    failure.message += ' Rollback also failed; inspect the project service before retrying.';
   }
 }
 
@@ -559,7 +582,7 @@ async function prepareProjectRelease(project, releaseId) {
       }));
     } catch (error) {
       const environment = await readFile(join(destination, '.env'), 'utf8').catch(() => '');
-      throw new HelperError('Python venv installation failed before activation. Check project files, dependencies and python3-venv on the host.', redactBuildOutput(error?.commandOutput, environment));
+      throw new HelperError('Python venv installation failed before activation. Check project files, dependencies and python3-venv on the host.', redactBuildOutput(error?.commandOutput || `${error?.name || 'Error'}: ${error?.message || 'Python preparation failed.'}`, environment));
     }
   }
   const environmentSource = join(destination, '.env');
@@ -759,12 +782,30 @@ async function inspectLoadedProjectEdge(project) {
   }));
 }
 
-async function assertProjectEdge(project) {
-  const result = await inspectLoadedProjectEdge(project);
-  if (result.status === 'ok') return;
-  if (result.status === 'default-site') throw new HelperError('Nginx still serves the default site for this domain after reload.');
-  if (result.status === 'upstream-down') throw new HelperError('The project process is not answering on its port.');
-  throw new HelperError('Nginx did not load the managed reverse proxy for this domain after reload.');
+async function assertProjectEdge(project, { timeoutMs = 30_000, intervalMs = 500 } = {}) {
+  const startedAt = Date.now();
+  let attempts = 0;
+  let result;
+  do {
+    result = await inspectLoadedProjectEdge(project);
+    attempts += 1;
+    if (result.status === 'ok') return;
+    // A restarted service can still be booting even when optional health checks
+    // are disabled. Structural Nginx failures cannot be fixed by waiting here.
+    if (result.status !== 'upstream-down') break;
+    const remaining = timeoutMs - (Date.now() - startedAt);
+    if (remaining <= 0) break;
+    await delay(Math.min(intervalMs, remaining));
+  } while (Date.now() - startedAt < timeoutMs);
+  const diagnostics = [
+    `Edge readiness: ${attempts} attempts over ${Date.now() - startedAt} ms (retry window ${timeoutMs} ms).`,
+    `Upstream: http://127.0.0.1:${project.port}${project.healthCheckPath ?? '/'}`,
+    `Last status: ${result.status}`,
+    ...(result.checks ?? []).filter(check => !check.ok).map(check => `${check.id}: ${check.detail}`)
+  ].join('\n');
+  if (result.status === 'default-site') throw new HelperError('Nginx still serves the default site for this domain after reload.', diagnostics);
+  if (result.status === 'upstream-down') throw new HelperError('The project process is not answering on its port after waiting for startup.', diagnostics);
+  throw new HelperError('Nginx did not load the managed reverse proxy for this domain after reload.', diagnostics);
 }
 
 async function assertDomainsAreAvailable(hosts, site, enabled) {
@@ -783,8 +824,9 @@ async function assertDomainsAreAvailable(hosts, site, enabled) {
 async function issueCertificate(project) {
   const email = await acmeEmail();
   for (const host of project.domains.hosts) {
-    const dns = await run('/usr/bin/getent', ['ahosts', host]).catch(() => '');
-    if (!dns.trim()) throw new HelperError('A project domain does not resolve in DNS.');
+    let dnsFailure;
+    const dns = await run('/usr/bin/getent', ['ahosts', host]).catch((error) => { dnsFailure = error; return ''; });
+    if (!dns.trim()) throw new HelperError(`Domain ${host} does not resolve in DNS. Add an A/AAAA record pointing to this host before retrying.`, dnsFailure?.commandOutput);
   }
   const args = ['certonly', '--webroot', '--webroot-path', ACME_ROOT, '--non-interactive', '--agree-tos', '--email', email, '--keep-until-expiring', '--expand', '--cert-name', certificateName(project.slug)];
   for (const host of project.domains.hosts) args.push('-d', host);
@@ -852,7 +894,7 @@ async function testAndReloadNginx() {
 
 function projectIdentity(slug) {
   validateSlug(slug);
-  const user = `hostmgr-${slug}`;
+  const user = projectServiceUser(slug);
   const root = join(RUNTIME_ROOT, slug);
   const runtimeDirectory = `hostmgr-project-${slug}`;
   return { user, root, releases: join(root, 'releases'), current: join(root, 'current'), runtimeDirectory, runtimeApplicationPath: join('/run', runtimeDirectory, 'app'), service: `hostmgr-project-${slug}.service`, unitFile: join('/etc/systemd/system', `hostmgr-project-${slug}.service`), environmentFile: join(ENVIRONMENT_ROOT, `${slug}.env`), gid: null };
@@ -939,19 +981,26 @@ async function healthCheck(port, path) { try { const response = await fetch(`htt
 function run(command, args, options = {}) {
   return new Promise((resolve, reject) => {
     const { failure = 'A required host operation failed.', input, ...spawnOptions } = options;
-    const child = spawn(command, args, { shell: false, stdio: ['pipe', 'pipe', 'pipe'], timeout: 120_000, ...spawnOptions });
     let stdout = '';
     let stderr = '';
+    const failedToStart = (cause) => {
+      const error = new HelperError(failure);
+      error.commandOutput = `Command: ${basename(command)}\nError: ${cause.code || 'spawn failed'}\n${stdout}\n${stderr}`;
+      reject(error);
+    };
+    let child;
+    try { child = spawn(command, args, { shell: false, stdio: ['pipe', 'pipe', 'pipe'], timeout: 120_000, ...spawnOptions }); }
+    catch (cause) { failedToStart(cause); return; }
     child.stdout.on('data', (chunk) => { stdout = appendCommandOutput(stdout, chunk); });
     child.stderr.on('data', (chunk) => { stderr = appendCommandOutput(stderr, chunk); });
     child.stderr.resume();
     child.stdin.on('error', () => {});
     child.stdin.end(typeof input === 'string' ? input : undefined);
-    child.once('error', () => reject(new HelperError('A required host operation could not start.')));
-    child.once('close', (code) => {
+    child.once('error', failedToStart);
+    child.once('close', (code, signal) => {
       if (code === 0) return resolve(stdout.trim());
       const error = new HelperError(failure);
-      error.commandOutput = `${stdout}\n${stderr}`;
+      error.commandOutput = `${stdout}\n${stderr}\n\nCommand: ${basename(command)}\nExit code: ${code ?? 'none'}${signal ? `\nSignal: ${signal}` : ''}`;
       reject(error);
     });
   });
@@ -962,8 +1011,9 @@ function appendCommandOutput(existing, chunk) {
   return (merged.length > MAX_COMMAND_OUTPUT_BYTES ? merged.subarray(-MAX_COMMAND_OUTPUT_BYTES) : merged).toString('utf8');
 }
 
-function helperFailure(error, fallback) {
-  return error instanceof HelperError ? error : new HelperError(fallback);
+function helperFailure(error, fallback, environment = '') {
+  const detail = error?.buildOutput || error?.commandOutput || `${error?.code || error?.name || 'Error'}: ${error?.message || fallback}`;
+  return new HelperError(error instanceof HelperError ? error.message : fallback, redactBuildOutput(detail, environment));
 }
 
 function parseArgs(values) {
@@ -979,15 +1029,21 @@ function redactBuildOutput(output, environment) {
   let safe = String(output ?? '').replace(/\r\n?/g, '\n').trim();
   if (!safe) return null;
   const values = String(environment ?? '').split(/\r?\n/)
-    .map((line) => /^[A-Za-z_][A-Za-z0-9_]*=(.*)$/.exec(line)?.[1] ?? '')
+    .map((line) => {
+      const value = /^\s*(?:export\s+)?[A-Za-z_][A-Za-z0-9_]*\s*=\s*(.*)$/.exec(line)?.[1]?.trim() ?? '';
+      if (value.startsWith('"')) { try { return JSON.parse(value); } catch { return value.slice(1, value.lastIndexOf('"')); } }
+      if (value.startsWith("'")) return value.slice(1, value.lastIndexOf("'"));
+      return value.replace(/\s+#.*$/, '').trim();
+    })
     .filter((value) => value.length >= 3)
     .sort((left, right) => right.length - left.length);
   for (const value of new Set(values)) safe = safe.split(value).join('<redacted>');
   safe = safe
     .replace(/\b(authorization\s*:\s*(?:bearer\s+)?)[^\s'"\\]+/gi, '$1<redacted>')
     .replace(/\b([A-Z][A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|API_KEY|PRIVATE_KEY)[A-Z0-9_]*)\s*([=:])\s*([^\s'"\\]+)/g, '$1$2<redacted>');
-  const maxBytes = 12 * 1024;
-  if (Buffer.byteLength(safe, 'utf8') > maxBytes) safe = `… earlier build output omitted …\n${Buffer.from(safe, 'utf8').subarray(-maxBytes).toString('utf8')}`;
+  const maxBytes = 48 * 1024;
+  const marker = '… earlier deployment output omitted …\n';
+  if (Buffer.byteLength(safe, 'utf8') > maxBytes) safe = marker + Buffer.from(safe, 'utf8').subarray(-(maxBytes - Buffer.byteLength(marker) - 3)).toString('utf8');
   return safe;
 }
 

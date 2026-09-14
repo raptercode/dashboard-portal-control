@@ -5,12 +5,28 @@
 Each release retains an ordered event log in Portal state. The project card
 opens the latest release's **Logs** dialog, which reports candidate source
 copy, dependency installation, build, candidate health, host activation, and
-the final failure reason. When a native build or Docker Compose build fails,
-the dialog also keeps the final bounded build output so the owner can see the
-actual compiler or package-manager error. Before it is stored, values from the
+the final failure reason. The dialog also keeps up to 48 KiB of deployment
+diagnostics, including command name, exit code or spawn error, and stdout/stderr
+for failed host operations such as account creation, dependency installation,
+service startup and domain activation. Failed host starts retain the project's
+own runtime output since that activation, before rollback. Long output carries
+an explicit truncation notice. The owner can copy the events and error details
+from the dialog. Before it is stored, values from the
 project `.env`, authorization headers, and common secret assignments are
-replaced with `<redacted>`. It does not retain arbitrary helper output or
-filesystem paths derived from project input.
+replaced with `<redacted>`. Only authenticated owner/authorized project-log
+readers receive these diagnostics; never send an entire helper journal to the UI.
+
+Linux service accounts retain `hostmgr-<slug>` when it fits within 32 characters.
+Longer slugs use `hostmgr-<first 7 slug characters>-<16 hex SHA-256 characters>`.
+The slug, service name, domain and release paths remain stable. This avoids
+`useradd: invalid user name` for otherwise valid project slugs without relaxing
+Linux account-name validation.
+
+The helper retains `CAP_SETUID`/`CAP_SETGID` through `AmbientCapabilities`
+while keeping `NoNewPrivileges=true`. This allows Python subprocesses to drop
+to the project uid/gid; the Python child has no effective/ambient capabilities.
+Verify this inside the helper's systemd sandbox: an ordinary root SSH process
+can succeed even when the helper gets `spawn EPERM`.
 
 The active release is not changed unless every required phase succeeds.
 
@@ -33,6 +49,20 @@ HTTP probe; the release log explicitly records `skipped`.
 Use the skip option only for software that cannot provide an HTTP endpoint.
 The service still has to start successfully under systemd, but a skipped check
 cannot prove that the application is ready to receive traffic.
+
+Projects with managed domains still require a working upstream for edge
+activation. After Nginx reload, activation retries an unavailable upstream
+every 500 ms for a 30-second window, including when optional health checks
+are disabled. A probe already in progress may finish after that window.
+Structural Nginx failures fail immediately. Previously this final edge check
+ran once, so a Python application still starting could be rolled back within
+two seconds even though it only needed a few more seconds to become ready.
+
+An edge timeout records the attempt count, elapsed time, upstream port/path,
+and failed checks. Both service-start and domain/edge failures capture the
+candidate's own runtime logs before rolling back, then redact known secrets
+and apply the same 48 KiB UI limit. A failed candidate never replaces the
+previous active release.
 
 ## Privileged activation boundary
 

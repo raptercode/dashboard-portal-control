@@ -323,7 +323,7 @@ button.danger, .button.danger { background: var(--status-error); border-color: v
 .runtime-menu-option:hover, .runtime-menu-option[aria-selected="true"] { background: color-mix(in srgb, var(--accent) 9%, transparent); }
 .deployment-log-output-panel { border-top: 1px solid var(--border); margin-top: 16px; padding-top: 16px; }
 .deployment-log-output-panel h3 { color: var(--text-primary); font-size: 13px; margin: 0 0 8px; }
-.deployment-log-output { background: var(--slate-950); border: 1px solid var(--border); border-radius: var(--r-sm); color: var(--slate-100); font: 12px/1.5 var(--mono); margin: 0; max-height: min(360px, 46dvh); overflow: auto; overscroll-behavior: contain; padding: 12px; scrollbar-gutter: stable; white-space: pre-wrap; word-break: break-word; }
+.deployment-log-output { background: #0f172a; border: 1px solid var(--border); border-radius: var(--r-sm); color: #e2e8f0; font: 12px/1.5 var(--mono); margin: 0; max-height: min(360px, 46dvh); overflow: auto; overscroll-behavior: contain; padding: 12px; scrollbar-gutter: stable; white-space: pre-wrap; word-break: break-word; }
 
 @media (max-width: 900px) {
   .project-config-layout { grid-template-columns: 1fr; }
@@ -390,6 +390,7 @@ button.danger, .button.danger { background: var(--status-error); border-color: v
 /* Standard dialogs are compact work panels: keep their actions reachable,
    allow a long body to scroll, and never let the close control inherit the
    primary-action button treatment. */
+dialog.modal:not([open]) { display: none; }
 dialog.modal:not(.deploy-drawer) {
   background: var(--bg-surface);
   border: 1px solid var(--border);
@@ -407,7 +408,7 @@ dialog.modal > .modal-form:not(.deploy-drawer-form) { display: grid; grid-templa
 /* The release-log dialog has header/body/footer directly under dialog, unlike
    form-backed dialogs. Give it the same constrained layout so its body and
    the build-output panel can scroll without growing past the viewport. */
-dialog#deployment-log-dialog { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }
+dialog#deployment-log-dialog[open] { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }
 dialog.modal:not(.deploy-drawer) .modal-header,
 dialog.modal:not(.deploy-drawer) .modal-footer { background: var(--bg-surface); border-color: var(--border); padding: 16px 20px; position: relative; z-index: 1; }
 dialog.modal:not(.deploy-drawer) .modal-body { min-height: 0; overflow: auto; padding: 18px 20px; position: relative; z-index: 0; }

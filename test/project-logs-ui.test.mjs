@@ -22,6 +22,9 @@ test('project log views preserve an independently scrollable runtime panel and w
   assert.match(css, /\.log-release-id \{[\s\S]*overflow-wrap: anywhere;/);
   assert.match(page, /id="log-runtime"[^>]*tabindex="0"/);
   assert.match(dialogs, /id="deployment-log-output"[^>]*tabindex="0"/);
-  assert.match(compat, /dialog#deployment-log-dialog \{ display: grid; grid-template-rows: auto minmax\(0, 1fr\) auto; \}/);
+  assert.match(compat, /dialog#deployment-log-dialog\[open\] \{ display: grid; grid-template-rows: auto minmax\(0, 1fr\) auto; \}/);
+  assert.doesNotMatch(compat, /dialog#deployment-log-dialog\s*\{[^}]*display:/);
+  assert.match(compat, /dialog\.modal:not\(\[open\]\)\s*\{\s*display: none;/);
   assert.match(compat, /\.deployment-log-output \{[\s\S]*max-height: min\(360px, 46dvh\);[\s\S]*overflow: auto;[\s\S]*scrollbar-gutter: stable;/);
+  assert.match(compat, /\.deployment-log-output \{ background: #0f172a;[^}]*color: #e2e8f0;/);
 });

@@ -208,6 +208,7 @@ chmod -R go-w "$APP_ROOT"
 install -d -m 0750 -o root -g root "$HELPER_ROOT"
 install -m 0750 -o root -g root "$APP_ROOT/scripts/hostmgr-deploy-helper.mjs" "$HELPER_SCRIPT"
 install -m 0750 -o root -g root "$APP_ROOT/scripts/python-project.mjs" "$HELPER_ROOT/python-project.mjs"
+install -m 0750 -o root -g root "$APP_ROOT/scripts/project-service-user.mjs" "$HELPER_ROOT/project-service-user.mjs"
 install -m 0750 -o root -g root "$APP_ROOT/scripts/mail-host-config.mjs" "$HELPER_ROOT/mail-host-config.mjs"
 install -m 0750 -o root -g root "$APP_ROOT/scripts/nginx-edge.mjs" "$HELPER_ROOT/nginx-edge.mjs"
 install -m 0750 -o root -g root "$APP_ROOT/scripts/password-config.mjs" "$PASSWORD_SCRIPT"
@@ -325,6 +326,8 @@ ExecStart=/usr/local/bin/node ${HELPER_SCRIPT} --socket ${HELPER_SOCKET}
 Restart=on-failure
 RestartSec=2
 NoNewPrivileges=true
+# Retain the capability needed to drop Python child processes to project uid/gid.
+AmbientCapabilities=CAP_SETUID CAP_SETGID
 PrivateTmp=true
 ProtectHome=true
 # shadow-utils performs lock and atomic-rename operations across /etc. On

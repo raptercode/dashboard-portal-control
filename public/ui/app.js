@@ -38,6 +38,7 @@ const state = {
   deployStep: 1
 };
 let deploymentProgressTimer = null;
+let deploymentProgressGeneration = 0;
 
 const page = document.body.dataset.page || pageForPathname(location.pathname);
 const view = document.body.dataset.view || page;
@@ -2455,17 +2456,17 @@ function closeDeployDialog() {
   const dialog = $('#deploy-dialog');
   if (!dialog.open) return Promise.resolve();
   dialog.classList.remove('open');
-  return new Promise((resolve) => {
-    window.setTimeout(() => {
-      if (!dialog.classList.contains('open') && dialog.open) dialog.close();
-      resolve();
-    }, 250);
-  });
+  dialog.close();
+  return Promise.resolve();
 }
 
 function closeDialog(dialog) {
   if (!dialog?.open) return Promise.resolve();
   if (dialog.id === 'deploy-dialog') return closeDeployDialog();
+  if (dialog.id === 'deployment-log-dialog') {
+    clearTimeout(deploymentProgressTimer);
+    deploymentProgressGeneration += 1;
+  }
   dialog.close();
   return Promise.resolve();
 }
@@ -2475,6 +2476,16 @@ function bindDialogDismissals() {
     dialogs: $$('dialog.modal'),
     closeDialog,
     clearDialogError
+  });
+  $('#deployment-log-copy')?.addEventListener('click', async () => {
+    const dialog = $('#deployment-log-dialog');
+    const content = [$('#deployment-log-title').textContent, $('#deployment-log-summary').textContent,
+      $('#deployment-log-failure').textContent, $('#deployment-log-events').innerText,
+      $('#deployment-log-output').textContent].filter(Boolean).join('\n\n');
+    try {
+      await navigator.clipboard.writeText(content);
+      $('#deployment-log-copy').textContent = 'คัดลอกแล้ว';
+    } catch { showDialogError(dialog, 'คัดลอกอัตโนมัติไม่ได้ กรุณาเลือกข้อความใน log แล้วคัดลอก'); }
   });
 }
 
@@ -2509,11 +2520,13 @@ async function submitDeploy(event) {
 function openDeploymentLog(project, release) {
   $('#deployment-log-title').textContent = `${project.name} · ${release.id || 'release'}`;
   $('#deployment-log-summary').textContent = `${release.status || 'unknown'} · ${release.createdAt ? new Date(release.createdAt).toLocaleString('th-TH') : ''}`;
-  renderDeploymentLog(release.events, release.failureLog);
+  clearTimeout(deploymentProgressTimer);
+  deploymentProgressGeneration += 1;
+  renderDeploymentLog(release.events, release.failureLog, release.failure);
   showDialog($('#deployment-log-dialog'));
 }
 
-function renderDeploymentLog(events, failureLog) {
+function renderDeploymentLog(events, failureLog, failure) {
   const list = $('#deployment-log-events');
   const recorded = events || [];
   list.replaceChildren(...(recorded.length ? recorded.map(deploymentEventItem) : [element('li', 'deployment-event waiting', 'ยังไม่มีเหตุการณ์')]));
@@ -2522,6 +2535,11 @@ function renderDeploymentLog(events, failureLog) {
   const visible = typeof failureLog === 'string' && failureLog.trim();
   panel.hidden = !visible;
   output.textContent = visible ? failureLog : '';
+  const error = $('#deployment-log-failure');
+  error.hidden = !failure;
+  error.textContent = failure || '';
+  $('#deployment-log-copy').disabled = !recorded.length && !visible && !failure;
+  $('#deployment-log-copy').textContent = 'คัดลอก log';
 }
 
 function deploymentEventItem(event) {
@@ -2603,15 +2621,18 @@ async function hydrateProjectLogs() {
 
 function showDeploymentProgress(project, initialJob) {
   clearTimeout(deploymentProgressTimer);
+  const generation = ++deploymentProgressGeneration;
+  const isCurrent = () => generation === deploymentProgressGeneration && $('#deployment-log-dialog').open;
   $('#deployment-log-title').textContent = `${project.name} · กำลัง deploy`;
   showDialog($('#deployment-log-dialog'));
   const render = (job) => {
     $('#deployment-log-summary').textContent = `${job.status} · ${job.releaseId || ''}`;
-    renderDeploymentLog(job.events, job.failureLog);
+    renderDeploymentLog(job.events, job.failureLog, job.failure);
   };
   const poll = async () => {
     try {
       const { job } = await api(`/api/jobs/${encodeURIComponent(initialJob.id)}`);
+      if (!isCurrent()) return;
       render(job);
       if (job.status === 'succeeded' || job.status === 'failed' || job.status === 'cancelled' || job.status === 'interrupted') {
         await refresh();
@@ -2626,6 +2647,7 @@ function showDeploymentProgress(project, initialJob) {
       }
       deploymentProgressTimer = setTimeout(poll, 1500);
     } catch (error) {
+      if (!isCurrent()) return;
       $('#deployment-log-summary').textContent = error.message || 'โหลดสถานะ release ไม่สำเร็จ';
       deploymentProgressTimer = setTimeout(poll, 2500);
     }

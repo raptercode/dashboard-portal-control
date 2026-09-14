@@ -93,13 +93,15 @@
     <button id="deployment-log-close" class="modal-close" type="button" data-dialog-close aria-label="ปิด"><svg class="icon" aria-hidden="true"><use href="#icon-close"></use></svg></button>
   </header>
   <div class="modal-body">
+    <p id="deployment-log-failure" class="dialog-error" role="alert" hidden></p>
     <ol id="deployment-log-events" class="deployment-log-events"></ol>
     <section id="deployment-log-output-panel" class="deployment-log-output-panel" hidden>
-      <h3>Build output</h3>
-      <pre id="deployment-log-output" class="deployment-log-output" aria-label="Build output" tabindex="0"></pre>
+      <h3>รายละเอียดข้อผิดพลาด</h3>
+      <p class="field-hint">ข้อมูลล่าสุดสูงสุด 48 KiB · ปิดบังค่า ENV และ secrets ที่ตรวจพบ</p>
+      <pre id="deployment-log-output" class="deployment-log-output" aria-label="Deployment output" tabindex="0"></pre>
     </section>
   </div>
-  <footer class="modal-footer"><span class="modal-spacer"></span><button id="deployment-log-dismiss" type="button" data-dialog-close>ปิด</button></footer>
+  <footer class="modal-footer"><button id="deployment-log-copy" type="button" disabled>คัดลอก log</button><span class="modal-spacer"></span><button id="deployment-log-dismiss" type="button" data-dialog-close>ปิด</button></footer>
 </dialog>
 
 <dialog id="domain-dialog" class="modal" aria-labelledby="domain-dialog-title">

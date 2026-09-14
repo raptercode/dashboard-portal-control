@@ -1,8 +1,8 @@
 import net from 'node:net';
 
-// 64 KiB leaves headroom for the read-project-log operation's line buffer
-// while remaining a fixed, non-attacker-reachable bound (loopback Unix socket).
-const MAX_RESPONSE_BYTES = 64 * 1024;
+// Allow JSON escaping of the bounded 48 KiB deployment diagnostics and runtime
+// log lines, while retaining a fixed limit on the root-owned socket response.
+const MAX_RESPONSE_BYTES = 512 * 1024;
 
 /**
  * Send one bounded JSON request to the root-owned helper over its Unix socket.
