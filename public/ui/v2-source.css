@@ -44,6 +44,10 @@
   --text-on-dark: #F8FAFC;
   --border: #E2E8F0;
   --border-strong: #CBD5E1;
+  /* Form controls stay slightly distinct from panels, so they remain easy to
+     find without looking disconnected from the rest of the page. */
+  --field-bg: #FFFFFF;
+  --field-border: #CBD5E1;
 
   /* Radius / spacing / shadow */
   --r-sm: 6px;
@@ -72,6 +76,8 @@ html[data-theme="dark"] {
   --text-tertiary: #64748b;
   --border: #1e293b;
   --border-strong: #334155;
+  --field-bg: #0f172a;
+  --field-border: #334155;
   --brand-primary-soft: rgba(79, 70, 229, .18);
   --brand-accent-soft: rgba(16, 185, 129, .18);
   --status-warning-soft: rgba(245, 158, 11, .18);

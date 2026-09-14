@@ -1,6 +1,6 @@
 import { createServer } from 'node:http';
 import { createServer as createTcpServer } from 'node:net';
-import { chmod, cp, lstat, mkdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, cp, lstat, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
@@ -10,7 +10,7 @@ import { spawn } from 'node:child_process';
 import { assertPythonSource, pythonSettings, pythonStartArgs } from '../scripts/python-project.mjs';
 import { StateStore, TOOLS, SUPPORTED_NODE_MAJOR, SecretVault, appendAudit, initialMailState, validateDomain, validateEnvironmentContent, validateEnvironmentVariables, validateGitBranchRequest, validateGitIdentity, validateHttpsCredential, validateNotificationHook, validatePasswordChange, validateProjectDomains, validateProjectRuntimeDetection, validateProjectSync, validateTool, InputError } from './core.mjs';
 import { checkDomainDns } from './dns-check.mjs';
-import { activateRelease, appendReleaseEvent, beginDeployment, beginRollback, createRelease, defaultCandidatePort, failRelease, initialDeployment, markReleaseHealthy, markReleasePendingActivation, projectIdentity, validateDockerComposeProject, validateNativeProject, validatePackageScripts } from './native-project.mjs';
+import { activateRelease, appendReleaseEvent, beginDeployment, beginRollback, createRelease, defaultCandidatePort, failRelease, initialDeployment, markReleaseHealthy, markReleasePendingActivation, projectIdentity, pruneInactiveReleases, validateDockerComposeProject, validateNativeProject, validatePackageScripts } from './native-project.mjs';
 import { callHostHelper } from './helper-client.mjs';
 import { softwareUpdateStatus, updateConfiguration } from '../scripts/software-update.mjs';
 import { passwordFromEnvironment } from '../scripts/password-config.mjs';
@@ -1145,6 +1145,7 @@ export async function createApplication(options = {}) {
       }
       await recordPhase('host_activation', 'started', 'Activating the verified candidate on the host.');
       await activateOnHost(helperSocket, job.projectSlug, release.id);
+      await pruneCandidateReleases(projectRoot, job.projectSlug, release.id, project.deployment?.activeReleaseId);
       await store.update((state) => {
         const target = findProject(state, job.projectSlug);
         if (deployProject.runtime === 'python' && deployProject.healthCheckEnabled) {
@@ -1154,6 +1155,7 @@ export async function createApplication(options = {}) {
         }
         target.deployment = activateRelease(target.deployment, release.id);
         target.deployment = appendReleaseEvent(target.deployment, release.id, 'host_activation', 'passed', 'Host service and domain activation completed.');
+        target.deployment = pruneInactiveReleases(target.deployment);
         if (target.domains?.hosts?.length) target.domains.syncedAt = new Date().toISOString();
         appendAudit(state, { action: 'project.deploy', outcome: 'success', actor: 'owner', target: job.projectSlug, detail: `Activated release ${release.id}` });
       });
@@ -1619,6 +1621,13 @@ export async function createApplication(options = {}) {
       server.close((error) => error ? reject(error) : resolve());
     })
   };
+}
+
+async function pruneCandidateReleases(projectRoot, slug, activeReleaseId, previousReleaseId) {
+  const releases = join(projectRoot, slug, 'releases');
+  const keep = new Set([activeReleaseId, previousReleaseId].filter((id) => /^[a-f0-9-]{36}$/i.test(id ?? '')));
+  const entries = await readdir(releases, { withFileTypes: true }).catch(() => []);
+  await Promise.all(entries.filter((entry) => entry.isDirectory() && /^[a-f0-9-]{36}$/i.test(entry.name) && !keep.has(entry.name)).map((entry) => rm(join(releases, entry.name), { recursive: true, force: true, maxRetries: 2 })));
 }
 
 async function installedSoftwareVersion() {

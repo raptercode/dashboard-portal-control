@@ -440,8 +440,8 @@ async function activateProject(slug, releaseId) {
     await applyDomains(project);
     const cleanedNodeModules = project.runtime === 'docker-compose'
       ? 0
-      : await pruneHistoricalNodeModules(transaction.identity, releaseId, transaction.previousTarget).catch(() => 0);
-    return { releaseId, domains: project.domains.hosts, cleanedNodeModules };
+      : await pruneHistoricalReleases(transaction.identity, releaseId, transaction.previousTarget).catch(() => 0);
+    return { releaseId, domains: project.domains.hosts, cleanedReleases };
   } catch (error) {
     await transaction.rollback();
     throw helperFailure(error, 'Domain or TLS activation failed; the previous active release was restored.');
@@ -884,7 +884,7 @@ function renderProjectUnit(project, identity) {
   return `[Unit]\nDescription=Dashboard Portal project ${project.slug}\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nUser=${identity.user}\nGroup=${identity.user}\n${bunSandbox}WorkingDirectory=${workingDirectory}\nEnvironmentFile=${identity.environmentFile}\nEnvironment=PORT=${project.port}\nExecStart=${start}\nRestart=on-failure\nRestartSec=5\nNoNewPrivileges=true\nPrivateTmp=true\nProtectHome=true\nProtectSystem=strict\nReadWritePaths=${identity.root}\n\n[Install]\nWantedBy=multi-user.target\n`;
 }
 
-async function pruneHistoricalNodeModules(identity, activeReleaseId, previousTarget) {
+async function pruneHistoricalReleases(identity, activeReleaseId, previousTarget) {
   const keep = new Set([activeReleaseId]);
   const previousReleaseId = previousTarget ? basename(previousTarget) : null;
   if (/^[a-f0-9-]{36}$/i.test(previousReleaseId ?? '')) keep.add(previousReleaseId);
@@ -892,9 +892,9 @@ async function pruneHistoricalNodeModules(identity, activeReleaseId, previousTar
   let cleaned = 0;
   for (const entry of entries) {
     if (!entry.isDirectory() || !/^[a-f0-9-]{36}$/i.test(entry.name) || keep.has(entry.name)) continue;
-    const dependencies = join(identity.releases, entry.name, 'node_modules');
-    if (await lstat(dependencies).catch(() => null)) {
-      await rm(dependencies, { recursive: true, force: true, maxRetries: 2 });
+    const historicalRelease = join(identity.releases, entry.name);
+    if (await lstat(historicalRelease).catch(() => null)) {
+      await rm(historicalRelease, { recursive: true, force: true, maxRetries: 2 });
       cleaned += 1;
     }
   }

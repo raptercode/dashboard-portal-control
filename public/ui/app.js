@@ -2,6 +2,7 @@ import { pageForPathname } from './router.js';
 import { ENVIRONMENT_MAX_BYTES, parseEnvironmentDocument, updateEnvironmentDocument, mergeEnvironmentDocument } from './environment-editor.js';
 import { projectActionMenuPlacement } from './project-action-menu-positioning.js';
 import { shouldOfferManualSync } from './project-manual-sync-action.js';
+import { bindDialogDismissals as bindModalDismissals } from './dialog-dismissals.js';
 
 const DRAFT_KEY = 'hostmgr.projectDraft';
 const SIDEBAR_COLLAPSED_KEY = 'hostmgr.sidebarCollapsed';
@@ -2470,15 +2471,10 @@ function closeDialog(dialog) {
 }
 
 function bindDialogDismissals() {
-  $$('dialog.modal').forEach((dialog) => {
-    dialog.addEventListener('cancel', (event) => {
-      event.preventDefault();
-      void closeDialog(dialog);
-    });
-    dialog.addEventListener('close', () => clearDialogError(dialog));
-    $$('[data-dialog-close]', dialog).forEach((button) => {
-      button.addEventListener('click', () => { void closeDialog(dialog); });
-    });
+  bindModalDismissals({
+    dialogs: $$('dialog.modal'),
+    closeDialog,
+    clearDialogError
   });
 }
 
@@ -3014,11 +3010,21 @@ function setProjectRuntime(value) {
   };
   const input = $('#project-runtime');
   if (!input) return;
+  const tools = typeof state === 'undefined' ? [] : (state.doctor?.tools ?? []);
+  const tool = tools.find((item) => item.id === runtime);
+  if (['go', 'python'].includes(runtime) && tool?.status === 'Missing') return;
   input.value = runtime;
   $('#runtime-selection-label').textContent = choices[runtime].label;
   $('#runtime-selection-detail').textContent = choices[runtime].detail;
   $('#runtime-selection-icon').replaceChildren(runtimeLogo(choices[runtime].icon));
-  $$('[data-runtime-option]').forEach((option) => option.setAttribute('aria-selected', String(option.dataset.runtimeOption === runtime)));
+  $$('[data-runtime-option]').forEach((option) => {
+    const optionalTool = tools.find((item) => item.id === option.dataset.runtimeOption);
+    const unavailable = ['go', 'python'].includes(option.dataset.runtimeOption) && optionalTool?.status === 'Missing';
+    option.disabled = unavailable;
+    option.setAttribute('aria-disabled', String(unavailable));
+    option.title = unavailable ? 'ยังไม่ได้ติดตั้งบน host' : '';
+    option.setAttribute('aria-selected', String(option.dataset.runtimeOption === runtime));
+  });
   $('#runtime-menu')?.removeAttribute('open');
   toggleRuntimeFields();
 }

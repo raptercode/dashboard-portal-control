@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { InputError } from '../src/core.mjs';
-import { activateRelease, appendReleaseEvent, beginDeployment, beginRollback, createRelease, initialDeployment, markReleaseHealthy, markReleasePendingActivation, projectIdentity, renderEnvironmentFile, renderSystemdUnit, validateDockerComposeProject, validateNativeProject, validatePackageScripts } from '../src/native-project.mjs';
+import { activateRelease, appendReleaseEvent, beginDeployment, beginRollback, createRelease, failRelease, initialDeployment, markReleaseHealthy, markReleasePendingActivation, projectIdentity, pruneInactiveReleases, renderEnvironmentFile, renderSystemdUnit, validateDockerComposeProject, validateNativeProject, validatePackageScripts } from '../src/native-project.mjs';
 
 const project = { name: 'Demo', slug: 'demo-app', repository: 'https://github.com/example/demo.git', branch: 'main', port: 3100, healthCheckPath: '/ready', buildScript: 'build', startScript: 'start', environment: { API_KEY: 'not logged', NODE_ENV: 'production' } };
 
@@ -46,6 +46,20 @@ test('native deployment only activates a healthy candidate and preserves a rollb
   deployment = activateRelease(rollback.deployment, first.id, 'rollback');
   assert.equal(deployment.activeReleaseId, first.id);
   assert.equal(deployment.previousReleaseId, second.id);
+});
+
+test('release cleanup retains only the active release and its rollback target', () => {
+  const first = createRelease(project, 'a'.repeat(40));
+  const second = createRelease(project, 'b'.repeat(40));
+  const failed = createRelease(project, 'c'.repeat(40));
+  let deployment = beginDeployment(initialDeployment(), first);
+  deployment = activateRelease(markReleaseHealthy(deployment, first.id), first.id);
+  deployment = beginDeployment(deployment, second);
+  deployment = activateRelease(markReleaseHealthy(deployment, second.id), second.id);
+  deployment = beginDeployment(deployment, failed);
+  deployment = failRelease(deployment, failed.id);
+  deployment = pruneInactiveReleases(deployment);
+  assert.deepEqual(deployment.releases.map((release) => release.id).sort(), [first.id, second.id].sort());
 });
 
 test('native package contract requires both constrained npm scripts', () => {

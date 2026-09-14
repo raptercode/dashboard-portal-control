@@ -88,11 +88,11 @@ test('helper restarts an active native project after switching its release', asy
   assert.doesNotMatch(activation, /\['enable', '--now', transaction\.identity\.service\]/);
 });
 
-test('helper trims dependencies only from historical releases outside the rollback window', async () => {
+test('helper removes historical releases outside the rollback window', async () => {
   const helper = await readFile(new URL('../scripts/hostmgr-deploy-helper.mjs', import.meta.url), 'utf8');
-  assert.match(helper, /async function pruneHistoricalNodeModules/);
+  assert.match(helper, /async function pruneHistoricalReleases/);
   assert.match(helper, /const keep = new Set\(\[activeReleaseId\]\)/);
-  assert.match(helper, /join\(identity\.releases, entry\.name, 'node_modules'\)/);
+  assert.match(helper, /const historicalRelease = join\(identity\.releases, entry\.name\)/);
   assert.match(helper, /keep\.has\(entry\.name\)/);
 });
 
@@ -137,24 +137,22 @@ test('installer provisions a checksum-verified Bun runtime for Bun projects', as
   assert.match(script, /unzip git/);
 });
 
-test('Go installation pins the compiler and the helper activates only an executable release binary', async () => {
+test('Go remains optional while the helper activates only an executable release binary', async () => {
   const script = await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8');
   const helper = await readFile(new URL('../scripts/hostmgr-deploy-helper.mjs', import.meta.url), 'utf8');
-  assert.match(script, /GO_VERSION='1\.27\.1'/);
-  assert.match(script, /GO_SHA256='63d339f0da5ab53635a56f2490a7984dfe12dfcff22ad749f63edaf590168445'/);
-  assert.ok(script.indexOf('Go archive checksum verification failed') < script.indexOf('mv "$TMP_DIR/go"'));
-  assert.match(script, /GOTOOLCHAIN=local \/usr\/local\/bin\/go version/);
+  assert.doesNotMatch(script, /go_archive=/);
+  assert.doesNotMatch(script, /\/opt\/go/);
   assert.match(helper, /project\.runtime === 'go' \? `\$\{identity\.current\}\/hostmgr-app`/);
   assert.match(helper, /lstat\(join\(destination, 'hostmgr-app'\)\)/);
   assert.match(helper, /binary\?\.isFile\(\)/);
   assert.match(helper, /ExecStart=\$\{start\}/);
 });
 
-test('Python host setup installs venv support and drops privileges before any Python project command', async () => {
+test('Python remains optional while project execution drops privileges before any Python command', async () => {
   const script = await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8');
   const helper = await readFile(new URL('../scripts/hostmgr-deploy-helper.mjs', import.meta.url), 'utf8');
   const client = await readFile(new URL('../src/helper-client.mjs', import.meta.url), 'utf8');
-  assert.match(script, /apt-get install .* python3 python3-venv/);
+  assert.doesNotMatch(script, /python3 python3-venv/);
   assert.doesNotMatch(script, /pip(?:3)? install|break-system-packages/);
   assert.match(script, /install -m 0750 -o root -g root "\$APP_ROOT\/scripts\/python-project.mjs"/);
   assert.match(helper, /const options = pythonUserOptions\(identity, destination\)/);

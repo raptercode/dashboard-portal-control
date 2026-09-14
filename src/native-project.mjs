@@ -148,6 +148,14 @@ export function activateRelease(deploymentInput, releaseId, operation = 'deploy'
   return deployment;
 }
 
+export function pruneInactiveReleases(deploymentInput) {
+  const deployment = normalizeDeployment(deploymentInput);
+  const keep = new Set([deployment.activeReleaseId, deployment.previousReleaseId].filter(Boolean));
+  deployment.releases = deployment.releases.filter((release) => keep.has(release.id));
+  deployment.updatedAt = new Date().toISOString();
+  return deployment;
+}
+
 export function failRelease(deploymentInput, releaseId, reason = 'Deployment failed.') {
   const deployment = normalizeDeployment(deploymentInput);
   const release = releaseById(deployment, releaseId);

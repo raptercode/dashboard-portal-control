@@ -136,6 +136,9 @@ test('standard modals stay within the viewport and keep dark inputs readable', a
   ]);
 
   assert.match(compat, /dialog\.modal:not\(\.deploy-drawer\) \{[\s\S]*max-height: calc\(100dvh - 32px\);[\s\S]*width: min\(680px, calc\(100vw - 32px\)\);/);
+  assert.match(compat, /html\[data-theme="dark"\] \{ color-scheme: dark; \}/);
+  assert.match(compat, /\.fieldset input\[type="text"\],[\s\S]*background: var\(--field-bg\);[\s\S]*border-color: var\(--field-border\);[\s\S]*color: var\(--text-primary\);/);
+  assert.match(compat, /option \{ background: var\(--field-bg\); color: var\(--text-primary\); \}/);
   assert.match(compat, /\.modal-form:not\(\.deploy-drawer-form\) \{ display: grid; grid-template-rows: auto minmax\(0, 1fr\) auto;/);
   assert.match(compat, /\.modal-body \{ min-height: 0; overflow: auto;/);
   assert.match(compat, /\.modal-close \{[\s\S]*background: transparent !important;[\s\S]*height: 34px;/);
@@ -144,7 +147,8 @@ test('standard modals stay within the viewport and keep dark inputs readable', a
   assert.match(app, /function showDialogError\(dialog, message\)/);
   assert.match(app, /\$\$\('dialog\[open\]'\)\.at\(-1\)/);
   assert.match(app, /function bindDialogDismissals\(\)/);
-  assert.match(app, /dialog\.addEventListener\('cancel'/);
+  assert.match(app, /bindDialogDismissals as bindModalDismissals/);
+  assert.match(app, /bindModalDismissals\(\{[\s\S]*dialogs: \$\$\('dialog\.modal'\),/);
   assert.match(app, /await closeDeployDialog\(\);/);
   assert.match(app, /function showDialog\(dialog\)/);
   assert.match(dialogs, /id="deploy-close"[^>]*data-dialog-close/);

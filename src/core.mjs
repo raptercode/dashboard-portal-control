@@ -11,8 +11,8 @@ export const TOOLS = {
   certbot: { label: 'Certbot', package: 'certbot', required: true, purpose: 'ออกและต่ออายุ Let’s Encrypt certificate' },
   git: { label: 'Git', package: 'git', required: true, purpose: 'Clone และ pull source code' },
   docker: { label: 'Docker Engine + Compose', package: 'docker.io docker-compose-v2', required: false, purpose: 'ใช้งาน Docker mode' },
-  go: { label: 'Go compiler', package: 'Go 1.27.1', required: false, installable: false, purpose: 'คอมไพล์ Go project — ติดตั้งและ pin version โดย Dashboard Portal installer' },
-  python: { label: 'Python + venv', package: 'python3 python3-venv', required: false, installable: false, purpose: 'สร้าง environment แยกต่อ release สำหรับ Python project — ติดตั้งโดย Dashboard Portal installer' },
+  go: { label: 'Go compiler', package: 'Go compiler', required: false, installable: false, purpose: 'Optional — ติดตั้ง Go บน host ก่อนจึงจะสร้าง Go project ได้' },
+  python: { label: 'Python + venv', package: 'python3 python3-venv', required: false, installable: false, purpose: 'Optional — ติดตั้ง Python และ venv บน host ก่อนจึงจะสร้าง Python project ได้' },
   mail: { label: 'Mail server (Postfix + Dovecot)', package: 'postfix dovecot-imapd dovecot-lmtpd opendkim opendkim-tools', required: false, purpose: 'รับ/ส่งอีเมลด้วยโดเมนของคุณเอง — ตั้งค่าผ่าน Mail Setup Wizard' }
 };
 

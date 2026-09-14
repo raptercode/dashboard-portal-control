@@ -36,6 +36,10 @@ html[data-theme="dark"] {
   --accent-ink: #fff;
   --danger: var(--status-error);
 }
+/* Let the browser render native controls (notably select menus and datalist
+   suggestions) with the active palette too. */
+:root { color-scheme: light; }
+html[data-theme="dark"] { color-scheme: dark; }
 body { background: var(--bg-app); color: var(--text-primary); font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
 /* The source layout scrolls inside .main on desktop.  Give that grid a real
    viewport height; min-height alone lets the grid grow and body is locked. */
@@ -129,8 +133,53 @@ body[data-app="mail"][data-shell="dashboard"] { overflow: hidden; }
 .panel.narrow { max-width: 640px; }
 .form-grid { gap: 14px; }
 .form-grid label, .form-field label { color: var(--text-secondary); font-size: 12px; font-weight: 500; }
-.form-grid input, .form-grid select, .form-grid textarea, .form-field input, .input, .search-field input { color: var(--text-primary); background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--r-md); padding: 8px 10px; box-shadow: none; }
+.form-grid input, .form-grid select, .form-grid textarea, .form-field input, .input, .search-field input { color: var(--text-primary); background: var(--field-bg); border: 1px solid var(--field-border); border-radius: var(--r-md); padding: 8px 10px; box-shadow: none; }
 .form-grid input:focus, .form-grid select:focus, .form-grid textarea:focus, .input:focus, .search-field:focus-within { border-color: var(--brand-primary); box-shadow: 0 0 0 3px var(--brand-primary-soft); outline: 0; }
+/* The original portal stylesheet has a more-specific `.fieldset` rule with a
+   literal white background. Keep every ordinary form field on the same token
+   whether it appears in a panel, wizard, dialog, or the Mail shell. */
+.form-grid input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="hidden"]),
+.form-grid select,
+.form-grid textarea,
+.fieldset input[type="text"],
+.fieldset input:not([type]):not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="hidden"]),
+.fieldset input[type="number"],
+.fieldset input[type="password"],
+.fieldset input[type="email"],
+.fieldset input[type="url"],
+.fieldset input[type="search"],
+.fieldset select,
+.fieldset textarea,
+label input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="hidden"]),
+label select,
+label textarea,
+.form-field input,
+.form-field select,
+.form-field textarea,
+.input,
+.search-field input {
+  background: var(--field-bg);
+  border-color: var(--field-border);
+  color: var(--text-primary);
+}
+.form-grid input::placeholder,
+.form-grid textarea::placeholder,
+.fieldset input::placeholder,
+.fieldset textarea::placeholder,
+label input::placeholder,
+label textarea::placeholder,
+.form-field input::placeholder,
+.form-field textarea::placeholder,
+.input::placeholder { color: var(--text-tertiary); opacity: 1; }
+.form-grid :is(input, select, textarea):disabled,
+.fieldset :is(input, select, textarea):disabled,
+label :is(input, select, textarea):disabled,
+.form-field :is(input, select, textarea):disabled {
+  background: var(--slate-100);
+  color: var(--text-tertiary);
+  cursor: not-allowed;
+}
+option { background: var(--field-bg); color: var(--text-primary); }
 button:not(.close-btn):not(.icon-button):not(.secondary):not(.btn):not(.project-action-danger):not(.env-sensitivity):not(.mail-nav-item):not(.wizard-step-chip):not(.runtime-menu-option), .button:not(.secondary):not(.btn) { background: var(--brand-primary); border-color: var(--brand-primary); color: #fff; border-radius: var(--r-md); }
 button:not(.close-btn):not(.icon-button):not(.secondary):not(.btn):not(.project-action-danger):not(.env-sensitivity):not(.mail-nav-item):not(.wizard-step-chip):not(.runtime-menu-option):hover, .button:not(.secondary):not(.btn):hover { background: var(--brand-primary-hover); border-color: var(--brand-primary-hover); box-shadow: none; transform: none; }
 button.secondary, .button.secondary, a.secondary { background: transparent; border-color: var(--border); color: var(--text-secondary); }
@@ -360,8 +409,8 @@ dialog.modal > .modal-form:not(.deploy-drawer-form) { display: grid; grid-templa
    the build-output panel can scroll without growing past the viewport. */
 dialog#deployment-log-dialog { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }
 dialog.modal:not(.deploy-drawer) .modal-header,
-dialog.modal:not(.deploy-drawer) .modal-footer { background: var(--bg-surface); border-color: var(--border); padding: 16px 20px; }
-dialog.modal:not(.deploy-drawer) .modal-body { min-height: 0; overflow: auto; padding: 18px 20px; }
+dialog.modal:not(.deploy-drawer) .modal-footer { background: var(--bg-surface); border-color: var(--border); padding: 16px 20px; position: relative; z-index: 1; }
+dialog.modal:not(.deploy-drawer) .modal-body { min-height: 0; overflow: auto; padding: 18px 20px; position: relative; z-index: 0; }
 .modal-close {
   align-items: center;
   background: transparent !important;

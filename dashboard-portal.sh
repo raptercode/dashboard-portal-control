@@ -151,7 +151,7 @@ export DEBIAN_FRONTEND=noninteractive
 # prior deployment to leave `/tmp` inaccessible to package verification.
 chmod 1777 /tmp
 apt-get update
-apt-get install -y --no-install-recommends nginx certbot python3-certbot-nginx curl ca-certificates xz-utils unzip git python3 python3-venv
+apt-get install -y --no-install-recommends nginx certbot python3-certbot-nginx curl ca-certificates xz-utils unzip git
 
 if ! id -u "$APP_USER" >/dev/null 2>&1; then
   useradd --system --create-home --home-dir "$DATA_ROOT" --shell /usr/sbin/nologin "$APP_USER"
@@ -189,22 +189,6 @@ if [[ ! -x "/opt/bun-v${BUN_VERSION}/bin/bun" ]]; then
 fi
 ln -sfn "/opt/bun-v${BUN_VERSION}/bin/bun" /usr/local/bin/bun
 "/usr/local/bin/bun" --version | grep -qx "${BUN_VERSION}" || die 'Installed Bun version did not match the pinned release.'
-
-# Keep the compiler versioned and independent of any existing /usr/local/go.
-# Download and verify before creating the version directory; a partial install
-# is never selected as the active Go compiler.
-if [[ ! -x "/opt/go${GO_VERSION}/bin/go" ]]; then
-  go_archive="go${GO_VERSION}.linux-amd64.tar.gz"
-  curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location \
-    "https://go.dev/dl/${go_archive}" -o "$TMP_DIR/$go_archive"
-  printf '%s  %s\n' "$GO_SHA256" "$TMP_DIR/$go_archive" | sha256sum --check --status || die 'Go archive checksum verification failed.'
-  tar --extract --gzip --file "$TMP_DIR/$go_archive" --directory "$TMP_DIR"
-  GOTOOLCHAIN=local "$TMP_DIR/go/bin/go" version | grep -qx "go version go${GO_VERSION} linux/amd64" || die 'Go archive did not contain the expected compiler.'
-  mv "$TMP_DIR/go" "/opt/go${GO_VERSION}"
-fi
-ln -sfn "/opt/go${GO_VERSION}/bin/go" /usr/local/bin/go
-ln -sfn "/opt/go${GO_VERSION}/bin/gofmt" /usr/local/bin/gofmt
-GOTOOLCHAIN=local /usr/local/bin/go version | grep -qx "go version go${GO_VERSION} linux/amd64" || die 'Installed Go version did not match the pinned release.'
 
 # Validate a staged release before replacing the live application files.
 STAGING_ROOT="$TMP_DIR/app"
