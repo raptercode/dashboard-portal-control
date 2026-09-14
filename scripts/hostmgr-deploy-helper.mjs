@@ -438,7 +438,7 @@ async function activateProject(slug, releaseId) {
   }
   try {
     await applyDomains(project);
-    const cleanedNodeModules = project.runtime === 'docker-compose'
+    const cleanedReleases = project.runtime === 'docker-compose'
       ? 0
       : await pruneHistoricalReleases(transaction.identity, releaseId, transaction.previousTarget).catch(() => 0);
     return { releaseId, domains: project.domains.hosts, cleanedReleases };

@@ -96,6 +96,13 @@ test('helper removes historical releases outside the rollback window', async () 
   assert.match(helper, /keep\.has\(entry\.name\)/);
 });
 
+test('helper returns the historical release cleanup result after activation', async () => {
+  const helper = await readFile(new URL('../scripts/hostmgr-deploy-helper.mjs', import.meta.url), 'utf8');
+  const activation = helper.match(/async function activateProject\(slug, releaseId\) \{[\s\S]*?\n\}/)?.[0] ?? '';
+  assert.match(activation, /const cleanedReleases = project\.runtime === 'docker-compose'/);
+  assert.match(activation, /return \{ releaseId, domains: project\.domains\.hosts, cleanedReleases \};/);
+});
+
 test('helper gives each project service account access to its release parent', async () => {
   const helper = await readFile(new URL('../scripts/hostmgr-deploy-helper.mjs', import.meta.url), 'utf8');
   assert.match(helper, /await mkdir\(identity\.releases, \{ recursive: true, mode: 0o750 \}\);/);
