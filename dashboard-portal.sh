@@ -98,7 +98,9 @@ rollback() {
     restore_item nginx-default-enabled "$NGINX_DEFAULT_ENABLED"
     restore_item app-root "$APP_ROOT"
     restore_item config "$CONFIG_ROOT"
-    restore_item data-root "$DATA_ROOT"
+    restore_item state-db "$DATA_ROOT/state.sqlite"
+    restore_item state-db-wal "$DATA_ROOT/state.sqlite-wal"
+    restore_item state-db-shm "$DATA_ROOT/state.sqlite-shm"
     systemctl daemon-reload >/dev/null 2>&1 || true
     if [[ "$PREVIOUS_SERVICE_ENABLED" == true ]]; then
       systemctl enable dashboard-portal.service >/dev/null 2>&1 || true
@@ -142,7 +144,9 @@ backup_item nginx-enabled "$NGINX_ENABLED"
 backup_item nginx-default-enabled "$NGINX_DEFAULT_ENABLED"
 backup_item app-root "$APP_ROOT"
 backup_item config "$CONFIG_ROOT"
-backup_item data-root "$DATA_ROOT"
+backup_item state-db "$DATA_ROOT/state.sqlite"
+backup_item state-db-wal "$DATA_ROOT/state.sqlite-wal"
+backup_item state-db-shm "$DATA_ROOT/state.sqlite-shm"
 ROLLBACK_ARMED=true
 
 export DEBIAN_FRONTEND=noninteractive

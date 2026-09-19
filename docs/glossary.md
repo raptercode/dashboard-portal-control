@@ -29,6 +29,6 @@
 | Release | The result of one deployment, tied to a commit and its metadata |
 | Rollback | Returning traffic or the service to a previously verified Active release |
 | Update manifest | An Ed25519-signed JSON document that names the version, HTTPS archive, and SHA-256 for a Dashboard Portal update |
-| Install snapshot | Root-only timestamped copy of the Dashboard Portal files it owns before an installer change; used to restore managed files after a failed install. |
+| Install snapshot | Root-only timestamped copy of the Dashboard Portal managed files and SQLite control-plane state before an installer change; used to restore managed files after a failed install. Project workspaces and dependency caches are excluded. |
 | TLS fail-closed | Production install does not report success or leave the login intentionally exposed over HTTP; a certificate and HTTPS health check must pass. |
 | Session identifier hash | SHA-256 hash of the browser session cookie stored in persistent state; the raw cookie remains only in the browser. |

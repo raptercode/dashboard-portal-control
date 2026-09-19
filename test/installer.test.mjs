@@ -141,6 +141,16 @@ test('installer configures the SQLite source of truth for a clean data cutover',
   assert.match(script, /set_config_value HOSTMGR_DATABASE_PATH "\$DATA_ROOT\/state\.sqlite"/);
 });
 
+test('installer snapshots only small control-plane state files, not project workspaces', async () => {
+  const script = await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8');
+  assert.doesNotMatch(script, /backup_item data-root "\$DATA_ROOT"/);
+  assert.doesNotMatch(script, /restore_item data-root "\$DATA_ROOT"/);
+  assert.match(script, /backup_item state-db "\$DATA_ROOT\/state\.sqlite"/);
+  assert.match(script, /backup_item state-db-wal "\$DATA_ROOT\/state\.sqlite-wal"/);
+  assert.match(script, /backup_item state-db-shm "\$DATA_ROOT\/state\.sqlite-shm"/);
+  assert.match(script, /restore_item state-db "\$DATA_ROOT\/state\.sqlite"/);
+});
+
 test('installer provisions a checksum-verified Bun runtime for Bun projects', async () => {
   const script = await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8');
   assert.match(script, /BUN_VERSION='1\.3\.13'/);

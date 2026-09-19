@@ -44,7 +44,7 @@ It prompts for the owner password only on the initial install. Use at least 12 c
 - Provisions a separate root-owned Unix-socket helper for allowlisted tool installs, project activation, managed Nginx files, and Certbot. The dashboard itself remains unprivileged.
 - Writes `/etc/dashboard-portal/dashboard-portal.env` as `root:dashboardportal`, mode `0640`. It includes the persistent encryption key and `HOSTMGR_SECURE_COOKIE=true`.
 - Stores encrypted state and checked-out projects under `/var/lib/dashboard-portal`, accessible only to the service account.
-- Creates timestamped pre-change snapshots under `/var/backups/dashboard-portal`, mode `0700`.
+- Creates timestamped pre-change snapshots under `/var/backups/dashboard-portal`, mode `0700`. Snapshots include managed service/config/application files and the small SQLite control-plane state files, but not project workspaces, release directories, dependency trees, or package-manager caches under `/var/lib/dashboard-portal`.
 
 Never change `HOSTMGR_SECRET_KEY` after credentials or project environment values exist. Back up `/etc/dashboard-portal/dashboard-portal.env` and `/var/lib/dashboard-portal` together, encrypted and access-controlled. A backup of only one is not recoverable.
 
@@ -86,7 +86,7 @@ sudo dashboard-portal --reset-pwd
 
 The command prints a new random password once. Store it in a password manager before closing the terminal; it invalidates all existing Dashboard Portal sessions and restarts Dashboard Portal so the new password is active immediately.
 
-Do not expose port 3100 in the firewall. If the HTTPS health check fails, investigate `journalctl` and Nginx first; do not bypass TLS by proxying the login over plain HTTP. Restore only the timestamped snapshot that predates the failed change, test `nginx -t`, and reload Nginx. The installer keeps these snapshots under `/var/backups/dashboard-portal` for that purpose.
+Do not expose port 3100 in the firewall. If the HTTPS health check fails, investigate `journalctl` and Nginx first; do not bypass TLS by proxying the login over plain HTTP. Restore only the timestamped snapshot that predates the failed change, test `nginx -t`, and reload Nginx. The installer keeps these lightweight snapshots under `/var/backups/dashboard-portal` for that purpose; project releases and dependency caches are intentionally excluded because project rollback is managed separately.
 
 ## Software update notifications and SSH update
 
