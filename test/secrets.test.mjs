@@ -15,7 +15,8 @@ test('environment content exposes keys only and rejects malformed values', () =>
   assert.deepEqual(environment.keys, ['API_KEY', 'DATABASE_URL']);
   assert.throws(() => validateEnvironmentContent('export API_KEY=value'), /KEY=value/);
   assert.throws(() => validateEnvironmentContent('invalid line'), /KEY=value/);
-  assert.deepEqual(validateHttpsCredential({ name: 'github-personal', token: 'ghp_token_value' }), { name: 'github-personal', token: 'ghp_token_value' });
+  assert.deepEqual(validateHttpsCredential({ name: 'github-personal', token: 'ghp_token_value' }), { name: 'github-personal', host: 'github.com', token: 'ghp_token_value' });
+  assert.deepEqual(validateHttpsCredential({ name: 'gitlab-personal', host: 'GitLab.Example.com', token: 'glpat-token-value' }), { name: 'gitlab-personal', host: 'gitlab.example.com', token: 'glpat-token-value' });
 });
 
 test('legacy environment row updates accept plain values and ignore sensitivity', () => {

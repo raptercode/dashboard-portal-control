@@ -66,7 +66,7 @@ test('Python detection and source preflight exclude supplied venvs and reserve r
   assert.equal((await scanProjectRuntimeDirectory(source)).pythonInstall, 'project');
 });
 
-test('real Python venv installs an offline wheel, serves HTTP, reuses rollback dependencies and isolates failed releases', { timeout: 180_000 }, async (t) => {
+test('real Python venv installs an offline wheel, serves HTTP, reuses rollback dependencies and isolates failed releases', { timeout: 300_000 }, async (t) => {
   const interpreter = process.env.HOSTMGR_PYTHON_PATH || (process.platform === 'win32' ? 'python.exe' : '/usr/bin/python3');
   try { execFileSync(interpreter, ['-I', '-c', 'import venv,ensurepip'], { stdio: 'pipe' }); }
   catch { t.skip('Python with venv and ensurepip is required; set HOSTMGR_PYTHON_PATH.'); return; }

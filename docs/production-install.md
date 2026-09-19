@@ -100,6 +100,23 @@ applies a Dashboard Portal update. Apply an update only over SSH:
 sudo dashboard-portal update
 ```
 
+If the host was installed before the current stable signing key, rotate the
+public update key once before running the update. Verify the downloaded key's
+SHA-256 fingerprint before installing it:
+
+```bash
+tmp="$(mktemp)"
+curl -fsSL \
+  https://raw.githubusercontent.com/raptercode/dashboard-portal-control/v0.7.0/scripts/dashboard-portal-update-public.pem \
+  -o "$tmp"
+printf '%s  %s\n' \
+  e8435cb6c3763930158b458821021e89a4b92041c7c71b493e414fb8d70af715 "$tmp" |
+  sha256sum -c -
+sudo install -m 0644 -o root -g root "$tmp" /etc/dashboard-portal/update-public-key.pem
+rm -f "$tmp"
+sudo dashboard-portal update
+```
+
 `stable` is the default when `--channel` is omitted. `--channel=NAME` remains
 available for an intentional non-default channel. Only self-hosted/custom
 release feeds need one-time manual configuration:

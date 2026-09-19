@@ -202,7 +202,8 @@ async function configureMail() {
   await writeFile('/etc/dovecot/conf.d/99-hostmgr-mail.conf', renderDovecotConfiguration({ plan, certificate, vmail }), { mode: 0o640 });
   await writeFile('/etc/opendkim.conf', renderOpenDkimConfiguration(), { mode: 0o644 });
   await run('/usr/sbin/postfix', ['check'], { failure: 'Postfix configuration validation failed.' });
-  await run('/usr/bin/systemctl', ['enable', '--now', 'opendkim', 'dovecot', 'postfix'], { failure: 'Mail services could not be enabled.' });
+  await run('/usr/bin/systemctl', ['enable', 'opendkim', 'dovecot', 'postfix'], { failure: 'Mail services could not be enabled.' });
+  await run('/usr/bin/systemctl', ['restart', 'opendkim', 'dovecot', 'postfix'], { failure: 'Mail services could not be restarted with the managed configuration.' });
   return { inbound: plan.inbound, externalReachability: plan.externalReachability, notice: certificateNotice };
 }
 
@@ -266,7 +267,33 @@ async function removeMailDomain(domain, force) {
 }
 
 async function assertMailInstallation() {
-  if (!await exists(MAIL_INSTALL_MARKER)) throw new HelperError('Install mail packages through Dashboard Portal before configuring mail.');
+  if (await exists(MAIL_INSTALL_MARKER)) return;
+  if (!await hasManualMailToolCertification()) throw new HelperError('Install mail packages through Dashboard Portal before configuring mail.');
+  if (!await mailPackagesAvailable()) throw new HelperError('Certified mail packages are no longer available on this host.');
+  await mkdir(MAIL_ROOT, { recursive: true, mode: 0o750 });
+  await chmod(MAIL_ROOT, 0o750);
+  await writeFile(MAIL_INSTALL_MARKER, 'Certified by Dashboard Portal after manual SSH installation. Managed mail configuration may replace package defaults.\n', { mode: 0o640 });
+  await chmod(MAIL_INSTALL_MARKER, 0o640);
+}
+
+async function hasManualMailToolCertification() {
+  let database;
+  try {
+    database = new DatabaseSync(STATE_DATABASE_PATH, { readOnly: true });
+    const raw = database.prepare('SELECT payload FROM tools WHERE id = ?').get('mail')?.payload;
+    if (!raw) return false;
+    const tool = JSON.parse(raw);
+    return tool?.status === 'Installed' && tool.simulated === false;
+  } catch {
+    return false;
+  } finally { database?.close(); }
+}
+
+async function mailPackagesAvailable() {
+  const postfix = await run('/usr/sbin/postconf', ['mail_version']).then(() => true).catch(() => false);
+  const dovecot = await run('/usr/bin/doveadm', ['--version']).then(() => true).catch(() => false);
+  const opendkim = await exists('/usr/sbin/opendkim');
+  return postfix && dovecot && opendkim;
 }
 
 async function readManagedMailState() {

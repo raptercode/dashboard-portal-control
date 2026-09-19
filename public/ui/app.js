@@ -21,6 +21,7 @@ const state = {
   git: { identity: null },
   projects: [],
   credentials: [],
+  defaultCredentialId: null,
   vaultReady: false,
   softwareUpdate: null,
   metrics: null,
@@ -30,6 +31,10 @@ const state = {
   bootstrapRequired: false,
   owner: null,
   activeProject: null,
+  repositoryAutoInspectTimer: null,
+  repositoryAutoInspectKey: '',
+  repositoryAutoInspectRunning: false,
+  repositoryAutoInspectPending: false,
   deployEnvironmentMode: 'file',
   deployEnvironmentRevision: 0,
   domainDraft: null,
@@ -452,6 +457,8 @@ async function refresh() {
   state.git = git;
   state.projects = projects.projects || [];
   state.credentials = credentials.credentials || [];
+  state.defaultCredentialId = credentials.defaultCredentialId || git.defaultCredentialId || null;
+  state.git.defaultCredentialId = state.defaultCredentialId;
   state.vaultReady = credentials.vaultReady;
   state.softwareUpdate = softwareUpdate;
   state.mode = doctor.mode;
@@ -1040,9 +1047,24 @@ function renderCredentials() {
   root.replaceChildren(...state.credentials.map((credential) => {
     const row = element('article', 'credential-row');
     const copy = element('div');
-    copy.append(element('h3', '', credential.name), element('p', 'muted', `HTTPS token · บันทึก ${new Date(credential.createdAt).toLocaleString('th-TH')}`));
+    const title = element('h3', '', credential.name);
+    if (credential.isDefault) title.append(element('span', 'tag', 'default'));
+    copy.append(title, element('p', 'muted', `HTTPS token · ${credential.host || 'unscoped'} · บันทึก ${new Date(credential.createdAt).toLocaleString('th-TH')}`));
     const actions = element('div', 'form-actions');
     actions.append(statusChip('เข้ารหัสแล้ว', 'ready'));
+    const setDefault = element('button', 'secondary', credential.isDefault ? 'ล้าง default' : 'ตั้งเป็น default');
+    setDefault.type = 'button';
+    setDefault.addEventListener('click', async () => {
+      await withBusy(setDefault, async () => {
+        const payload = credential.isDefault ? { credentialId: null } : { credentialId: credential.id };
+        const result = await api('/api/credentials/default', { method: 'POST', body: payload });
+        state.defaultCredentialId = result.defaultCredentialId || null;
+        state.git.defaultCredentialId = state.defaultCredentialId;
+        state.credentials = result.credentials || [];
+        toast(credential.isDefault ? 'ล้าง default credential แล้ว' : `ตั้ง ${credential.name} เป็น default แล้ว`);
+        renderCredentials();
+      });
+    });
     const remove = element('button', 'secondary danger', 'ลบ');
     remove.type = 'button';
     remove.addEventListener('click', async () => {
@@ -1053,7 +1075,7 @@ function renderCredentials() {
         await refresh();
       });
     });
-    actions.append(remove);
+    actions.append(setDefault, remove);
     row.append(copy, actions);
     return row;
   }));
@@ -2011,6 +2033,13 @@ function wizardStepInstall() {
 
   const actions = element('div', 'form-actions');
   if (!installed) {
+    const sshInstallCommand = 'sudo apt-get update && sudo apt-get install -y --no-install-recommends postfix dovecot-imapd dovecot-lmtpd opendkim opendkim-tools';
+    const manual = element('section', 'mail-preview-notice');
+    manual.append(
+      element('strong', '', 'ถ้า helper ติดตั้งไม่ผ่าน'),
+      element('span', '', `SSH เข้า host แล้วรัน: ${sshInstallCommand}`)
+    );
+    panel.append(manual);
     const install = element('button', '', 'ติดตั้ง package');
     install.type = 'button';
     install.addEventListener('click', async () => {
@@ -2024,7 +2053,20 @@ function wizardStepInstall() {
         });
       } catch (error) { showError(error); }
     });
-    actions.append(install);
+    const verify = element('button', 'secondary', 'ตรวจรับรองหลังติดตั้งผ่าน SSH');
+    verify.type = 'button';
+    verify.addEventListener('click', async () => {
+      if (!await confirmAction('ตรวจรับรอง Mail Server', 'Portal จะตรวจว่า Postfix, Dovecot และ OpenDKIM ถูกติดตั้งบน host แล้ว', 'ตรวจสอบ')) return;
+      try {
+        await withBusy(verify, async () => {
+          await api('/api/tools/mail/manual-verify', { method: 'POST', body: { confirm: true } });
+          await reloadWizardSettings();
+          toast('ตรวจรับรอง mail package แล้ว');
+          paintWizard();
+        });
+      } catch (error) { showError(error); }
+    });
+    actions.append(install, verify);
   } else if (!configured) {
     const configure = element('button', '', 'Configure mail service');
     configure.type = 'button';
@@ -2158,11 +2200,13 @@ function wizardStepTest() {
   return panel;
 }
 
-function fillCredentialSelect(selected = '') {
+function fillCredentialSelect(selected = '', { useDefault = true } = {}) {
   const select = $('#credential-id');
   if (!select) return;
-  select.replaceChildren(new Option('Public repository — ไม่ต้องใช้ credential', ''), ...state.credentials.map((credential) => new Option(credential.name, credential.id)));
-  select.value = [...select.options].some((option) => option.value === selected) ? selected : '';
+  select.replaceChildren(new Option('Public repository — ไม่ต้องใช้ credential', ''), ...state.credentials.map((credential) => new Option(`${credential.name}${credential.host ? ` · ${credential.host}` : ''}`, credential.id)));
+  const wanted = selected || (useDefault ? defaultCredentialForRepository($('#repository')?.value || '')?.id : '');
+  select.value = [...select.options].some((option) => option.value === wanted) ? wanted : '';
+  select.dataset.protocolCleared = 'false';
 }
 
 function renderAudit() {
@@ -3054,7 +3098,7 @@ async function hydrateRepositoryStep() {
   $('#project-source-name').textContent = draft.name || '—';
   const sourceMeta = [draft.organization && `องค์กร: ${draft.organization}`, draft.slug && `slug: ${draft.slug}`].filter(Boolean);
   $('#project-source-meta').textContent = sourceMeta.join(' · ') || '—';
-  fillCredentialSelect(draft.credentialId || '');
+  fillCredentialSelect(draft.credentialId || '', { useDefault: flowMode !== 'edit' && !draft.repository });
   $('#repository').value = draft.repository || '';
   $('#project-directory').value = draft.directory || '/';
   setBranchOptions([draft.branch || 'main'], draft.branch || 'main');
@@ -3312,6 +3356,33 @@ function repositoryProtocol(repository = $('#repository')?.value) {
   return String(repository || '').trim().startsWith('git@') ? 'ssh' : 'https';
 }
 
+function repositoryHost(repository = $('#repository')?.value) {
+  const value = String(repository || '').trim();
+  const ssh = value.match(/^git@([^:]+):/i);
+  if (ssh) return ssh[1].toLowerCase();
+  try { return new URL(value).hostname.toLowerCase(); }
+  catch { return ''; }
+}
+
+function looksLikeRepositoryUrl(value) {
+  return /^https:\/\/[^\s]+\.git(?:$|[?#])/.test(value) || /^git@[a-z0-9.-]+:[^\s]+\.git$/i.test(value);
+}
+
+function credentialMatchesRepository(credential, repository = $('#repository')?.value) {
+  const host = repositoryHost(repository);
+  return Boolean(credential && credential.host && (!host || credential.host === host));
+}
+
+function defaultCredentialForRepository(repository = $('#repository')?.value) {
+  const credential = state.credentials.find((item) => item.id === state.defaultCredentialId);
+  return credentialMatchesRepository(credential, repository) ? credential : null;
+}
+
+function selectedCredential() {
+  const id = $('#credential-id')?.value;
+  return id ? state.credentials.find((credential) => credential.id === id) : null;
+}
+
 function updateRepositoryConnection() {
   const repository = $('#repository')?.value.trim() || '';
   const protocol = repositoryProtocol(repository);
@@ -3319,7 +3390,16 @@ function updateRepositoryConnection() {
   const credentialRow = $('#https-credential');
   credentialRow.hidden = protocol !== 'https';
   credential.disabled = protocol !== 'https';
-  if (protocol === 'ssh') credential.value = '';
+  if (protocol === 'ssh') {
+    credential.value = '';
+    credential.dataset.protocolCleared = 'true';
+  } else if (credential.value && !credentialMatchesRepository(selectedCredential(), repository)) {
+    credential.value = '';
+  } else {
+    const defaultCredential = defaultCredentialForRepository(repository);
+    if (!credential.value && credential.dataset.protocolCleared === 'true' && defaultCredential && [...credential.options].some((option) => option.value === defaultCredential.id)) credential.value = defaultCredential.id;
+    credential.dataset.protocolCleared = 'false';
+  }
   $('#repository-connection-note').textContent = !repository
     ? 'วาง HTTPS หรือ git@ URL — ระบบจะเลือกวิธีเชื่อมต่อให้'
     : protocol === 'ssh'
@@ -3327,29 +3407,99 @@ function updateRepositoryConnection() {
       : 'HTTPS — ตรวจพบจาก Remote URL; เลือก credential เฉพาะ private repository';
 }
 
-async function fetchBranches() {
+async function fetchBranches({ quiet = false, request = null } = {}) {
   const repository = $('#repository');
   if (!repository.reportValidity()) return;
   const button = $('#fetch-branches');
-  const protocol = repositoryProtocol(repository.value);
+  const requestRepository = request?.repository ?? repository.value;
+  const protocol = request?.protocol ?? repositoryProtocol(requestRepository);
+  const credentialId = request?.credentialId ?? ($('#credential-id').value || '');
+  const requestKey = request?.key ?? repositoryInspectKey();
   button.disabled = true;
   try {
-    const result = await api('/api/git/branches', { method: 'POST', body: { repository: repository.value, protocol, credentialId: $('#credential-id').value } });
+    const result = await api('/api/git/branches', { method: 'POST', body: { repository: requestRepository, protocol, credentialId } });
+    if (quiet && requestKey !== repositoryInspectKey()) return false;
     if (!result.branches.length) throw new Error('ไม่พบ branch ที่เลือกได้ใน repository นี้');
     const previous = $('#branch').value;
-    setBranchOptions(result.branches, result.branches.includes(previous) ? previous : (result.branches.includes('main') ? 'main' : result.branches[0]));
-    toast(`พบ ${result.branches.length} branches แล้ว`);
-    await detectProjectRuntimeFromRepository({ quiet: true });
-  } catch (error) { showError(error); }
+    const selectedBranch = result.branches.includes(previous) ? previous : (result.branches.includes('main') ? 'main' : result.branches[0]);
+    setBranchOptions(result.branches, selectedBranch);
+    if (!quiet) toast(`พบ ${result.branches.length} branches แล้ว`);
+    return await detectProjectRuntimeFromRepository({
+      quiet: true,
+      request: {
+        key: requestKey,
+        repository: requestRepository,
+        protocol,
+        credentialId,
+        branch: selectedBranch,
+        directory: $('#project-directory').value || '/'
+      }
+    });
+  } catch (error) {
+    const note = $('#runtime-detection-note');
+    if (quiet && note) note.textContent = `อ่าน repository ไม่สำเร็จ: ${error.message}`;
+    if (!quiet) showError(error);
+    return false;
+  }
   finally { button.disabled = false; }
 }
 
-async function detectProjectRuntimeFromRepository({ quiet = false } = {}) {
+function repositoryInspectKey() {
+  const repository = $('#repository')?.value.trim() || '';
+  const protocol = repositoryProtocol(repository);
+  const credentialId = protocol === 'https' ? ($('#credential-id')?.value || '') : '';
+  return [repository, protocol, credentialId].join('\n');
+}
+
+function scheduleRepositoryAutoInspect(delayMs = 300) {
+  const repository = $('#repository');
+  if (!repository) return;
+  clearTimeout(state.repositoryAutoInspectTimer);
+  state.repositoryAutoInspectTimer = setTimeout(() => {
+    autoInspectRepository().catch(showError);
+  }, delayMs);
+}
+
+async function autoInspectRepository() {
+  const repository = $('#repository');
+  if (!repository) return;
+  updateRepositoryConnection();
+  const value = repository.value.trim();
+  if (!value || !repository.checkValidity() || !looksLikeRepositoryUrl(value)) return;
+  const protocol = repositoryProtocol(value);
+  const credentialId = protocol === 'https' ? ($('#credential-id')?.value || '') : '';
+  const key = repositoryInspectKey();
+  if (state.repositoryAutoInspectRunning) {
+    state.repositoryAutoInspectPending = true;
+    return;
+  }
+  if (state.repositoryAutoInspectKey === key) return;
+  state.repositoryAutoInspectRunning = true;
+  state.repositoryAutoInspectKey = key;
+  const note = $('#runtime-detection-note');
+  if (note) note.textContent = 'กำลังดึง branch และตรวจ App อัตโนมัติ…';
+  try {
+    const inspected = await fetchBranches({ quiet: true, request: { key, repository: value, protocol, credentialId } });
+    if (!inspected) state.repositoryAutoInspectKey = '';
+  } finally {
+    state.repositoryAutoInspectRunning = false;
+    if (state.repositoryAutoInspectPending) {
+      state.repositoryAutoInspectPending = false;
+      scheduleRepositoryAutoInspect(0);
+    }
+  }
+}
+
+async function detectProjectRuntimeFromRepository({ quiet = false, request = null } = {}) {
   const repository = $('#repository');
   if (!repository?.reportValidity()) return;
   const button = $('#detect-project-runtime');
   const note = $('#runtime-detection-note');
-  const protocol = repositoryProtocol(repository.value);
+  const requestRepository = request?.repository ?? repository.value;
+  const protocol = request?.protocol ?? repositoryProtocol(requestRepository);
+  const credentialId = request?.credentialId ?? ($('#credential-id').value || '');
+  const branch = request?.branch ?? ($('#branch').value || 'main');
+  const directory = request?.directory ?? ($('#project-directory').value || '/');
   const original = button?.textContent;
   if (button) button.disabled = true;
   if (note) note.textContent = 'กำลังอ่าน metadata ของ repository…';
@@ -3357,13 +3507,14 @@ async function detectProjectRuntimeFromRepository({ quiet = false } = {}) {
     const result = await api('/api/projects/runtime-detect', {
       method: 'POST',
       body: {
-        repository: repository.value,
-        branch: $('#branch').value || 'main',
-        directory: $('#project-directory').value || '/',
+        repository: requestRepository,
+        branch,
+        directory,
         protocol,
-        credentialId: $('#credential-id').value
+        credentialId
       }
     });
+    if (quiet && request?.key && request.key !== repositoryInspectKey()) return false;
     const detection = result.detection;
     if (detection?.recommendedRuntime) setProjectRuntime(detection.recommendedRuntime);
     if (detection?.recommendedFramework) setDetectedFramework(detection.recommendedFramework);
@@ -3391,9 +3542,11 @@ async function detectProjectRuntimeFromRepository({ quiet = false } = {}) {
       note.textContent = [detection?.notice, evidence].filter(Boolean).join(' — ') || 'ยังตรวจ runtime ไม่ได้';
     }
     if (!quiet && (detection?.recommendedFramework || detection?.recommendedRuntime)) toast(`เลือก ${projectFrameworks[detection.recommendedFramework]?.label || projectRuntimes[detection.recommendedRuntime]?.label || 'runtime'} ให้แล้ว`);
+    return true;
   } catch (error) {
     if (note) note.textContent = `ตรวจอัตโนมัติไม่สำเร็จ: ${error.message}`;
     if (!quiet) throw error;
+    return false;
   } finally {
     if (button) {
       button.disabled = false;
@@ -3632,7 +3785,15 @@ function bindEvents() {
   });
   $('#fetch-branches')?.addEventListener('click', () => fetchBranches().catch(showError));
   $('#detect-project-runtime')?.addEventListener('click', () => detectProjectRuntimeFromRepository().catch(showError));
-  $('#repository')?.addEventListener('input', updateRepositoryConnection);
+  $('#repository')?.addEventListener('input', () => {
+    updateRepositoryConnection();
+    scheduleRepositoryAutoInspect();
+  });
+  $('#repository')?.addEventListener('paste', () => scheduleRepositoryAutoInspect(50));
+  $('#credential-id')?.addEventListener('change', (event) => {
+    event.currentTarget.dataset.protocolCleared = 'false';
+    scheduleRepositoryAutoInspect(50);
+  });
   $('#branch')?.addEventListener('change', () => detectProjectRuntimeFromRepository({ quiet: true }));
   $('#project-directory')?.addEventListener('change', () => detectProjectRuntimeFromRepository({ quiet: true }));
   $('#health-check-enabled')?.addEventListener('change', toggleHealthCheckFields);

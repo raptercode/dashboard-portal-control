@@ -114,3 +114,24 @@ test('diffed persistence keeps reloads identical across row edits, removals, and
   const third = new StateStore(path);
   assert.deepEqual(await third.load(), reopened.snapshot());
 });
+
+test('legacy credentials infer a host scope from their project references', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'hostmgr-core-'));
+  const path = join(directory, 'state.sqlite');
+  const store = new StateStore(path);
+  await store.load();
+  await store.update((state) => {
+    state.credentials.push({ id: '11111111-1111-1111-1111-111111111111', name: 'github-token', type: 'https_token' });
+    state.git.defaultCredentialId = '11111111-1111-1111-1111-111111111111';
+    state.projects.push({
+      name: 'Private app',
+      slug: 'private-app',
+      repository: 'https://github.com/example/private.git',
+      credentialId: '11111111-1111-1111-1111-111111111111'
+    });
+  });
+  const reopened = new StateStore(path);
+  const state = await reopened.load();
+  assert.equal(state.credentials[0].host, 'github.com');
+  assert.equal(state.git.defaultCredentialId, '11111111-1111-1111-1111-111111111111');
+});

@@ -33,6 +33,12 @@ test('installer syntax-checks the browser bundle before replacing the active app
   assert.match(script, /"\/usr\/local\/bin\/node" --check "\$STAGING_ROOT\/public\/ui\/app\.js"/);
 });
 
+test('installer keeps long-running owner actions within the Nginx proxy budget', async () => {
+  const script = await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8');
+  assert.match(script, /proxy_read_timeout 600s;/);
+  assert.match(script, /proxy_send_timeout 600s;/);
+});
+
 test('installer replaces only the Ubuntu default Nginx symlink before adding its reject catch-all', async () => {
   const script = await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8');
   assert.match(script, /NGINX_DEFAULT_ENABLED='\/etc\/nginx\/sites-enabled\/default'/);
@@ -167,6 +173,7 @@ test('PHP remains optional while Composer install drops privileges before any PH
 test('Python remains optional while project execution drops privileges before any Python command', async () => {
   const script = await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8');
   const helper = await readFile(new URL('../scripts/hostmgr-deploy-helper.mjs', import.meta.url), 'utf8');
+  const server = await readFile(new URL('../src/server.mjs', import.meta.url), 'utf8');
   const client = await readFile(new URL('../src/helper-client.mjs', import.meta.url), 'utf8');
   assert.doesNotMatch(script, /python3 python3-venv/);
   assert.doesNotMatch(script, /pip(?:3)? install|break-system-packages/);
@@ -178,7 +185,13 @@ test('Python remains optional while project execution drops privileges before an
   assert.match(helper, /\.venv\/bin\/python \$\{pythonStartArgs/);
   assert.match(helper, /if \(previousUnit !== null\) await writeFile\(identity\.unitFile, previousUnit/);
   assert.match(helper, /writeFile\(identity\.environmentFile, previousEnvironment/);
-  assert.match(client, /operation === 'activate-project' \? 900_000 : 90_000/);
+  assert.match(helper, /SELECT payload FROM tools WHERE id = \?/);
+  assert.match(helper, /Certified by Dashboard Portal after manual SSH installation/);
+  assert.match(helper, /\['restart', 'opendkim', 'dovecot', 'postfix'\]/);
+  assert.match(client, /operation === 'activate-project'[\s\S]*\? 900_000/);
+  assert.match(client, /operation === 'install-tool'[\s\S]*\? 540_000/);
+  assert.match(client, /operation === 'configure-mail'[\s\S]*\? 240_000/);
+  assert.match(server, /throw new InputError\(result\.error \|\| 'Privileged helper rejected the operation\.'\)/);
 });
 
 test('installer enrolls new hosts in the signed stable update channel without a manual configure step', async () => {

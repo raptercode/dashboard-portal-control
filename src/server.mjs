@@ -62,7 +62,7 @@ const HOST_TOOL_COMMANDS = {
   go: [['/usr/local/bin/go', ['version']]],
   python: [['/usr/bin/python3', ['--version']], ['/usr/bin/python3', ['-c', 'import venv']]],
   php: [['/usr/bin/php', ['-v']]],
-  mail: [['/usr/sbin/postconf', ['mail_version']], ['/usr/bin/doveadm', ['--version']]]
+  mail: [['/usr/sbin/postconf', ['mail_version']], ['/usr/bin/doveadm', ['--version']], ['/usr/sbin/opendkim', ['-V']]]
 };
 
 export async function createApplication(options = {}) {
@@ -272,7 +272,9 @@ export async function createApplication(options = {}) {
       if (request.method === 'GET' && logsMatch) return await handleProjectLogs(request, response, logsMatch[1]);
       if (request.method === 'GET' && url.pathname === '/api/credentials') {
         if (!requireSession(request, response)) return;
-        return sendJson(response, 200, { credentials: store.snapshot().credentials.map(publicCredential), vaultReady: Boolean(vault) });
+        const snapshot = store.snapshot();
+        const defaultCredentialId = snapshot.git?.defaultCredentialId ?? null;
+        return sendJson(response, 200, { credentials: snapshot.credentials.map((credential) => publicCredential(credential, defaultCredentialId)), defaultCredentialId, vaultReady: Boolean(vault) });
       }
       if (request.method === 'GET' && url.pathname === '/api/monitor-tokens') {
         if (!requireSession(request, response)) return;
@@ -282,6 +284,7 @@ export async function createApplication(options = {}) {
       const monitorTokenMatch = url.pathname.match(/^\/api\/monitor-tokens\/([a-f0-9-]{36})$/i);
       if (request.method === 'DELETE' && monitorTokenMatch) return await handleMonitorTokenDelete(request, response, monitorTokenMatch[1]);
       if (request.method === 'POST' && url.pathname === '/api/credentials') return await handleCredential(request, response);
+      if (request.method === 'POST' && url.pathname === '/api/credentials/default') return await handleCredentialDefault(request, response);
       const credentialMatch = url.pathname.match(/^\/api\/credentials\/([a-f0-9-]{36})$/i);
       if (request.method === 'DELETE' && credentialMatch) return await handleCredentialDelete(request, response, credentialMatch[1]);
       if (request.method === 'GET' && url.pathname === '/api/notification-hooks') {
@@ -310,6 +313,8 @@ export async function createApplication(options = {}) {
       if (request.method === 'DELETE' && databaseDeleteMatch) return await handleDatabaseDelete(request, response, databaseDeleteMatch[1]);
       const toolMatch = url.pathname.match(/^\/api\/tools\/(nginx|certbot|git|docker|go|python|mail)\/install$/);
       if (request.method === 'POST' && toolMatch) return await handleInstall(request, response, toolMatch[1]);
+      const manualToolMatch = url.pathname.match(/^\/api\/tools\/(mail)\/manual-verify$/);
+      if (request.method === 'POST' && manualToolMatch) return await handleManualToolVerify(request, response, manualToolMatch[1]);
       if (request.method === 'POST' && url.pathname === '/api/mail/outbound-check') return await handleMailOutboundCheck(request, response);
       if (request.method === 'POST' && url.pathname === '/api/mail/readiness-check') return await handleMailReadinessCheck(request, response);
       if (request.method === 'GET' && url.pathname === '/api/mail') {
@@ -849,6 +854,28 @@ export async function createApplication(options = {}) {
     return sendJson(response, 200, { ok: true, tool: store.snapshot().tools[tool], result });
   }
 
+  async function handleManualToolVerify(request, response, tool) {
+    const session = requireSession(request, response, true);
+    if (!session) return;
+    validateTool(tool);
+    const body = await readJson(request);
+    if (body.confirm !== true) throw new InputError('Explicit confirmation is required.');
+    if (mode !== 'host') throw new InputError('Manual SSH certification is available only on a real host installation.');
+    const [observed] = await toolProbe([store.snapshot().tools[tool]]);
+    if (observed?.status !== 'Installed') {
+      throw new InputError(`Portal could not verify ${TOOLS[tool].label}. Install it over SSH first: sudo apt-get update && sudo apt-get install -y --no-install-recommends ${TOOLS[tool].package}`);
+    }
+    await store.update((state) => {
+      const item = state.tools[tool];
+      item.status = 'Installed';
+      item.version = observed.version ?? 'Installed';
+      item.simulated = false;
+      item.updatedAt = new Date().toISOString();
+      appendAudit(state, { action: 'tool.manual_verify', outcome: 'success', actor: 'owner', target: tool, detail: `Verified SSH/manual installation: ${observed.version ?? TOOLS[tool].package}` });
+    });
+    return sendJson(response, 200, { ok: true, tool: store.snapshot().tools[tool], result: { version: observed.version ?? 'Installed', detail: `Verified existing host installation: ${tool}` } });
+  }
+
   async function handleGitConfig(request, response) {
     if (!requireSession(request, response, true)) return;
     const identity = validateGitIdentity(await readJson(request));
@@ -873,8 +900,7 @@ export async function createApplication(options = {}) {
       if (dockerTool.status !== 'Installed') throw new InputError('Install Docker Engine + Compose before syncing a Docker Compose project.');
     }
     if (!state.git.identity) throw new InputError('Configure Git identity before syncing a project.');
-    if (project.credentialId && !state.credentials.some((credential) => credential.id === project.credentialId)) throw new InputError('Selected credential was not found.');
-    const credential = project.credentialId ? state.credentials.find((item) => item.id === project.credentialId) : null;
+    const credential = project.credentialId ? credentialForRepository(state, project.credentialId, project.repository) : null;
     const previousRevision = storedProject?.sync?.revision ?? null;
     const sync = shouldSyncProjectSource
       ? await projectSyncer(project, credential, vault, projectRoot)
@@ -970,7 +996,7 @@ export async function createApplication(options = {}) {
       const snapshot = store.snapshot();
       const project = snapshot.projects.find((item) => item.slug === slug);
       if (!project || snapshot.jobs.some((job) => job.projectSlug === slug && ['queued', 'running'].includes(job.status))) return;
-      const credential = project.credentialId ? snapshot.credentials.find((item) => item.id === project.credentialId) : null;
+      const credential = project.credentialId ? credentialForRepository(snapshot, project.credentialId, project.repository) : null;
       const sync = shouldSyncProjectSource
         ? await projectSyncer(project, credential, vault, projectRoot)
         : { status: 'synced', at: new Date().toISOString(), revision: project.sync?.revision ?? null, detail: 'Simulated five-minute source check.' };
@@ -1007,8 +1033,7 @@ export async function createApplication(options = {}) {
     const state = store.snapshot();
     const gitTool = mode === 'host' ? (await toolProbe([state.tools.git]))[0] : state.tools.git;
     if (gitTool.status !== 'Installed') throw new InputError('Install Git before fetching branches.');
-    if (query.credentialId && !state.credentials.some((credential) => credential.id === query.credentialId)) throw new InputError('Selected credential was not found.');
-    const credential = query.credentialId ? state.credentials.find((item) => item.id === query.credentialId) : null;
+    const credential = query.credentialId ? credentialForRepository(state, query.credentialId, query.repository) : null;
     try {
       const branches = await branchFetcher({ repository: query.repository, credential, vault, scratchRoot: projectRoot });
       return sendJson(response, 200, { branches: normalizeBranches(branches) });
@@ -1023,8 +1048,7 @@ export async function createApplication(options = {}) {
     const state = store.snapshot();
     const gitTool = mode === 'host' ? (await toolProbe([state.tools.git]))[0] : state.tools.git;
     if (gitTool.status !== 'Installed') throw new InputError('Install Git before detecting a project runtime.');
-    if (query.credentialId && !state.credentials.some((credential) => credential.id === query.credentialId)) throw new InputError('Selected credential was not found.');
-    const credential = query.credentialId ? state.credentials.find((item) => item.id === query.credentialId) : null;
+    const credential = query.credentialId ? credentialForRepository(state, query.credentialId, query.repository) : null;
     try {
       const detection = await projectRuntimeDetector({ ...query, credential, vault, scratchRoot: projectRoot });
       await store.update((next) => appendAudit(next, {
@@ -1388,14 +1412,41 @@ export async function createApplication(options = {}) {
   async function handleCredential(request, response) {
     if (!requireSession(request, response, true)) return;
     if (!vault) throw new InputError('Credential vault is not configured. Set HOSTMGR_SECRET_KEY before saving a token.');
-    const credential = validateHttpsCredential(await readJson(request));
-    const created = { id: randomUUID(), name: credential.name, type: 'https_token', createdAt: new Date().toISOString(), encryptedToken: vault.encrypt(credential.token) };
+    const body = await readJson(request);
+    const credential = validateHttpsCredential(body);
+    const makeDefault = body.default === true || body.default === 'on' || body.defaultCredential === true || body.defaultCredential === 'on';
+    const created = { id: randomUUID(), name: credential.name, host: credential.host, type: 'https_token', createdAt: new Date().toISOString(), encryptedToken: vault.encrypt(credential.token) };
     await store.update((state) => {
       if (state.credentials.some((item) => item.name === created.name)) throw new InputError('A credential with this name already exists.');
       state.credentials.push(created);
+      if (makeDefault) state.git.defaultCredentialId = created.id;
       appendAudit(state, { action: 'credential.create', outcome: 'success', actor: 'owner', target: created.name, detail: 'HTTPS credential saved without exposing its token' });
+      if (makeDefault) appendAudit(state, { action: 'credential.default_set', outcome: 'success', actor: 'owner', target: created.name, detail: 'Default HTTPS credential updated' });
     });
-    return sendJson(response, 201, { ok: true, credential: publicCredential(created) });
+    return sendJson(response, 201, { ok: true, credential: publicCredential(created, store.snapshot().git?.defaultCredentialId ?? null) });
+  }
+
+  async function handleCredentialDefault(request, response) {
+    if (!requireSession(request, response, true)) return;
+    const body = await readJson(request);
+    const credentialId = typeof body.credentialId === 'string' && body.credentialId ? body.credentialId : null;
+    if (credentialId && !/^[a-f0-9-]{36}$/i.test(credentialId)) throw new InputError('Credential selection is invalid.');
+    const snapshot = store.snapshot();
+    const credential = credentialId ? snapshot.credentials.find((item) => item.id === credentialId) : null;
+    if (credentialId && !credential) throw new NotFoundError('Credential was not found.');
+    await store.update((state) => {
+      state.git.defaultCredentialId = credentialId;
+      appendAudit(state, {
+        action: credentialId ? 'credential.default_set' : 'credential.default_clear',
+        outcome: 'success',
+        actor: 'owner',
+        target: credential?.name ?? null,
+        detail: credentialId ? 'Default HTTPS credential updated' : 'Default HTTPS credential cleared'
+      });
+    });
+    const next = store.snapshot();
+    const defaultCredentialId = next.git?.defaultCredentialId ?? null;
+    return sendJson(response, 200, { ok: true, defaultCredentialId, credentials: next.credentials.map((item) => publicCredential(item, defaultCredentialId)) });
   }
 
   async function handleCredentialDelete(request, response, id) {
@@ -1407,6 +1458,7 @@ export async function createApplication(options = {}) {
     if (inUse) throw new InputError('This credential is still selected by a project. Change that project to another credential first.');
     await store.update((state) => {
       state.credentials = state.credentials.filter((item) => item.id !== id);
+      if (state.git.defaultCredentialId === id) state.git.defaultCredentialId = null;
       appendAudit(state, { action: 'credential.delete', outcome: 'success', actor: 'owner', target: credential.name, detail: 'HTTPS credential deleted from the encrypted vault.' });
     });
     return sendJson(response, 200, { ok: true });
@@ -1639,7 +1691,7 @@ export async function createApplication(options = {}) {
     const socketPath = process.env.HOSTMGR_DEPLOY_HELPER_SOCKET;
     if (!socketPath) throw new InputError('Host installer is not configured. Re-run the Dashboard Portal installer.');
     const result = await callHostHelper(socketPath, { operation: 'install-tool', tool });
-    if (!result.ok) throw new InputError('Privileged helper rejected the operation.');
+    if (!result.ok) throw new InputError(result.error || 'Privileged helper rejected the operation.');
     return { version: result.version ?? 'Installed', detail: `Installed through allowlisted helper: ${tool}` };
   }
 
@@ -2327,9 +2379,26 @@ function delay(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
-function publicCredential(credential) {
+function publicCredential(credential, defaultCredentialId = null) {
   const { encryptedToken, ...safe } = credential;
-  return safe;
+  return { ...safe, isDefault: credential.id === defaultCredentialId };
+}
+
+function credentialForRepository(state, credentialId, repository) {
+  const credential = state.credentials.find((item) => item.id === credentialId);
+  if (!credential) throw new InputError('Selected credential was not found.');
+  const host = repositoryHost(repository);
+  if (credential.host && host && credential.host !== host) throw new InputError(`Selected credential is scoped to ${credential.host}, not ${host}.`);
+  if (!credential.host) throw new InputError('Selected credential has no Git host scope. Recreate it before use.');
+  return credential;
+}
+
+function repositoryHost(repository) {
+  const value = String(repository ?? '').trim();
+  const ssh = value.match(/^git@([^:]+):/i);
+  if (ssh) return ssh[1].toLowerCase();
+  try { return new URL(value).hostname.toLowerCase(); }
+  catch { return null; }
 }
 
 function publicNotificationHook(hook) {

@@ -374,9 +374,11 @@ export function validateProjectDomains(value, { allowEmpty = false } = {}) {
 export function validateHttpsCredential(input) {
   const name = requiredText(input.name, 'Credential name', 80);
   const token = requiredText(input.token, 'Access token', 4096);
+  const host = optionalText(input.host, 253) || 'github.com';
   if (!/^[a-z][a-z0-9-]{0,79}$/.test(name)) throw new InputError('Credential name must use lowercase letters, digits, and hyphens.');
+  if (!/^(?=.{1,253}$)(?!-)(?:[a-z0-9-]{1,63}\.)+[a-z]{2,63}$/.test(host.toLowerCase())) throw new InputError('Credential host must be a DNS hostname such as github.com.');
   if (token.includes('\n') || token.includes('\r')) throw new InputError('Access token is invalid.');
-  return { name, token };
+  return { name, host: host.toLowerCase(), token };
 }
 
 export function validateNotificationHook(input) {
@@ -486,6 +488,22 @@ function isRepositoryUrl(value) {
   return /^https:\/\/[^\s]+\.git(?:$|[?#])/.test(value) || /^git@[a-z0-9.-]+:[^\s]+\.git$/i.test(value);
 }
 
+function inferLegacyCredentialHost(credentialId, projects = []) {
+  const hosts = [...new Set(projects
+    .filter((project) => project.credentialId === credentialId)
+    .map((project) => repositoryHost(project.repository))
+    .filter(Boolean))];
+  return hosts.length === 1 ? hosts[0] : null;
+}
+
+function repositoryHost(repository) {
+  const value = String(repository ?? '').trim();
+  const ssh = value.match(/^git@([^:]+):/i);
+  if (ssh) return ssh[1].toLowerCase();
+  try { return new URL(value).hostname.toLowerCase(); }
+  catch { return null; }
+}
+
 export class InputError extends Error {}
 
 export function appendAudit(state, event) {
@@ -496,6 +514,7 @@ export function appendAudit(state, event) {
 function migrateState(state) {
   state.schemaVersion = 3;
   state.git ??= { identity: null };
+  state.git.defaultCredentialId ??= null;
   state.sessions ??= [];
   state.credentials ??= [];
   state.projects ??= [];
@@ -504,6 +523,8 @@ function migrateState(state) {
     project.runtime ??= 'node';
     project.deployment ??= { state: 'idle', activeReleaseId: null, previousReleaseId: null, releases: [], updatedAt: new Date().toISOString() };
   }
+  for (const credential of state.credentials) credential.host ??= inferLegacyCredentialHost(credential.id, state.projects);
+  if (state.git.defaultCredentialId && !state.credentials.some((credential) => credential.id === state.git.defaultCredentialId && credential.host)) state.git.defaultCredentialId = null;
   state.audit ??= [];
   state.jobs ??= [];
   state.monitorTokens ??= [];
