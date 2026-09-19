@@ -14,7 +14,23 @@ test('runtime picker requires a Go package and restores Node/Bun script fields o
     if (!nodes.has(id)) nodes.set(id, { value: '', checked: false, hidden: false, disabled: false, required: false, replaceChildren() {}, removeAttribute() {} });
     return nodes.get(id);
   };
-  const context = vm.createContext({ $, $$: () => [], runtimeLogo: (name) => name });
+  const context = vm.createContext({
+    $,
+    $$: () => [],
+    runtimeLogo: (name) => name,
+    projectRuntimes: {
+      node: { label: 'Node.js', detail: '', icon: 'node' },
+      bun: { label: 'Bun', detail: '', icon: 'bun' },
+      go: { label: 'Go', detail: '', icon: 'go' },
+      python: { label: 'Python', detail: '', icon: 'python' },
+      php: { label: 'PHP', detail: '', icon: 'php' },
+      'docker-compose': { label: 'Docker Compose', detail: '', icon: 'docker' }
+    },
+    projectFrameworks: {
+      laravel: { runtime: 'php', label: 'Laravel' },
+      django: { runtime: 'python', label: 'Django' }
+    }
+  });
   vm.runInContext(functions, context);
   context.setProjectRuntime('go');
   assert.equal($('#project-runtime').value, 'go');
@@ -52,9 +68,17 @@ test('runtime picker requires a Go package and restores Node/Bun script fields o
   context.togglePythonFields();
   assert.equal($('#python-requirements').disabled, true);
   assert.equal($('#python-entry').placeholder, 'app.main:app');
+  context.setProjectRuntime('php');
+  assert.equal($('#php-fields').hidden, false);
+  assert.equal($('#start-script').disabled, true);
+  context.setDetectedFramework('laravel');
+  assert.equal($('#php-mode').value, 'artisan');
+  assert.equal($('#project-framework').value, 'laravel');
+  assert.equal($('#detected-framework').hidden, false);
   context.setProjectRuntime('node');
   assert.equal($('#python-entry').disabled, true);
   assert.equal($('#python-fields').hidden, true);
+  assert.equal($('#php-fields').hidden, true);
 });
 
 test('Go API saves and edits package configuration and displays binary deployment commands', async (t) => {

@@ -3,6 +3,7 @@ import { createServer } from 'node:net';
 import { spawn } from 'node:child_process';
 import { projectServiceUser } from './project-service-user.mjs';
 import { preparePythonEnvironment, pythonSettings, pythonStartArgs, pythonUserOptions } from './python-project.mjs';
+import { phpExecutable, phpSettings, phpStartArgs, phpUserOptions, preparePhpEnvironment } from './php-project.mjs';
 import { access, chmod, chown, copyFile, cp, lstat, mkdir, readFile, readdir, readlink, rename, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { createDecipheriv } from 'node:crypto';
@@ -422,6 +423,7 @@ async function activateProject(slug, releaseId) {
   const release = project.deployment?.releases?.find((item) => item.id === releaseId);
   if (!release || !['candidate', 'healthy'].includes(release.status)) throw new HelperError('The requested release is not eligible for activation.');
   if (project.runtime === 'python' && release.runtime === 'python') Object.assign(project, pythonSettings(release));
+  if (project.runtime === 'php' && release.runtime === 'php') Object.assign(project, phpSettings(release));
   const environment = await readTextOrEmpty(join(PROJECT_ROOT, slug, 'releases', releaseId, '.env'));
   let transaction;
   try {
@@ -533,9 +535,13 @@ function validateProject(project) {
   validateSlug(project.slug);
   if (!Number.isInteger(project.port) || project.port < 1024 || project.port > 65535) throw new HelperError('Project port is invalid.');
   project.runtime ??= 'node';
-  if (!['node', 'bun', 'go', 'python', 'docker-compose'].includes(project.runtime)) throw new HelperError('Project runtime is invalid.');
+  if (!['node', 'bun', 'go', 'python', 'php', 'docker-compose'].includes(project.runtime)) throw new HelperError('Project runtime is invalid.');
   if (project.runtime === 'python') {
     try { Object.assign(project, pythonSettings(project)); }
+    catch (error) { throw new HelperError(error.message); }
+  }
+  if (project.runtime === 'php') {
+    try { Object.assign(project, phpSettings(project)); }
     catch (error) { throw new HelperError(error.message); }
   }
   if (['node', 'bun'].includes(project.runtime) && (typeof project.startScript !== 'string' || !/^[a-zA-Z0-9:_-]{1,64}$/.test(project.startScript))) throw new HelperError('Project start script is invalid.');
@@ -564,7 +570,7 @@ async function prepareProjectRelease(project, releaseId) {
   if (!(await exists(destination))) {
     const staging = join(identity.root, `.release-${releaseId}.staging`);
     await rm(staging, { recursive: true, force: true });
-    await cp(source, staging, { recursive: true, dereference: false, filter: (entry) => !['.git', ...(project.runtime === 'python' ? ['.venv', 'venv', '__pycache__', '.hostmgr-python-ready'] : [])].includes(basename(entry)) });
+    await cp(source, staging, { recursive: true, dereference: false, filter: (entry) => !['.git', ...(project.runtime === 'python' ? ['.venv', 'venv', '__pycache__', '.hostmgr-python-ready'] : []), ...(project.runtime === 'php' ? ['vendor', '.composer', '.hostmgr-php-ready'] : [])].includes(basename(entry)) });
     await run('/usr/bin/chown', ['-R', '--no-dereference', `${identity.user}:${identity.user}`, staging]);
     await rename(staging, destination);
   }
@@ -583,6 +589,17 @@ async function prepareProjectRelease(project, releaseId) {
     } catch (error) {
       const environment = await readFile(join(destination, '.env'), 'utf8').catch(() => '');
       throw new HelperError('Python venv installation failed before activation. Check project files, dependencies and python3-venv on the host.', redactBuildOutput(error?.commandOutput || `${error?.name || 'Error'}: ${error?.message || 'Python preparation failed.'}`, environment));
+    }
+  }
+  if (project.runtime === 'php') {
+    try {
+      const options = phpUserOptions(identity, destination);
+      await preparePhpEnvironment(destination, project, (command, args) => run(command, args, {
+        ...options, failure: 'PHP Composer installation failed. Check composer.json and the PHP version.'
+      }));
+    } catch (error) {
+      const environment = await readFile(join(destination, '.env'), 'utf8').catch(() => '');
+      throw new HelperError('PHP Composer installation failed before activation. Check project files, dependencies and PHP/Composer on the host.', redactBuildOutput(error?.commandOutput || `${error?.name || 'Error'}: ${error?.message || 'PHP preparation failed.'}`, environment));
     }
   }
   const environmentSource = join(destination, '.env');
@@ -919,7 +936,13 @@ async function clearPasswordLock() {
 }
 
 function renderProjectUnit(project, identity) {
-  const start = project.runtime === 'python' ? `${identity.current}/.venv/bin/python ${pythonStartArgs(project, project.port).join(' ')}` : project.runtime === 'go' ? `${identity.current}/hostmgr-app` : `${project.runtime === 'bun' ? BUN : NPM} run ${project.startScript}`;
+  const start = project.runtime === 'python'
+    ? `${identity.current}/.venv/bin/python ${pythonStartArgs(project, project.port).join(' ')}`
+    : project.runtime === 'php'
+      ? `${phpExecutable()} ${phpStartArgs(project, project.port).join(' ')}`
+      : project.runtime === 'go'
+        ? `${identity.current}/hostmgr-app`
+        : `${project.runtime === 'bun' ? BUN : NPM} run ${project.startScript}`;
   const bunRuntime = project.runtime === 'bun';
   const workingDirectory = bunRuntime ? identity.runtimeApplicationPath : identity.current;
   const bunSandbox = bunRuntime ? `RuntimeDirectory=${identity.runtimeDirectory}/app\nRuntimeDirectoryMode=0750\nBindPaths=${identity.current}:${identity.runtimeApplicationPath}\n` : '';

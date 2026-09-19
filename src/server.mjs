@@ -8,6 +8,7 @@ import os from 'node:os';
 import { parseEnvironmentDocument } from '../public/ui/environment-editor.js';
 import { spawn } from 'node:child_process';
 import { assertPythonSource, pythonSettings, pythonStartArgs } from '../scripts/python-project.mjs';
+import { assertPhpSource, phpSettings, phpStartArgs } from '../scripts/php-project.mjs';
 import { StateStore, TOOLS, SUPPORTED_NODE_MAJOR, SecretVault, appendAudit, initialMailState, validateDomain, validateEnvironmentContent, validateEnvironmentVariables, validateGitBranchRequest, validateGitIdentity, validateHttpsCredential, validateNotificationHook, validatePasswordChange, validateProjectDomains, validateProjectRuntimeDetection, validateProjectSync, validateTool, InputError } from './core.mjs';
 import { checkDomainDns } from './dns-check.mjs';
 import { activateRelease, appendReleaseEvent, beginDeployment, beginRollback, createRelease, defaultCandidatePort, failRelease, initialDeployment, markReleaseHealthy, markReleasePendingActivation, projectIdentity, pruneInactiveReleases, validateDockerComposeProject, validateNativeProject, validatePackageScripts } from './native-project.mjs';
@@ -60,6 +61,7 @@ const HOST_TOOL_COMMANDS = {
   docker: [['/usr/bin/docker', ['--version']], ['/usr/bin/docker', ['compose', 'version']]],
   go: [['/usr/local/bin/go', ['version']]],
   python: [['/usr/bin/python3', ['--version']], ['/usr/bin/python3', ['-c', 'import venv']]],
+  php: [['/usr/bin/php', ['-v']]],
   mail: [['/usr/sbin/postconf', ['mail_version']], ['/usr/bin/doveadm', ['--version']]]
 };
 
@@ -873,9 +875,10 @@ export async function createApplication(options = {}) {
     if (!state.git.identity) throw new InputError('Configure Git identity before syncing a project.');
     if (project.credentialId && !state.credentials.some((credential) => credential.id === project.credentialId)) throw new InputError('Selected credential was not found.');
     const credential = project.credentialId ? state.credentials.find((item) => item.id === project.credentialId) : null;
+    const previousRevision = storedProject?.sync?.revision ?? null;
     const sync = shouldSyncProjectSource
       ? await projectSyncer(project, credential, vault, projectRoot)
-      : { status: uiDemo ? 'synced' : 'queued', at: new Date().toISOString(), detail: uiDemo ? 'Simulated repository sync for local UI demo.' : 'Project sync queued for the host deployment service.' };
+      : { status: uiDemo ? 'synced' : 'queued', at: new Date().toISOString(), revision: uiDemo ? `demo-${randomBytes(6).toString('hex')}` : null, detail: uiDemo ? 'Simulated repository sync for local UI demo.' : 'Project sync queued for the host deployment service.' };
     const syncFailed = sync.status === 'failed';
     await store.update((next) => {
       const index = next.projects.findIndex((item) => item.slug === project.slug);
@@ -889,8 +892,13 @@ export async function createApplication(options = {}) {
       else next.projects.push(record);
       appendAudit(next, { action: 'project.sync_configure', outcome: syncFailed ? 'failure' : 'success', actor: 'owner', target: project.slug, detail: syncFailed ? 'Repository sync failed without changing an active release' : `${project.protocol.toUpperCase()} project sync configured` });
     });
+    let autoDeploy = null;
+    if (!syncFailed) {
+      const currentRevision = store.snapshot().projects.find((item) => item.slug === project.slug)?.sync?.revision ?? null;
+      if (currentRevision && currentRevision !== previousRevision) autoDeploy = await queueAutoDeployIfEnabled(project.slug, currentRevision);
+    }
     const saved = publicProject(store.snapshot().projects.find((item) => item.slug === project.slug));
-    return sendJson(response, syncFailed ? 422 : 200, { ok: !syncFailed, project: saved, error: syncFailed ? sync.detail : undefined });
+    return sendJson(response, syncFailed ? 422 : 200, { ok: !syncFailed, project: saved, error: syncFailed ? sync.detail : undefined, activation: autoDeploy?.activation, job: autoDeploy?.job });
   }
 
   async function handleProjectAutoSync(request, response, slug) {
@@ -906,6 +914,49 @@ export async function createApplication(options = {}) {
       appendAudit(state, { action: 'project.auto_sync_configure', outcome: 'success', actor: 'owner', target: slug, detail: enabled ? 'Five-minute source polling and automatic redeploy enabled.' : 'Automatic redeploy disabled; five-minute source polling remains enabled.' });
     });
     return sendJson(response, 200, { ok: true, project: publicProject(store.snapshot().projects.find((item) => item.slug === slug)) });
+  }
+
+  async function queueAutoDeployIfEnabled(slug, revision) {
+    const project = store.snapshot().projects.find((item) => item.slug === slug);
+    if (!project?.autoSync?.enabled || project.sync?.status !== 'synced') return null;
+    if (!project.environment?.keys?.length) {
+      await recordAutoSyncResult(slug, 'blocked', 'Save at least one environment variable before automatic deploy can run.');
+      return { activation: 'blocked', job: null };
+    }
+    if (!uiDemo && !project.domains?.hosts?.length) {
+      await recordAutoSyncResult(slug, 'blocked', 'Save at least one project domain before automatic deploy can run.');
+      return { activation: 'blocked', job: null };
+    }
+    const deployProject = validateDeployProject(project);
+    if (uiDemo) {
+      const release = createRelease(deployProject, revision || project.sync?.revision || 'demo-simulated-revision');
+      await store.update((state) => {
+        const target = findProject(state, slug);
+        let deployment = beginDeployment(target.deployment, release);
+        deployment = markReleaseHealthy(deployment, release.id);
+        target.deployment = activateRelease(deployment, release.id);
+        target.autoSync.lastResult = { status: 'deployed', at: new Date().toISOString(), detail: `Simulated auto deployment of ${release.id}.` };
+        appendAudit(state, { action: 'project.auto_deploy', outcome: 'success', actor: 'system', target: slug, detail: `Simulated activation of ${release.id} after source sync.` });
+      });
+      return { activation: 'complete', job: null };
+    }
+    const release = createRelease(deployProject, await projectRevision(project, projectRoot));
+    const job = { id: randomUUID(), kind: 'deploy', projectSlug: slug, releaseId: release.id, status: 'queued', createdAt: new Date().toISOString(), startedAt: null, finishedAt: null, events: [{ at: new Date().toISOString(), status: 'queued', message: 'Deployment is queued after Git sync.' }], failure: null, failureLog: null };
+    let queued = false;
+    await store.update((state) => {
+      const target = findProject(state, slug);
+      if (state.jobs.some((item) => item.projectSlug === slug && ['queued', 'running'].includes(item.status))) {
+        target.autoSync.lastResult = { status: 'coalesced', at: new Date().toISOString(), detail: 'A deployment was already queued while the source was syncing.' };
+        return;
+      }
+      target.deployment = beginDeployment(target.deployment, release);
+      target.autoSync.lastResult = { status: 'queued', at: new Date().toISOString(), detail: `Queued auto deployment ${release.id}.` };
+      state.jobs = [...state.jobs, job].slice(-100);
+      queued = true;
+      appendAudit(state, { action: 'project.auto_deploy', outcome: 'queued', actor: 'system', target: slug, detail: `Queued candidate release ${release.id} after source sync.` });
+    });
+    if (queued) scheduleDeploymentQueue();
+    return queued ? { activation: 'queued', job: publicJob(job) } : { activation: 'coalesced', job: null };
   }
 
   async function pollProjectSources() {
@@ -932,40 +983,8 @@ export async function createApplication(options = {}) {
         target.autoSync.lastResult = { status: sync.status !== 'synced' ? 'failed' : (hasNewCommit ? 'new_commit' : 'unchanged'), at: sync.at, detail: sync.detail };
         appendAudit(state, { action: 'project.source_poll', outcome: sync.status === 'synced' ? 'success' : 'failure', actor: 'system', target: slug, detail: sync.status !== 'synced' ? sync.detail : (hasNewCommit ? `New commit ${sync.revision} found.` : 'No new commit found.') });
       });
-      if (!hasNewCommit || !project.autoSync?.enabled) return;
-      const refreshed = store.snapshot().projects.find((item) => item.slug === slug);
-      if (!refreshed?.autoSync?.enabled) return;
-      if (!refreshed.environment?.keys?.length) return await recordAutoSyncResult(slug, 'blocked', 'Save at least one environment variable before automatic deploy can run.');
-      if (!uiDemo && !refreshed.domains?.hosts?.length) return await recordAutoSyncResult(slug, 'blocked', 'Save at least one project domain before automatic deploy can run.');
-      const deployProject = validateDeployProject(refreshed);
-      if (uiDemo) {
-        const release = createRelease(deployProject, sync.revision);
-        await store.update((state) => {
-          const target = findProject(state, slug);
-          let deployment = beginDeployment(target.deployment, release);
-          deployment = markReleaseHealthy(deployment, release.id);
-          target.deployment = activateRelease(deployment, release.id);
-          target.autoSync.lastResult = { status: 'deployed', at: new Date().toISOString(), detail: `Simulated auto deployment of ${release.id}.` };
-          appendAudit(state, { action: 'project.auto_deploy', outcome: 'success', actor: 'system', target: slug, detail: `Simulated activation of ${release.id} after source polling.` });
-        });
-        return;
-      }
-      const release = createRelease(deployProject, await projectRevision(refreshed, projectRoot));
-      const job = { id: randomUUID(), kind: 'deploy', projectSlug: slug, releaseId: release.id, status: 'queued', createdAt: new Date().toISOString(), startedAt: null, finishedAt: null, events: [{ at: new Date().toISOString(), status: 'queued', message: 'Deployment is queued from five-minute source polling.' }], failure: null, failureLog: null };
-      let queued = false;
-      await store.update((state) => {
-        const target = findProject(state, slug);
-        if (state.jobs.some((item) => item.projectSlug === slug && ['queued', 'running'].includes(item.status))) {
-          target.autoSync.lastResult = { status: 'coalesced', at: new Date().toISOString(), detail: 'A deployment was already queued while the source was syncing.' };
-          return;
-        }
-        target.deployment = beginDeployment(target.deployment, release);
-        target.autoSync.lastResult = { status: 'queued', at: new Date().toISOString(), detail: `Queued auto deployment ${release.id}.` };
-        state.jobs = [...state.jobs, job].slice(-100);
-        queued = true;
-        appendAudit(state, { action: 'project.auto_deploy', outcome: 'queued', actor: 'system', target: slug, detail: `Queued candidate release ${release.id} after source polling.` });
-      });
-      if (queued) scheduleDeploymentQueue();
+      if (!hasNewCommit) return;
+      await queueAutoDeployIfEnabled(slug, sync.revision);
     } catch (error) {
       await recordAutoSyncResult(slug, 'failed', safeDeploymentFailure(error));
     } finally {
@@ -1116,39 +1135,43 @@ export async function createApplication(options = {}) {
     try {
       if (deployProject.runtime === 'docker-compose') await prepareDockerRelease(deployProject, release, project, vault, projectRoot, recordPhase);
       else if (deployProject.runtime === 'python') await preparePythonRelease(deployProject, release, project, vault, projectRoot, recordPhase);
+      else if (deployProject.runtime === 'php') await preparePhpRelease(deployProject, release, project, vault, projectRoot, recordPhase);
       else if (deployProject.runtime === 'go') await prepareGoRelease(deployProject, release, project, vault, projectRoot, recordPhase);
       else await prepareNativeRelease(deployProject, release, project, vault, projectRoot, recordPhase);
+      const hostInstall = ['python', 'php'].includes(deployProject.runtime);
       await store.update((state) => {
         const target = findProject(state, job.projectSlug);
         target.deployment = markReleaseHealthy(target.deployment, release.id);
         const healthMessage = deployProject.runtime === 'python'
           ? 'Python source preflight passed; host activation creates the venv as the project user and checks the service.'
+          : deployProject.runtime === 'php'
+          ? 'PHP source preflight passed; host activation installs Composer dependencies as the project user and checks the service.'
           : deployProject.runtime === 'docker-compose'
           ? 'Docker Compose source preflight passed; host activation validates the configuration and performs the runtime health check.'
           : (deployProject.healthCheckEnabled ? 'Candidate health check passed.' : 'Candidate health check was skipped by project configuration.');
-        if (deployProject.runtime === 'python' && deployProject.healthCheckEnabled) {
+        if (hostInstall && deployProject.healthCheckEnabled) {
           const candidate = target.deployment.releases.find((item) => item.id === release.id);
           candidate.health.status = 'pending';
           candidate.health.checkedAt = null;
           candidate.health.port = deployProject.port;
         }
-        target.deployment = appendReleaseEvent(target.deployment, release.id, deployProject.runtime === 'python' ? 'python_preflight' : 'candidate_health', deployProject.healthCheckEnabled ? 'passed' : 'skipped', healthMessage);
+        target.deployment = appendReleaseEvent(target.deployment, release.id, deployProject.runtime === 'python' ? 'python_preflight' : deployProject.runtime === 'php' ? 'php_preflight' : 'candidate_health', deployProject.healthCheckEnabled ? 'passed' : 'skipped', healthMessage);
       });
       const helperSocket = process.env.HOSTMGR_DEPLOY_HELPER_SOCKET;
       if (!helperSocket) {
         await store.update((state) => {
           const target = findProject(state, job.projectSlug);
           target.deployment = markReleasePendingActivation(target.deployment, release.id);
-          appendAudit(state, { action: 'project.deploy', outcome: 'pending_activation', actor: 'owner', target: job.projectSlug, detail: deployProject.runtime === 'python' ? 'Python source is ready; host activation must create its venv as the project user.' : 'Candidate is healthy; a reviewed deployment helper is required to switch the systemd release.' });
+          appendAudit(state, { action: 'project.deploy', outcome: 'pending_activation', actor: 'owner', target: job.projectSlug, detail: deployProject.runtime === 'python' ? 'Python source is ready; host activation must create its venv as the project user.' : deployProject.runtime === 'php' ? 'PHP source is ready; host activation must install Composer dependencies as the project user.' : 'Candidate is healthy; a reviewed deployment helper is required to switch the systemd release.' });
         });
-        return markJobSucceeded(jobId, deployProject.runtime === 'python' ? 'Python source awaits host venv installation and health checks.' : 'Candidate is healthy and awaits reviewed host activation.');
+        return markJobSucceeded(jobId, deployProject.runtime === 'python' ? 'Python source awaits host venv installation and health checks.' : deployProject.runtime === 'php' ? 'PHP source awaits host Composer installation and health checks.' : 'Candidate is healthy and awaits reviewed host activation.');
       }
       await recordPhase('host_activation', 'started', 'Activating the verified candidate on the host.');
       await activateOnHost(helperSocket, job.projectSlug, release.id);
       await pruneCandidateReleases(projectRoot, job.projectSlug, release.id, project.deployment?.activeReleaseId);
       await store.update((state) => {
         const target = findProject(state, job.projectSlug);
-        if (deployProject.runtime === 'python' && deployProject.healthCheckEnabled) {
+        if (hostInstall && deployProject.healthCheckEnabled) {
           const candidate = target.deployment.releases.find((item) => item.id === release.id);
           candidate.health.status = 'passed';
           candidate.health.checkedAt = new Date().toISOString();
@@ -1481,6 +1504,18 @@ export async function createApplication(options = {}) {
           nodeVersion: 'Host Python 3 · isolated venv',
           buildScript: 'Create .venv and install as the project user',
           startScript: `.venv/bin/python ${pythonStartArgs(settings, project.port).join(' ')}`, skipBuild: false
+        }
+      });
+    }
+    if (project.runtime === 'php') {
+      const settings = phpSettings(project);
+      return sendJson(response, 200, {
+        configuration: {
+          runtime: 'PHP', packageManager: settings.phpInstall === 'none' ? 'No dependencies' : 'composer install --no-dev',
+          lockfile: { name: settings.phpInstall === 'composer' ? 'composer.lock' : 'Not applicable', valid: null },
+          nodeVersion: 'Host PHP CLI',
+          buildScript: settings.phpInstall === 'none' ? 'Skip Composer install' : 'Composer install as the project user',
+          startScript: `php ${phpStartArgs(settings, project.port).join(' ')}`, skipBuild: settings.phpInstall === 'none'
         }
       });
     }
@@ -1898,6 +1933,28 @@ export async function preparePythonRelease(projectInput, release, storedProject,
   }
 }
 
+export async function preparePhpRelease(projectInput, release, storedProject, vault, projectRoot, reportPhase = async () => {}) {
+  const project = validateNativeProject(projectInput);
+  if (project.runtime !== 'php') throw new InputError('This operation requires the PHP runtime.');
+  const source = repositoryDirectory(project, projectRoot);
+  const destination = join(projectRoot, project.slug, 'releases', release.id);
+  const content = storedProject.environment?.encryptedContent ? vault?.decrypt(storedProject.environment.encryptedContent) : '';
+  if (content === undefined) throw new InputError('Credential vault is not configured.');
+  try {
+    await reportPhase('source_copy', 'started', 'Preparing PHP source for Composer installation on the host.');
+    await mkdir(join(projectRoot, project.slug, 'releases'), { recursive: true, mode: 0o750 });
+    await copyCandidateSource(source, destination, { php: true });
+    await assertPhpSource(destination, project);
+    const environment = content.split(/\r?\n/).filter((line) => !/^\s*(?:PORT|HOST)\s*=/.test(line)).join('\n');
+    await rm(join(destination, '.env'), { force: true });
+    await writeFile(join(destination, '.env'), `${environment}\nPORT=${project.port}\nHOST=127.0.0.1\n`, { mode: 0o600 });
+    await reportPhase('source_copy', 'passed', 'PHP source is ready; the host will install and run it as the project user.');
+  } catch (error) {
+    await rm(destination, { recursive: true, force: true });
+    throw error instanceof InputError ? error : new InputError('PHP source preflight failed. Check artisan, spark, document root or composer.json in the selected directory.');
+  }
+}
+
 function goBaseEnvironment() {
   return Object.fromEntries(['PATH', 'SystemRoot', 'WINDIR', 'TEMP', 'TMP', 'TMPDIR', 'TZ'].filter((key) => process.env[key]).map((key) => [key, process.env[key]]));
 }
@@ -1994,10 +2051,10 @@ async function prepareNativeRelease(project, release, storedProject, vault, proj
 
 // fs.cp() accepts numeric copy-file flags for `mode`; passing the string
 // "preserve" fails on Node.js 24 before a candidate can be built.
-export async function copyCandidateSource(source, destination, { python = false } = {}) {
+export async function copyCandidateSource(source, destination, { python = false, php = false } = {}) {
   await cp(source, destination, {
     recursive: true,
-    filter: (path) => !['.git', 'node_modules', ...(python ? ['.venv', 'venv', '__pycache__', '.hostmgr-python-ready'] : [])].includes(basename(path))
+    filter: (path) => !['.git', 'node_modules', ...(python ? ['.venv', 'venv', '__pycache__', '.hostmgr-python-ready'] : []), ...(php ? ['vendor', '.composer', '.hostmgr-php-ready'] : [])].includes(basename(path))
   });
 }
 
@@ -2392,11 +2449,22 @@ export async function probeHostTools(storedTools, execute = probeExecutable) {
     const commands = HOST_TOOL_COMMANDS[tool.id];
     if (!commands) return { ...tool, simulated: false, observedAt: new Date().toISOString() };
     const results = await Promise.all(commands.map(([command, args]) => execute(command, args)));
-    const installed = results.every((result) => result.ok);
+    let extra = [];
+    if (tool.id === 'php') {
+      const composerPaths = process.env.HOSTMGR_COMPOSER_PATH ? [process.env.HOSTMGR_COMPOSER_PATH] : ['/usr/local/bin/composer', '/usr/bin/composer'];
+      let composer = { ok: false, output: '' };
+      for (const path of composerPaths) {
+        composer = await execute(path, ['--version']);
+        if (composer.ok) break;
+      }
+      extra = [composer];
+    }
+    const combined = [...results, ...extra];
+    const installed = combined.every((result) => result.ok);
     return {
       ...tool,
       status: installed ? 'Installed' : 'Missing',
-      version: installed ? results.map((result) => compactVersion(result.output)).filter(Boolean).join(' · ') || 'Installed' : null,
+      version: installed ? combined.map((result) => compactVersion(result.output)).filter(Boolean).join(' · ') || 'Installed' : null,
       simulated: false,
       observedAt: new Date().toISOString()
     };

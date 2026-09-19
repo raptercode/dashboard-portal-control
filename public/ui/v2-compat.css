@@ -317,7 +317,18 @@ button.danger, .button.danger { background: var(--status-error); border-color: v
 .runtime-logo { display: block; width: 23px; height: 23px; object-fit: contain; }
 .runtime-logo-bun { width: 27px; height: 24px; }
 .runtime-logo-docker { width: 25px; height: 20px; }
+.runtime-logo-nuxt { width: 27px; height: 19px; }
+html[data-theme="dark"] .runtime-logo-next,
+html[data-theme="dark"] .runtime-logo-express,
+html[data-theme="dark"] .runtime-logo-fastify,
+html[data-theme="dark"] .runtime-logo-remix,
+html[data-theme="dark"] .runtime-logo-flask,
+html[data-theme="dark"] .runtime-logo-symfony { filter: invert(1); }
+.card-title .runtime-logo { flex: 0 0 auto; }
 .runtime-menu-options { border: 1px solid var(--line); border-top: 0; border-radius: 0 0 12px 12px; overflow: hidden; background: var(--panel); }
+.detected-framework { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 10px; align-items: center; margin: 8px 0 0; }
+.detected-framework small { display: block; margin-top: 2px; color: var(--muted); }
+.detected-framework[hidden] { display: none; }
 .runtime-menu-option { width: 100%; border: 0; border-top: 1px solid var(--line); border-radius: 0; padding: 10px 12px; display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 10px; text-align: left; background: transparent; color: inherit; }
 .runtime-menu-option:first-child { border-top: 0; }
 .runtime-menu-option:hover, .runtime-menu-option[aria-selected="true"] { background: color-mix(in srgb, var(--accent) 9%, transparent); }

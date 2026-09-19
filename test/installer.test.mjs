@@ -73,7 +73,7 @@ test('helper keeps Docker Compose project activation bounded to guarded policy c
 test('helper permits Bun projects and starts them through the fixed Bun executable', async () => {
   const helper = await readFile(new URL('../scripts/hostmgr-deploy-helper.mjs', import.meta.url), 'utf8');
   assert.match(helper, /const BUN = '\/usr\/local\/bin\/bun';/);
-  assert.match(helper, /\['node', 'bun', 'go', 'python', 'docker-compose'\]/);
+  assert.match(helper, /\['node', 'bun', 'go', 'python', 'php', 'docker-compose'\]/);
   assert.match(helper, /project\.runtime === 'bun' \? BUN : NPM/);
   assert.match(helper, /RuntimeDirectory=\$\{identity\.runtimeDirectory\}\/app/);
   assert.match(helper, /BindPaths=\$\{identity\.current\}:\$\{identity\.runtimeApplicationPath\}/);
@@ -149,10 +149,19 @@ test('Go remains optional while the helper activates only an executable release 
   const helper = await readFile(new URL('../scripts/hostmgr-deploy-helper.mjs', import.meta.url), 'utf8');
   assert.doesNotMatch(script, /go_archive=/);
   assert.doesNotMatch(script, /\/opt\/go/);
-  assert.match(helper, /project\.runtime === 'go' \? `\$\{identity\.current\}\/hostmgr-app`/);
+  assert.match(helper, /project\.runtime === 'go'\s*\?\s*`\$\{identity\.current\}\/hostmgr-app`/);
   assert.match(helper, /lstat\(join\(destination, 'hostmgr-app'\)\)/);
   assert.match(helper, /binary\?\.isFile\(\)/);
   assert.match(helper, /ExecStart=\$\{start\}/);
+});
+
+test('PHP remains optional while Composer install drops privileges before any PHP command', async () => {
+  const script = await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8');
+  const helper = await readFile(new URL('../scripts/hostmgr-deploy-helper.mjs', import.meta.url), 'utf8');
+  assert.doesNotMatch(script, /php-cli composer/);
+  assert.match(helper, /const options = phpUserOptions\(identity, destination\)/);
+  assert.match(helper, /preparePhpEnvironment\(destination, project, \(command, args\) => run\(command, args, \{\s*\.\.\.options/);
+  assert.match(helper, /phpExecutable\(\)\} \$\{phpStartArgs/);
 });
 
 test('Python remains optional while project execution drops privileges before any Python command', async () => {
@@ -162,6 +171,7 @@ test('Python remains optional while project execution drops privileges before an
   assert.doesNotMatch(script, /python3 python3-venv/);
   assert.doesNotMatch(script, /pip(?:3)? install|break-system-packages/);
   assert.match(script, /install -m 0750 -o root -g root "\$APP_ROOT\/scripts\/python-project.mjs"/);
+  assert.match(script, /install -m 0750 -o root -g root "\$APP_ROOT\/scripts\/php-project.mjs"/);
   assert.match(helper, /const options = pythonUserOptions\(identity, destination\)/);
   assert.match(helper, /preparePythonEnvironment\(destination, project, \(command, args\) => run\(command, args, \{\s*\.\.\.options/);
   assert.match(helper, /identity\.uid = Number\(await run\('\/usr\/bin\/id', \['-u', identity\.user\]\)\)/);

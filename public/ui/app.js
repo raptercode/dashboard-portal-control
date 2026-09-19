@@ -1,7 +1,7 @@
 import { pageForPathname } from './router.js';
 import { ENVIRONMENT_MAX_BYTES, parseEnvironmentDocument, updateEnvironmentDocument, mergeEnvironmentDocument } from './environment-editor.js';
 import { projectActionMenuPlacement } from './project-action-menu-positioning.js';
-import { shouldOfferManualSync } from './project-manual-sync-action.js';
+import { hasNewerSyncedRevision } from './project-manual-sync-action.js';
 import { bindDialogDismissals as bindModalDismissals } from './dialog-dismissals.js';
 
 const DRAFT_KEY = 'hostmgr.projectDraft';
@@ -57,19 +57,85 @@ function icon(name) {
 
 const runtimeLogoPaths = Object.freeze({
   node: '/ui/runtime-logos/nodejs.svg',
+  next: '/ui/runtime-logos/nextjs.svg',
+  nuxt: '/ui/runtime-logos/nuxt.svg',
+  express: '/ui/runtime-logos/express.svg',
+  nestjs: '/ui/runtime-logos/nestjs.svg',
+  fastify: '/ui/runtime-logos/fastify.svg',
+  hono: '/ui/runtime-logos/hono.svg',
+  remix: '/ui/runtime-logos/remix.svg',
+  sveltekit: '/ui/runtime-logos/sveltekit.svg',
+  astro: '/ui/runtime-logos/astro.svg',
+  angular: '/ui/runtime-logos/angular.svg',
   bun: '/ui/runtime-logos/bun.svg',
+  elysia: '/ui/runtime-logos/elysia.svg',
   go: '/ui/runtime-logos/go.svg',
   python: '/ui/runtime-logos/python.svg',
+  django: '/ui/runtime-logos/django.svg',
+  flask: '/ui/runtime-logos/flask.svg',
+  fastapi: '/ui/runtime-logos/fastapi.svg',
+  php: '/ui/runtime-logos/php.svg',
+  laravel: '/ui/runtime-logos/laravel.svg',
+  codeigniter: '/ui/runtime-logos/codeigniter.svg',
+  symfony: '/ui/runtime-logos/symfony.svg',
+  slim: '/ui/runtime-logos/slim.svg',
+  cakephp: '/ui/runtime-logos/cakephp.svg',
   docker: '/ui/runtime-logos/docker.svg'
 });
 
+const projectRuntimes = Object.freeze({
+  node: { label: 'Node.js', detail: 'build และ run ด้วย npm script ใน systemd', icon: 'node' },
+  bun: { label: 'Bun', detail: 'ติดตั้ง dependencies และ run package script ด้วย Bun ใน systemd', icon: 'bun' },
+  go: { label: 'Go', detail: 'build เป็น binary และรันด้วย systemd', icon: 'go' },
+  python: { label: 'Python', detail: 'ติดตั้งและรันใน .venv ด้วย user ของโปรเจกต์', icon: 'python' },
+  php: { label: 'PHP', detail: 'Composer และ PHP built-in server ใน systemd', icon: 'php' },
+  'docker-compose': { label: 'Docker Compose', detail: 'Compose ที่ผ่าน policy check ก่อน activate', icon: 'docker' }
+});
+
+const projectFrameworks = Object.freeze({
+  next: { runtime: 'node', label: 'Next.js' },
+  nuxt: { runtime: 'node', label: 'Nuxt' },
+  express: { runtime: 'node', label: 'Express' },
+  nestjs: { runtime: 'node', label: 'NestJS' },
+  fastify: { runtime: 'node', label: 'Fastify' },
+  hono: { runtime: 'node', label: 'Hono' },
+  remix: { runtime: 'node', label: 'Remix' },
+  sveltekit: { runtime: 'node', label: 'SvelteKit' },
+  astro: { runtime: 'node', label: 'Astro' },
+  angular: { runtime: 'node', label: 'Angular' },
+  elysia: { runtime: 'bun', label: 'Elysia' },
+  django: { runtime: 'python', label: 'Django' },
+  flask: { runtime: 'python', label: 'Flask' },
+  fastapi: { runtime: 'python', label: 'FastAPI' },
+  laravel: { runtime: 'php', label: 'Laravel' },
+  codeigniter: { runtime: 'php', label: 'CodeIgniter' },
+  symfony: { runtime: 'php', label: 'Symfony' },
+  slim: { runtime: 'php', label: 'Slim' },
+  cakephp: { runtime: 'php', label: 'CakePHP' }
+});
+
 function runtimeLogo(name) {
+  const icon = runtimeLogoPaths[name] ? name : 'node';
   const logo = document.createElement('img');
-  logo.className = `runtime-logo runtime-logo-${name}`;
-  logo.src = runtimeLogoPaths[name];
+  logo.className = `runtime-logo runtime-logo-${icon}`;
+  logo.src = runtimeLogoPaths[icon];
   logo.alt = '';
   logo.setAttribute('aria-hidden', 'true');
   return logo;
+}
+
+function projectFrameworkIcon(project) {
+  if (project?.framework && runtimeLogoPaths[project.framework]) return project.framework;
+  if (project?.runtime === 'docker-compose') return 'docker';
+  if (project?.runtime === 'python') return 'python';
+  if (project?.runtime === 'php') return 'php';
+  if (project?.runtime === 'go') return 'go';
+  if (project?.runtime === 'bun') return 'bun';
+  return 'node';
+}
+
+function frameworkValue() {
+  return $('#project-framework')?.value || '';
 }
 
 function element(tag, className = '', text = '') {
@@ -752,7 +818,7 @@ function projectRow(project) {
   const headline = element('div', 'card-head project-headline');
   const cardTitle = element('div', 'card-title');
   const displayStatus = projectDisplayStatus(project);
-  cardTitle.append(element('span', `status-dot ${displayStatus.tone}`), element('h3', '', project.name));
+  cardTitle.append(element('span', `status-dot ${displayStatus.tone}`), runtimeLogo(projectFrameworkIcon(project)), element('h3', '', project.name));
   const latestRelease = deployment.releases?.[0];
   // A failed candidate is kept at the head of the history, while
   // activeReleaseId deliberately continues to point at the release users are
@@ -790,8 +856,7 @@ function projectRow(project) {
   portMeta.append(document.createTextNode('Port '), element('strong', '', String(project.port || 'auto')));
   const branchMeta = element('span', 'meta-item');
   branchMeta.append(document.createTextNode('Branch '), element('strong', '', project.branch));
-  const hasNewCommit = shouldOfferManualSync({
-    autoSyncEnabled: project.autoSync?.enabled,
+  const hasNewCommit = hasNewerSyncedRevision({
     syncStatus: sync.status,
     syncRevision: sync.revision,
     deployedRevision
@@ -807,11 +872,13 @@ function projectRow(project) {
   const details = element('details', 'project-details');
   const detailSummary = element('summary', '', 'รายละเอียดการตั้งค่า');
   const detailList = element('dl', 'project-detail-list');
+  const frameworkLabel = project.framework && projectFrameworks[project.framework]?.label;
   const runtime = project.runtime === 'docker-compose'
     ? `Docker Compose · ${project.composeFile || 'compose.yaml'} · service=${project.composeService || 'web'}`
-    : project.runtime === 'python' ? `Python · .venv · ${project.pythonMode || 'script'} · ${project.pythonEntry || 'main.py'}`
+    : project.runtime === 'python' ? `${frameworkLabel || 'Python'} · .venv · ${project.pythonMode || 'script'} · ${project.pythonEntry || 'main.py'}`
+    : project.runtime === 'php' ? `${frameworkLabel || 'PHP'} · ${project.phpMode || 'server'} · ${project.phpDocroot || 'public'}`
     : project.runtime === 'go' ? `Go · package=${project.goPackage || '.'} · hostmgr-app`
-    : `${project.runtime === 'bun' ? 'Bun' : 'Node.js'} · ${project.buildScript === null ? 'ไม่ build' : `build=${project.buildScript || 'build'}`} · start=${project.startScript || 'start'}`;
+    : `${frameworkLabel || (project.runtime === 'bun' ? 'Bun' : 'Node.js')} · ${project.buildScript === null ? 'ไม่ build' : `build=${project.buildScript || 'build'}`} · start=${project.startScript || 'start'}`;
   const values = [
     ['Repository', project.repository],
     ['Directory', project.directory || '/'],
@@ -819,9 +886,9 @@ function projectRow(project) {
     ['Port', String(project.port)],
     ['Runtime', runtime],
     ['Environment', project.environment?.keys?.length ? `.env ${project.environment.keys.length} keys` : 'ไม่มีค่า .env'],
-    ['Auto sync', project.autoSync?.enabled
-      ? `ตรวจ Git ทุก 5 นาที → sync + redeploy${project.autoSync.lastResult ? ` · ${project.autoSync.lastResult.status}` : ''}`
-      : 'ตรวจ Git ทุก 5 นาที · พบ commit ใหม่จะแสดงบนการ์ด']
+    ['Auto deploy', project.autoSync?.enabled
+      ? `เมื่อ sync Git จะสร้าง release อัตโนมัติ${project.autoSync.lastResult ? ` · ${project.autoSync.lastResult.status}` : ''}`
+      : 'เมื่อ sync Git ต้องกด Deploy เอง']
   ];
   values.forEach(([label, value]) => detailList.append(element('dt', '', label), element('dd', '', value)));
   details.append(detailSummary, detailList);
@@ -833,14 +900,13 @@ function projectRow(project) {
   primaryAction.type = 'button';
   primaryAction.disabled = displayStatus.key === 'deploying' || sync.status !== 'synced';
   if (displayStatus.key === 'attention' && deployment.previousReleaseId) primaryAction.addEventListener('click', () => rollbackProject(project, primaryAction));
-  else primaryAction.addEventListener('click', () => openDeployDialog(project).catch(showError));
+  else primaryAction.addEventListener('click', () => startProjectDeploy(project, primaryAction).catch(showError));
   actions.append(primaryAction);
-  if (hasNewCommit) {
-    const manualSync = element('button', 'btn btn-ghost btn-sm project-manual-sync', 'Sync');
-    manualSync.type = 'button';
-    manualSync.addEventListener('click', () => syncExistingProject(project, manualSync).catch(showError));
-    actions.append(manualSync);
-  }
+  const manualSync = element('button', 'btn btn-ghost btn-sm project-manual-sync', 'Sync latest');
+  manualSync.type = 'button';
+  manualSync.disabled = displayStatus.key === 'deploying';
+  manualSync.addEventListener('click', () => syncExistingProject(project, manualSync).catch(showError));
+  actions.append(manualSync);
   const logsPageLink = element('a', 'btn btn-ghost btn-sm', 'Logs');
   logsPageLink.href = `/projects/${encodeURIComponent(project.slug)}/logs`;
   actions.append(logsPageLink);
@@ -872,7 +938,7 @@ function projectRow(project) {
   const deploy = element('button', 'secondary', 'สร้าง release');
   deploy.type = 'button';
   deploy.disabled = sync.status !== 'synced';
-  deploy.addEventListener('click', closeMenu(() => openDeployDialog(project).catch(showError)));
+  deploy.addEventListener('click', closeMenu(() => startProjectDeploy(project, deploy).catch(showError)));
   actionList.append(deploy);
   if (latestRelease) {
     const logs = element('button', 'secondary', 'ดู log');
@@ -888,7 +954,7 @@ function projectRow(project) {
   hooks.type = 'button';
   hooks.addEventListener('click', closeMenu(() => openNotificationHookDialog(project).catch(showError)));
   actionList.append(hooks);
-  const autoSync = element('button', 'secondary', project.autoSync?.enabled ? 'ปิด Auto sync' : 'เปิด Auto sync');
+  const autoSync = element('button', 'secondary', project.autoSync?.enabled ? 'ปิด Auto deploy' : 'เปิด Auto deploy');
   autoSync.type = 'button';
   autoSync.addEventListener('click', closeMenu(() => configureAutoSync(project, autoSync).catch(showError)));
   actionList.append(autoSync);
@@ -928,6 +994,7 @@ async function syncExistingProject(project, button) {
     branch: project.branch || 'main',
     port: project.port ?? null,
     runtime: project.runtime || 'node',
+    framework: project.framework || '',
     healthCheckEnabled: project.healthCheckEnabled !== false,
     healthCheckPath: project.healthCheckPath || '/',
     protocol: project.protocol || 'https',
@@ -938,6 +1005,8 @@ async function syncExistingProject(project, button) {
     payload.composeService = project.composeService || '';
   } else if (payload.runtime === 'python') {
     Object.assign(payload, pythonProjectFields(project));
+  } else if (payload.runtime === 'php') {
+    Object.assign(payload, phpProjectFields(project));
   } else if (payload.runtime === 'go') {
     payload.goPackage = project.goPackage || '.';
   } else {
@@ -948,6 +1017,12 @@ async function syncExistingProject(project, button) {
     const result = await api('/api/projects/sync', { method: 'POST', body: payload });
     const revision = result.project?.sync?.revision;
     toast(result.project?.sync?.status === 'synced' ? `Synced latest ${payload.branch}${revision ? ` · ${revision.slice(0, 12)}` : ''}` : (result.project?.sync?.detail || 'Project sync queued.'));
+    if (result.job?.id) {
+      toast(result.activation === 'queued' ? 'จัดคิว auto deploy แล้ว' : 'Auto deploy สำเร็จ');
+      showDeploymentProgress(project, result.job);
+      return;
+    }
+    if (result.activation === 'complete') toast('Auto deploy สำเร็จ');
     await refresh();
   });
 }
@@ -1277,10 +1352,10 @@ function renderMailPreview() {
 
 async function configureAutoSync(project, button) {
   if (project.autoSync?.enabled) {
-    if (!await confirmAction('ปิด Auto sync', `หยุด redeploy อัตโนมัติของ ${project.name} หรือไม่? Portal จะยังตรวจ commit ทุก 5 นาทีและแสดง commit ใหม่บนการ์ด`, 'ปิด Auto sync')) return;
+    if (!await confirmAction('ปิด Auto deploy', `หยุดสร้าง release อัตโนมัติหลัง sync Git ของ ${project.name} หรือไม่?`, 'ปิด Auto deploy')) return;
     await withBusy(button, async () => {
       await api(`/api/projects/${encodeURIComponent(project.slug)}/auto-sync`, { method: 'POST', body: { enabled: false } });
-      toast('ปิด Auto sync แล้ว');
+      toast('ปิด Auto deploy แล้ว');
       await refresh();
     });
     return;
@@ -1288,7 +1363,7 @@ async function configureAutoSync(project, button) {
   await withBusy(button, async () => {
     await api(`/api/projects/${encodeURIComponent(project.slug)}/auto-sync`, { method: 'POST', body: { enabled: true } });
     await refresh();
-    toast('เปิด Auto sync แล้ว — Portal จะตรวจ Git ทุก 5 นาที และ redeploy เมื่อพบ commit ใหม่');
+    toast('เปิด Auto deploy แล้ว — เมื่อ sync Git จะสร้าง release อัตโนมัติ');
   });
 }
 
@@ -2238,13 +2313,26 @@ async function installTool(tool, button) {
 }
 
 function confirmAction(title, message, acceptLabel = 'ยืนยัน') {
+  return confirmChoice(title, message, { acceptLabel }).then((choice) => choice === 'accept');
+}
+
+function confirmChoice(title, message, { acceptLabel = 'ยืนยัน', rejectLabel = '' } = {}) {
   const dialog = $('#confirm-dialog');
+  const reject = $('#confirm-reject');
   $('#confirm-title').textContent = title;
   $('#confirm-message').textContent = message;
   $('#confirm-accept').textContent = acceptLabel;
+  if (reject) {
+    reject.hidden = !rejectLabel;
+    reject.textContent = rejectLabel || 'ไม่ต้อง';
+  }
   showDialog(dialog);
   return new Promise((resolve) => {
-    dialog.addEventListener('close', () => resolve(dialog.returnValue === 'confirm'), { once: true });
+    dialog.addEventListener('close', () => {
+      if (reject) reject.hidden = true;
+      const value = dialog.returnValue;
+      resolve(value === 'confirm' ? 'accept' : value === 'reject' ? 'reject' : 'cancel');
+    }, { once: true });
   });
 }
 
@@ -2291,6 +2379,27 @@ async function rollbackProject(project, button) {
     else await refresh();
   } catch (error) { showError(error); }
   finally { button.disabled = false; }
+}
+
+async function startProjectDeploy(project, button) {
+  if (!project.deployment?.releases?.length) {
+    await openDeployDialog(project);
+    return;
+  }
+  const choice = await confirmChoice('ต้องการแก้ไขข้อมูลหรือไม่?', `แก้ไข env หรือการตั้งค่าของ ${project.name} ก่อน deploy หรือข้ามไปสร้าง release เลย`, { acceptLabel: 'แก้ไข', rejectLabel: 'ไม่ต้อง' });
+  if (choice === 'accept') {
+    await openDeployDialog(project);
+    return;
+  }
+  if (choice !== 'reject') return;
+  await withBusy(button, () => deployExistingProject(project));
+}
+
+async function deployExistingProject(project) {
+  const result = await api(`/api/projects/${encodeURIComponent(project.slug)}/deploy`, { method: 'POST', body: {} });
+  toast(result.activation === 'queued' ? 'จัดคิว deploy แล้ว' : 'สร้าง release แล้ว');
+  if (result.job?.id) showDeploymentProgress(project, result.job);
+  else await refresh();
 }
 
 async function openDeployDialog(project) {
@@ -2908,8 +3017,10 @@ async function ensureEditDraft() {
     skipBuild: project.buildScript === null,
     startScript: project.startScript || 'start',
     runtime: project.runtime || 'node',
+    framework: project.framework || '',
     goPackage: project.goPackage || '.',
     ...pythonProjectFields(project),
+    ...phpProjectFields(project),
     composeFile: project.composeFile || 'compose.yaml',
     composeService: project.composeService || '',
     healthCheckEnabled: project.healthCheckEnabled !== false,
@@ -2957,7 +3068,12 @@ async function hydrateRepositoryStep() {
   $('#python-entry').value = draft.pythonEntry || 'main.py';
   $('#python-install').value = draft.pythonInstall || 'requirements';
   $('#python-requirements').value = draft.pythonRequirements || 'requirements.txt';
+  $('#php-mode').value = draft.phpMode || 'server';
+  $('#php-docroot').value = draft.phpDocroot || 'public';
+  $('#php-router').value = draft.phpRouter || '';
+  $('#php-install').value = draft.phpInstall || 'composer';
   setProjectRuntime(draft.runtime || 'node');
+  setDetectedFramework(draft.framework || '');
   $('#compose-file').value = draft.composeFile || 'compose.yaml';
   $('#compose-service').value = draft.composeService || '';
   $('#health-check-enabled').checked = draft.healthCheckEnabled !== false;
@@ -2983,9 +3099,10 @@ async function hydrateReviewStep() {
     ['Repository', draft.repository || '—'],
     ['Directory', draft.directory || '/'],
     ['Branch', draft.branch || '—'],
-    ['Runtime', draft.runtime === 'docker-compose' ? `Docker Compose · ${draft.composeFile || 'compose.yaml'} · service ${draft.composeService || '—'}` : (draft.runtime === 'python' ? 'Python / .venv / systemd' : draft.runtime === 'go' ? 'Go / systemd' : draft.runtime === 'bun' ? 'Bun / systemd' : 'Node.js / systemd')],
-    ['Build', draft.runtime === 'python' ? `สร้าง .venv · ${draft.pythonInstall === 'none' ? 'ไม่ติดตั้ง dependencies' : draft.pythonInstall === 'project' ? 'pip install .' : draft.pythonRequirements || 'requirements.txt'}` : draft.runtime === 'go' ? `go build ${draft.goPackage || '.'}` : draft.skipBuild === true || draft.buildScript === null ? 'Skipped' : (draft.buildScript || 'build')],
+    ['Runtime', projectRuntimeSummary(draft)],
+    ['Build', draft.runtime === 'python' ? `สร้าง .venv · ${draft.pythonInstall === 'none' ? 'ไม่ติดตั้ง dependencies' : draft.pythonInstall === 'project' ? 'pip install .' : draft.pythonRequirements || 'requirements.txt'}` : draft.runtime === 'php' ? (draft.phpInstall === 'none' ? 'ไม่ติดตั้ง Composer' : 'composer install --no-dev') : draft.runtime === 'go' ? `go build ${draft.goPackage || '.'}` : draft.skipBuild === true || draft.buildScript === null ? 'Skipped' : (draft.buildScript || 'build')],
     ...(draft.runtime === 'python' ? [['Start', `${draft.pythonMode || 'script'} · ${draft.pythonEntry || 'main.py'}`]] : []),
+    ...(draft.runtime === 'php' ? [['Start', `${draft.phpMode || 'server'} · ${draft.phpDocroot || 'public'}`]] : []),
     ['การเชื่อมต่อ', connectionLabel(draft)],
     ['Port ภายในเครื่อง', draft.autoPort === true || draft.autoPort === 'on' || !draft.port ? 'สุ่มพอร์ตว่างตอนบันทึก' : draft.port],
     ['Health check', draft.healthCheckEnabled === false ? 'Skipped' : (draft.healthCheckPath || '/')]
@@ -3021,31 +3138,96 @@ function runtimeValue() {
   return $('#project-runtime')?.value || 'node';
 }
 
+function projectRuntimeSummary(draft) {
+  const choice = projectFrameworks[draft.framework] || projectRuntimes[draft.runtime] || projectRuntimes.node;
+  if (draft.runtime === 'docker-compose') return `Docker Compose · ${draft.composeFile || 'compose.yaml'} · service ${draft.composeService || '—'}`;
+  if (draft.runtime === 'php') return `${choice.label} / PHP / systemd`;
+  if (draft.runtime === 'python') return `${choice.label} / Python / .venv`;
+  if (draft.runtime === 'go') return 'Go / systemd';
+  if (draft.runtime === 'bun') return `${choice.label} / Bun / systemd`;
+  return `${choice.label} / Node.js / systemd`;
+}
+
+function applyFrameworkDefaults(selected) {
+  if (selected === 'django' && $('#python-mode')) {
+    $('#python-mode').value = 'wsgi';
+    if (['', 'main.py', 'app:app'].includes($('#python-entry').value)) $('#python-entry').value = 'config.wsgi:application';
+  }
+  if (selected === 'flask' && $('#python-mode')) {
+    $('#python-mode').value = 'wsgi';
+    if (['', 'main.py', 'config.wsgi:application'].includes($('#python-entry').value)) $('#python-entry').value = 'app:app';
+  }
+  if (selected === 'fastapi' && $('#python-mode')) {
+    $('#python-mode').value = 'asgi';
+    if (['', 'main.py', 'config.wsgi:application'].includes($('#python-entry').value)) $('#python-entry').value = 'app:app';
+  }
+  if (!$('#php-mode')) return;
+  if (selected === 'laravel') {
+    $('#php-mode').value = 'artisan';
+    $('#php-docroot').value = 'public';
+    $('#php-router').value = '';
+    $('#php-install').value = 'composer';
+  }
+  if (selected === 'codeigniter') {
+    $('#php-mode').value = 'spark';
+    $('#php-docroot').value = 'public';
+    $('#php-router').value = '';
+    $('#php-install').value = 'composer';
+  }
+  if (selected === 'symfony' || selected === 'slim') {
+    $('#php-mode').value = 'server';
+    $('#php-docroot').value = 'public';
+    $('#php-router').value = 'public/index.php';
+    $('#php-install').value = 'composer';
+  }
+  if (selected === 'cakephp') {
+    $('#php-mode').value = 'server';
+    $('#php-docroot').value = 'webroot';
+    $('#php-router').value = 'webroot/index.php';
+    $('#php-install').value = 'composer';
+  }
+}
+
+function setDetectedFramework(value) {
+  const spec = projectFrameworks[value] || null;
+  const runtime = runtimeValue();
+  const framework = spec && spec.runtime === runtime ? value : '';
+  const input = $('#project-framework');
+  if (input) input.value = framework;
+  const row = $('#detected-framework');
+  if (row) {
+    row.hidden = !framework;
+    if (framework) {
+      $('#detected-framework-label').textContent = spec.label;
+      $('#detected-framework-icon').replaceChildren(runtimeLogo(framework));
+    }
+  }
+  if (framework) applyFrameworkDefaults(framework);
+}
+
 function setProjectRuntime(value) {
-  const runtime = ['node', 'bun', 'go', 'python', 'docker-compose'].includes(value) ? value : 'node';
-  const choices = {
-    node: { label: 'Node.js', detail: 'build และ run ด้วย npm script ใน systemd', icon: 'node' },
-    python: { label: 'Python', detail: 'ติดตั้งและรันใน .venv ด้วย user ของโปรเจกต์', icon: 'python' },
-    go: { label: 'Go', detail: 'build เป็น binary และรันด้วย systemd', icon: 'go' },
-    bun: { label: 'Bun', detail: 'ติดตั้ง dependencies และ run package script ด้วย Bun ใน systemd', icon: 'bun' },
-    'docker-compose': { label: 'Docker Compose', detail: 'Compose ที่ผ่าน policy check ก่อน activate', icon: 'docker' }
-  };
+  const selected = projectRuntimes[value] ? value : 'node';
+  const choice = projectRuntimes[selected];
   const input = $('#project-runtime');
   if (!input) return;
   const tools = typeof state === 'undefined' ? [] : (state.doctor?.tools ?? []);
-  const tool = tools.find((item) => item.id === runtime);
-  if (['go', 'python'].includes(runtime) && tool?.status === 'Missing') return;
-  input.value = runtime;
-  $('#runtime-selection-label').textContent = choices[runtime].label;
-  $('#runtime-selection-detail').textContent = choices[runtime].detail;
-  $('#runtime-selection-icon').replaceChildren(runtimeLogo(choices[runtime].icon));
+  const tool = tools.find((item) => item.id === selected);
+  if (['go', 'python', 'php'].includes(selected) && tool?.status === 'Missing') return;
+  input.value = selected;
+  $('#runtime-selection-label').textContent = choice.label;
+  $('#runtime-selection-detail').textContent = choice.detail;
+  $('#runtime-selection-icon').replaceChildren(runtimeLogo(choice.icon));
+  const current = $('#project-framework')?.value || '';
+  if (current && projectFrameworks[current]?.runtime !== selected) setDetectedFramework('');
+  else setDetectedFramework(current);
   $$('[data-runtime-option]').forEach((option) => {
-    const optionalTool = tools.find((item) => item.id === option.dataset.runtimeOption);
-    const unavailable = ['go', 'python'].includes(option.dataset.runtimeOption) && optionalTool?.status === 'Missing';
+    const optionRuntime = option.dataset.runtimeOption;
+    const optionalTool = tools.find((item) => item.id === optionRuntime);
+    const unavailable = ['go', 'python', 'php'].includes(optionRuntime) && optionalTool?.status === 'Missing';
     option.disabled = unavailable;
     option.setAttribute('aria-disabled', String(unavailable));
     option.title = unavailable ? 'ยังไม่ได้ติดตั้งบน host' : '';
-    option.setAttribute('aria-selected', String(option.dataset.runtimeOption === runtime));
+    option.setAttribute('aria-selected', String(optionRuntime === selected));
   });
   $('#runtime-menu')?.removeAttribute('open');
   toggleRuntimeFields();
@@ -3056,11 +3238,15 @@ function toggleRuntimeFields() {
   const docker = runtime === 'docker-compose';
   const go = runtime === 'go';
   const python = runtime === 'python';
-  const packageRuntime = !docker && !go && !python;
+  const php = runtime === 'php';
+  const packageRuntime = !docker && !go && !python && !php;
   $('#python-fields').hidden = !python;
   for (const id of ['#python-mode', '#python-entry', '#python-install']) $(id).disabled = !python;
   $('#python-entry').required = python;
   togglePythonFields();
+  $('#php-fields').hidden = !php;
+  for (const id of ['#php-mode', '#php-install', '#php-docroot', '#php-router']) $(id).disabled = !php;
+  togglePhpFields();
   $('#docker-compose-fields').hidden = !docker;
   $('#go-fields').hidden = !go;
   $('#go-package').disabled = !go;
@@ -3087,6 +3273,10 @@ function pythonProjectFields(project) {
   return { pythonMode: project.pythonMode || 'script', pythonEntry: project.pythonEntry || 'main.py', pythonInstall: project.pythonInstall || 'requirements', pythonRequirements: project.pythonRequirements || 'requirements.txt' };
 }
 
+function phpProjectFields(project) {
+  return { phpMode: project.phpMode || 'server', phpDocroot: project.phpDocroot || 'public', phpRouter: project.phpRouter || '', phpInstall: project.phpInstall || 'composer' };
+}
+
 function togglePythonFields() {
   const python = runtimeValue() === 'python';
   const requirements = $('#python-install').value === 'requirements';
@@ -3096,6 +3286,20 @@ function togglePythonFields() {
   const script = $('#python-mode').value === 'script';
   $('#python-entry').placeholder = script ? 'main.py' : 'app.main:app';
   $('#python-entry-hint').textContent = script ? 'ไฟล์ .py เช่น main.py หรือ src/server.py; แอปต้องอ่าน PORT จาก environment' : 'ใช้ module:object เช่น app.main:app · ใส่ uvicorn (ASGI) หรือ gunicorn (WSGI) ใน dependencies ด้วย';
+}
+
+function togglePhpFields() {
+  const php = runtimeValue() === 'php';
+  const server = $('#php-mode').value === 'server';
+  $('#php-server-fields').hidden = !server;
+  $('#php-docroot').disabled = !php || !server;
+  $('#php-docroot').required = php && server;
+  $('#php-router').disabled = !php || !server;
+  $('#php-entry-hint').textContent = server
+    ? 'PHP built-in server ฟัง PORT บน loopback; ใส่ router เมื่อแอปใช้ front controller เช่น public/index.php'
+    : $('#php-mode').value === 'artisan'
+      ? 'รัน php artisan serve บน loopback และอ่าน PORT จาก argument'
+      : 'รัน php spark serve บน loopback และอ่าน PORT จาก argument';
 }
 
 function toggleProjectPort() {
@@ -3162,12 +3366,20 @@ async function detectProjectRuntimeFromRepository({ quiet = false } = {}) {
     });
     const detection = result.detection;
     if (detection?.recommendedRuntime) setProjectRuntime(detection.recommendedRuntime);
+    if (detection?.recommendedFramework) setDetectedFramework(detection.recommendedFramework);
     if (detection?.recommendedRuntime === 'python') {
       $('#python-mode').value = detection.pythonMode || 'script';
       $('#python-entry').value = detection.pythonEntry || 'main.py';
       $('#python-install').value = detection.pythonInstall || 'requirements';
       $('#python-requirements').value = detection.pythonRequirements || 'requirements.txt';
       togglePythonFields();
+    }
+    if (detection?.recommendedRuntime === 'php') {
+      $('#php-mode').value = detection.phpMode || 'server';
+      $('#php-docroot').value = detection.phpDocroot || 'public';
+      $('#php-router').value = detection.phpRouter || '';
+      $('#php-install').value = detection.phpInstall || 'composer';
+      togglePhpFields();
     }
     if (detection?.goPackage) $('#go-package').value = detection.goPackage;
     if (detection?.buildScript) $('#build-script').value = detection.buildScript;
@@ -3178,7 +3390,7 @@ async function detectProjectRuntimeFromRepository({ quiet = false } = {}) {
       const evidence = (detection?.evidence || []).map((item) => item.path).join(' · ');
       note.textContent = [detection?.notice, evidence].filter(Boolean).join(' — ') || 'ยังตรวจ runtime ไม่ได้';
     }
-    if (!quiet && detection?.recommendedRuntime) toast(`เลือก ${detection.recommendedRuntime === 'docker-compose' ? 'Docker Compose' : detection.recommendedRuntime === 'python' ? 'Python' : detection.recommendedRuntime === 'go' ? 'Go' : detection.recommendedRuntime === 'bun' ? 'Bun' : 'Node.js'} ให้แล้ว`);
+    if (!quiet && (detection?.recommendedFramework || detection?.recommendedRuntime)) toast(`เลือก ${projectFrameworks[detection.recommendedFramework]?.label || projectRuntimes[detection.recommendedRuntime]?.label || 'runtime'} ให้แล้ว`);
   } catch (error) {
     if (note) note.textContent = `ตรวจอัตโนมัติไม่สำเร็จ: ${error.message}`;
     if (!quiet) throw error;
@@ -3203,8 +3415,10 @@ async function syncProjectDraft() {
     buildScript: draft.skipBuild === true || draft.buildScript === null ? '' : (draft.buildScript ?? 'build'),
     startScript: draft.startScript || 'start',
     runtime: draft.runtime || 'node',
+    framework: draft.framework || '',
     goPackage: draft.goPackage || '.',
     ...pythonProjectFields(draft),
+    ...phpProjectFields(draft),
     composeFile: draft.composeFile || 'compose.yaml',
     composeService: draft.composeService || '',
     healthCheckEnabled: draft.healthCheckEnabled !== false,
@@ -3407,6 +3621,7 @@ function bindEvents() {
     data.protocol = repositoryProtocol(data.repository);
     if (data.protocol === 'ssh') data.credentialId = '';
     data.runtime = runtimeValue();
+    data.framework = frameworkValue();
     data.autoPort = $('#auto-project-port').checked;
     if (data.autoPort) data.port = '';
     data.skipBuild = $('#skip-build').checked;
@@ -3428,6 +3643,7 @@ function bindEvents() {
     togglePythonFields();
   });
   $('#python-install')?.addEventListener('change', togglePythonFields);
+  $('#php-mode')?.addEventListener('change', togglePhpFields);
   $('#skip-build')?.addEventListener('change', toggleBuildFields);
   $$('[data-runtime-option]').forEach((option) => option.addEventListener('click', () => setProjectRuntime(option.dataset.runtimeOption)));
 

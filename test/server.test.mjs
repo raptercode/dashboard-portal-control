@@ -411,6 +411,38 @@ test('local UI demo simulates sync and activates a release without cloning', asy
   assert.ok(payload.project.deployment.activeReleaseId);
 });
 
+test('manual git sync auto deploys only when auto deploy is enabled', async (t) => {
+  let revision = 'c'.repeat(40);
+  const projectSyncer = async () => ({ status: 'synced', at: new Date().toISOString(), revision, detail: 'Repository checked.' });
+  const { app, base } = await start({ autoSyncPollingEnabled: false, projectSyncer });
+  t.after(() => app.close());
+  const login = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'owner@local.test', password: 'correct-horse-battery-staple' }) });
+  const session = await login.json();
+  const cookie = login.headers.get('set-cookie').split(';')[0];
+  const headers = { cookie, 'content-type': 'application/json', 'x-csrf-token': session.csrfToken };
+  await fetch(`${base}/api/tools/git/install`, { method: 'POST', headers, body: JSON.stringify({ confirm: true }) });
+  await fetch(`${base}/api/git-config`, { method: 'POST', headers, body: JSON.stringify({ name: 'Demo Owner', email: 'owner@example.test' }) });
+  const first = await fetch(`${base}/api/projects/sync`, { method: 'POST', headers, body: JSON.stringify({ name: 'Manual auto', slug: 'manual-auto', repository: 'https://github.com/example/manual.git', branch: 'main', port: 3002, protocol: 'https' }) });
+  assert.equal(first.status, 200);
+  assert.equal((await first.json()).activation, undefined);
+  await fetch(`${base}/api/projects/manual-auto/environment`, { method: 'POST', headers, body: JSON.stringify({ content: 'NODE_ENV=production\n' }) });
+  revision = 'd'.repeat(40);
+  const disabled = await fetch(`${base}/api/projects/sync`, { method: 'POST', headers, body: JSON.stringify({ name: 'Manual auto', slug: 'manual-auto', repository: 'https://github.com/example/manual.git', branch: 'main', port: 3002, protocol: 'https' }) });
+  const disabledPayload = await disabled.json();
+  assert.equal(disabled.status, 200);
+  assert.equal(disabledPayload.activation, undefined);
+  assert.equal(disabledPayload.project.deployment.state, 'idle');
+  await fetch(`${base}/api/projects/manual-auto/auto-sync`, { method: 'POST', headers, body: JSON.stringify({ enabled: true }) });
+  revision = 'e'.repeat(40);
+  const enabled = await fetch(`${base}/api/projects/sync`, { method: 'POST', headers, body: JSON.stringify({ name: 'Manual auto', slug: 'manual-auto', repository: 'https://github.com/example/manual.git', branch: 'main', port: 3002, protocol: 'https' }) });
+  const enabledPayload = await enabled.json();
+  assert.equal(enabled.status, 200);
+  assert.equal(enabledPayload.activation, 'complete');
+  assert.equal(enabledPayload.project.deployment.state, 'active');
+  assert.equal(enabledPayload.project.sync.revision, revision);
+  assert.equal(enabledPayload.project.deployment.releases[0]?.revision, revision);
+});
+
 test('five-minute source polling updates commit state and only auto deploys a new commit when enabled', async (t) => {
   let revision = 'a'.repeat(40);
   const projectSyncer = async () => ({ status: 'synced', at: new Date().toISOString(), revision, detail: 'Repository checked.' });

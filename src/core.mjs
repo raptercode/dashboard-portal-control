@@ -1,4 +1,5 @@
 import { pythonSettings } from '../scripts/python-project.mjs';
+import { phpSettings } from '../scripts/php-project.mjs';
 import { mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { createCipheriv, createDecipheriv, randomBytes, randomUUID } from 'node:crypto';
@@ -13,8 +14,31 @@ export const TOOLS = {
   docker: { label: 'Docker Engine + Compose', package: 'docker.io docker-compose-v2', required: false, purpose: 'ใช้งาน Docker mode' },
   go: { label: 'Go compiler', package: 'Go compiler', required: false, installable: false, purpose: 'Optional — ติดตั้ง Go บน host ก่อนจึงจะสร้าง Go project ได้' },
   python: { label: 'Python + venv', package: 'python3 python3-venv', required: false, installable: false, purpose: 'Optional — ติดตั้ง Python และ venv บน host ก่อนจึงจะสร้าง Python project ได้' },
+  php: { label: 'PHP + Composer', package: 'php-cli composer', required: false, installable: false, purpose: 'Optional — ติดตั้ง PHP และ Composer บน host ก่อนจึงจะสร้าง PHP project ได้' },
   mail: { label: 'Mail server (Postfix + Dovecot)', package: 'postfix dovecot-imapd dovecot-lmtpd opendkim opendkim-tools', required: false, purpose: 'รับ/ส่งอีเมลด้วยโดเมนของคุณเอง — ตั้งค่าผ่าน Mail Setup Wizard' }
 };
+
+export const PROJECT_FRAMEWORKS = Object.freeze({
+  next: { runtimes: ['node', 'bun'] },
+  nuxt: { runtimes: ['node', 'bun'] },
+  express: { runtimes: ['node', 'bun'] },
+  nestjs: { runtimes: ['node', 'bun'] },
+  fastify: { runtimes: ['node', 'bun'] },
+  hono: { runtimes: ['node', 'bun'] },
+  remix: { runtimes: ['node', 'bun'] },
+  sveltekit: { runtimes: ['node', 'bun'] },
+  astro: { runtimes: ['node', 'bun'] },
+  angular: { runtimes: ['node', 'bun'] },
+  elysia: { runtimes: ['bun', 'node'] },
+  django: { runtimes: ['python'] },
+  flask: { runtimes: ['python'] },
+  fastapi: { runtimes: ['python'] },
+  laravel: { runtimes: ['php'] },
+  codeigniter: { runtimes: ['php'] },
+  symfony: { runtimes: ['php'] },
+  slim: { runtimes: ['php'] },
+  cakephp: { runtimes: ['php'] }
+});
 
 function initialToolState(id, tool) {
   return {
@@ -268,7 +292,10 @@ export function validateProjectSync(input) {
   const credentialId = optionalText(input.credentialId, 64);
   if (protocol === 'https' && credentialId && !/^[a-f0-9-]{36}$/i.test(credentialId)) throw new InputError('Credential selection is invalid.');
   const runtime = input.runtime === undefined ? 'node' : input.runtime;
-  if (!['node', 'bun', 'go', 'python', 'docker-compose'].includes(runtime)) throw new InputError('Project runtime is invalid.');
+  if (!['node', 'bun', 'go', 'python', 'php', 'docker-compose'].includes(runtime)) throw new InputError('Project runtime is invalid.');
+  const framework = optionalText(input.framework, 16);
+  if (framework && !PROJECT_FRAMEWORKS[framework]) throw new InputError('Project framework is invalid.');
+  if (framework && !PROJECT_FRAMEWORKS[framework].runtimes.includes(runtime)) throw new InputError('Project framework does not match the selected runtime.');
   const buildScript = ['node', 'bun'].includes(runtime) ? optionalPackageScript(input.buildScript, 'Build script') : null;
   const startScript = ['node', 'bun'].includes(runtime) ? optionalPackageScript(input.startScript, 'Start script') : null;
   const composeFile = runtime === 'docker-compose' ? validateComposeFile(input.composeFile) : null;
@@ -281,8 +308,10 @@ export function validateProjectSync(input) {
     credentialId: protocol === 'https' ? credentialId || null : null,
     sshKeyId: protocol === 'ssh' ? `deploy-key-${project.slug}` : null,
     runtime,
+    framework: framework || null,
     ...(runtime === 'go' ? { goPackage: validateGoPackage(input.goPackage) } : {}),
     ...(runtime === 'python' ? validatePythonProjectSettings(input) : {}),
+    ...(runtime === 'php' ? validatePhpProjectSettings(input) : {}),
     ...(runtime === 'docker-compose' ? { composeFile, composeService } : {}),
     ...(buildScript !== undefined ? { buildScript } : {}),
     ...(startScript !== undefined ? { startScript } : {}),
@@ -292,6 +321,11 @@ export function validateProjectSync(input) {
 
 export function validatePythonProjectSettings(input) {
   try { return pythonSettings(input); }
+  catch (error) { throw new InputError(error.message); }
+}
+
+export function validatePhpProjectSettings(input) {
+  try { return phpSettings(input); }
   catch (error) { throw new InputError(error.message); }
 }
 

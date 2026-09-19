@@ -24,8 +24,11 @@ test('project list keeps technical settings behind details and protects deletion
   assert.match(app, /projectActionMenuPlacement/);
   assert.match(app, /positionProjectActionMenu/);
   assert.match(app, /opens-upward/);
-  assert.match(app, /shouldOfferManualSync/);
+  assert.match(app, /hasNewerSyncedRevision/);
   assert.match(app, /project-manual-sync/);
+  assert.match(app, /function startProjectDeploy\(project, button\)/);
+  assert.match(app, /function confirmChoice\(/);
+  assert.match(app, /acceptLabel: 'แก้ไข', rejectLabel: 'ไม่ต้อง'/);
   assert.match(app, /details\.project-actions-menu\[open\]/);
   assert.match(app, /event\.target\.closest\('\.project-actions-menu'\)/);
   assert.match(app, /Sync latest/);
@@ -43,7 +46,7 @@ test('project list keeps technical settings behind details and protects deletion
   assert.match(app, /sync\.revision/);
   assert.match(app, /function openNotificationHookDialog\(project\)/);
   assert.match(app, /function configureAutoSync\(project, button\)/);
-  assert.match(app, /ตรวจ Git ทุก 5 นาที/);
+  assert.match(app, /เมื่อ sync Git จะสร้าง release อัตโนมัติ/);
   assert.match(app, /api\/projects\/\$\{encodeURIComponent\(project\.slug\)\}\/auto-sync/);
   assert.match(app, /function projectDisplayStatus\(project\)/);
   assert.match(app, /Ready to release/);
@@ -54,6 +57,7 @@ test('project list keeps technical settings behind details and protects deletion
   assert.match(app, /domain\.target = '_blank'/);
   assert.match(app, /domain\.rel = 'noopener noreferrer'/);
   assert.match(app, /input\.value !== project\.name/);
+  assert.match(dialogs, /id="confirm-reject"/);
   assert.match(dialogs, /id="project-delete-dialog"/);
   assert.match(dialogs, /id="notification-hook-dialog"/);
   assert.doesNotMatch(dialogs, /auto-sync-secret/);
@@ -92,7 +96,13 @@ test('project list keeps technical settings behind details and protects deletion
   assert.match(app, /function renderDeploymentLog\(events, failureLog, failure\)/);
   assert.match(repository, /\/ui\/runtime-logos\/nodejs\.svg/);
   assert.match(repository, /\/ui\/runtime-logos\/bun\.svg/);
+  assert.match(repository, /\/ui\/runtime-logos\/php\.svg/);
   assert.match(repository, /\/ui\/runtime-logos\/docker\.svg/);
+  assert.match(repository, /id="detected-framework"/);
+  assert.doesNotMatch(repository, /data-runtime-option="(next|nuxt|express|laravel|django)"/);
+  assert.match(app, /function setDetectedFramework\(/);
+  assert.match(app, /function projectFrameworkIcon\(project\)/);
+  assert.match(app, /cardTitle\.append\([\s\S]*runtimeLogo\(projectFrameworkIcon\(project\)\)/);
   assert.doesNotMatch(repository, /#icon-(node|bun|docker)/);
   assert.doesNotMatch(icons, /id="icon-(node|bun|docker)"/);
   assert.match(repository, /id="repository-connection-note"/);

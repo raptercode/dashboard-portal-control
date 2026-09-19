@@ -54,6 +54,7 @@
       <fieldset class="fieldset runtime-picker">
         <legend>Runtime</legend>
         <input id="project-runtime" name="runtime" type="hidden" value="node">
+        <input id="project-framework" name="framework" type="hidden" value="">
         <details id="runtime-menu" class="runtime-menu">
           <summary><span id="runtime-selection-icon" class="runtime-option-icon"><img class="runtime-logo runtime-logo-node" src="/ui/runtime-logos/nodejs.svg" alt="" aria-hidden="true"></span><span><b id="runtime-selection-label">Node.js</b><small id="runtime-selection-detail">build และ run ด้วย npm script ใน systemd</small></span><svg class="icon runtime-chevron" aria-hidden="true"><use href="#icon-arrow-right"></use></svg></summary>
           <div class="runtime-menu-options" role="listbox" aria-label="เลือก Runtime">
@@ -61,9 +62,14 @@
             <button type="button" class="runtime-menu-option" data-runtime-option="bun" role="option" aria-selected="false"><span class="runtime-option-icon"><img class="runtime-logo runtime-logo-bun" src="/ui/runtime-logos/bun.svg" alt="" aria-hidden="true"></span><span><b>Bun</b><small>Bun install และ systemd</small></span></button>
             <button type="button" class="runtime-menu-option" data-runtime-option="go" role="option" aria-selected="false"><span class="runtime-option-icon"><img class="runtime-logo runtime-logo-go" src="/ui/runtime-logos/go.svg" alt="" aria-hidden="true"></span><span><b>Go</b><small>Go build และ systemd</small></span></button>
             <button type="button" class="runtime-menu-option" data-runtime-option="python" role="option" aria-selected="false"><span class="runtime-option-icon"><img class="runtime-logo runtime-logo-python" src="/ui/runtime-logos/python.svg" alt="" aria-hidden="true"></span><span><b>Python</b><small>แยก .venv ต่อ release</small></span></button>
+            <button type="button" class="runtime-menu-option" data-runtime-option="php" role="option" aria-selected="false"><span class="runtime-option-icon"><img class="runtime-logo runtime-logo-php" src="/ui/runtime-logos/php.svg" alt="" aria-hidden="true"></span><span><b>PHP</b><small>PHP built-in server และ Composer</small></span></button>
             <button type="button" class="runtime-menu-option" data-runtime-option="docker-compose" role="option" aria-selected="false"><span class="runtime-option-icon"><img class="runtime-logo runtime-logo-docker" src="/ui/runtime-logos/docker.svg" alt="" aria-hidden="true"></span><span><b>Docker Compose</b><small>Compose ที่ผ่าน policy check</small></span></button>
           </div>
         </details>
+        <p id="detected-framework" class="detected-framework" hidden>
+          <span id="detected-framework-icon" class="runtime-option-icon"></span>
+          <span><b id="detected-framework-label">—</b><small>ตรวจจาก repository · ไม่เปลี่ยนวิธี deploy</small></span>
+        </p>
       </fieldset>
       <label id="skip-build-row" class="check-row"><input id="skip-build" name="skipBuild" type="checkbox"><span><b>Skip Build</b><small>ใช้เมื่อโปรเจคพร้อม run ได้ทันที เช่น Bun start</small></span></label>
       <div class="two-fields">
@@ -86,6 +92,18 @@
           <label id="python-requirements-row" for="python-requirements">Requirements file<input id="python-requirements" name="pythonRequirements" value="requirements.txt" maxlength="240" placeholder="requirements/production.txt" disabled></label>
         </div>
         <small class="field-hint">สร้าง .venv แยกในแต่ละ release · ติดตั้งและรันด้วย user ของโปรเจกต์ · ไม่ใช้ sudo pip หรือ Python packages ของระบบ</small>
+      </fieldset>
+      <fieldset id="php-fields" class="fieldset" hidden>
+        <legend>PHP environment</legend>
+        <div class="two-fields">
+          <label for="php-mode">Run type<select id="php-mode" name="phpMode" disabled><option value="server">PHP built-in server</option><option value="artisan">Laravel · artisan serve</option><option value="spark">CodeIgniter · spark serve</option></select></label>
+          <label for="php-install">Dependencies<select id="php-install" name="phpInstall" disabled><option value="composer">composer.json</option><option value="none">ไม่มี dependencies</option></select></label>
+        </div>
+        <div class="two-fields" id="php-server-fields">
+          <label for="php-docroot">Document root<input id="php-docroot" name="phpDocroot" value="public" maxlength="240" placeholder="public" disabled></label>
+          <label id="php-router-row" for="php-router">Router<small class="field-hint">เว้นว่างได้</small><input id="php-router" name="phpRouter" value="" maxlength="240" placeholder="public/index.php" disabled></label>
+        </div>
+        <small id="php-entry-hint" class="field-hint">PHP built-in server ฟัง PORT บน loopback; ใส่ router เมื่อแอปใช้ front controller เช่น public/index.php</small>
       </fieldset>
       <div id="docker-compose-fields" class="two-fields" hidden>
         <label for="compose-file">Compose file<input id="compose-file" name="composeFile" value="compose.yaml" maxlength="240" placeholder="compose.yaml"></label>

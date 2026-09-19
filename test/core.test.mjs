@@ -40,6 +40,21 @@ test('project sync accepts an explicit no-build configuration but rejects shell 
   assert.throws(() => validateProjectSync({ ...project, buildScript: 'build && id' }), InputError);
 });
 
+test('project sync stores framework labels on matching runtimes including PHP', () => {
+  const next = validateProjectSync({ name: 'Next app', slug: 'next-app', repository: 'https://github.com/example/next.git', port: 3000, protocol: 'https', runtime: 'node', framework: 'next', startScript: 'start' });
+  assert.equal(next.framework, 'next');
+  assert.equal(next.runtime, 'node');
+  const nest = validateProjectSync({ name: 'Nest app', slug: 'nest-app', repository: 'https://github.com/example/nest.git', port: 3000, protocol: 'https', runtime: 'node', framework: 'nestjs', startScript: 'start' });
+  assert.equal(nest.framework, 'nestjs');
+  const django = validateProjectSync({ name: 'Django app', slug: 'django-app', repository: 'https://github.com/example/django.git', port: 3000, protocol: 'https', runtime: 'python', framework: 'django', pythonMode: 'wsgi', pythonEntry: 'config.wsgi:application' });
+  assert.equal(django.framework, 'django');
+  const laravel = validateProjectSync({ name: 'Laravel app', slug: 'laravel-app', repository: 'https://github.com/example/laravel.git', port: 3000, protocol: 'https', runtime: 'php', framework: 'laravel', phpMode: 'artisan' });
+  assert.equal(laravel.framework, 'laravel');
+  assert.equal(laravel.runtime, 'php');
+  assert.equal(laravel.phpMode, 'artisan');
+  assert.throws(() => validateProjectSync({ name: 'Bad', slug: 'bad-app', repository: 'https://github.com/example/bad.git', port: 3000, protocol: 'https', runtime: 'python', framework: 'next' }), InputError);
+});
+
 test('project sync accepts Bun package scripts with the same constrained input contract', () => {
   const project = validateProjectSync({ name: 'Bun app', slug: 'bun-app', repository: 'https://github.com/example/bun.git', port: 3001, protocol: 'https', runtime: 'bun', buildScript: '', startScript: 'start' });
   assert.equal(project.runtime, 'bun');

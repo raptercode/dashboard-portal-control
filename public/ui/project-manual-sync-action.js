@@ -1,6 +1,5 @@
-export function shouldOfferManualSync({ autoSyncEnabled, syncStatus, syncRevision, deployedRevision }) {
-  return !autoSyncEnabled
-    && syncStatus === 'synced'
+export function hasNewerSyncedRevision({ syncStatus, syncRevision, deployedRevision }) {
+  return syncStatus === 'synced'
     && typeof syncRevision === 'string'
     && Boolean(syncRevision)
     && syncRevision !== deployedRevision;

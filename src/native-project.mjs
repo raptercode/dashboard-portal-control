@@ -1,25 +1,21 @@
 import { pythonStartArgs } from '../scripts/python-project.mjs';
+import { phpExecutable, phpStartArgs } from '../scripts/php-project.mjs';
 import { projectServiceUser } from '../scripts/project-service-user.mjs';
 import { randomUUID } from 'node:crypto';
-import { InputError, validateProject, validateGoPackage, validatePythonProjectSettings } from './core.mjs';
+import { InputError, validateProject, validateGoPackage, validatePythonProjectSettings, validatePhpProjectSettings } from './core.mjs';
 
 export function validateNativeProject(input) {
   const project = validateProject(input);
   const runtime = input.runtime ?? 'node';
-  if (!['node', 'bun', 'go', 'python'].includes(runtime)) throw new InputError('This operation requires the Node.js, Bun, Go or Python runtime.');
-  // Server-rendered applications can have no compilation phase. An explicit
-  // empty/null value means "install dependencies, then start"; omitting it
-  // preserves the historical `build` default.
-  const buildScript = ['go', 'python'].includes(runtime) || input.buildScript === '' || input.buildScript === null
+  if (!['node', 'bun', 'go', 'python', 'php'].includes(runtime)) throw new InputError('This operation requires the Node.js, Bun, Go, Python or PHP runtime.');
+  const buildScript = ['go', 'python', 'php'].includes(runtime) || input.buildScript === '' || input.buildScript === null
     ? null
     : validatePackageScript(input.buildScript ?? 'build', 'Build script');
-  const startScript = ['go', 'python'].includes(runtime) ? null : validatePackageScript(input.startScript ?? 'start', 'Start script');
+  const startScript = ['go', 'python', 'php'].includes(runtime) ? null : validatePackageScript(input.startScript ?? 'start', 'Start script');
   const environment = validateEnvironment(input.environment ?? {});
   const healthCheckTimeoutMs = validateTimeout(input.healthCheckTimeoutMs ?? 30_000);
-  // Keep the default deterministic while retaining compatibility with valid
-  // service ports in the upper ephemeral range.
   const candidatePort = validateCandidatePort(input.candidatePort ?? defaultCandidatePort(project.port), project.port);
-  return { ...project, runtime, buildScript, startScript, ...(runtime === 'go' ? { goPackage: validateGoPackage(input.goPackage) } : {}), ...(runtime === 'python' ? validatePythonProjectSettings(input) : {}), environment, healthCheckTimeoutMs, candidatePort };
+  return { ...project, runtime, buildScript, startScript, ...(runtime === 'go' ? { goPackage: validateGoPackage(input.goPackage) } : {}), ...(runtime === 'python' ? validatePythonProjectSettings(input) : {}), ...(runtime === 'php' ? validatePhpProjectSettings(input) : {}), environment, healthCheckTimeoutMs, candidatePort };
 }
 
 export function validateDockerComposeProject(input) {
@@ -43,7 +39,13 @@ export function defaultCandidatePort(port) {
 export function renderSystemdUnit(input) {
   const project = validateNativeProject(input);
   const identity = projectIdentity(project.slug);
-  const start = project.runtime === 'python' ? `${identity.root}/current/.venv/bin/python ${pythonStartArgs(project, project.port).join(' ')}` : project.runtime === 'go' ? `${identity.root}/current/hostmgr-app` : `${runtimeExecutable(project.runtime)} run ${project.startScript}`;
+  const start = project.runtime === 'python'
+    ? `${identity.root}/current/.venv/bin/python ${pythonStartArgs(project, project.port).join(' ')}`
+    : project.runtime === 'php'
+      ? `${phpExecutable()} ${phpStartArgs(project, project.port).join(' ')}`
+      : project.runtime === 'go'
+        ? `${identity.root}/current/hostmgr-app`
+        : `${runtimeExecutable(project.runtime)} run ${project.startScript}`;
   return `[Unit]\nDescription=Host Manager project ${project.slug}\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nUser=${identity.user}\nGroup=${identity.user}\nWorkingDirectory=${identity.root}/current\nEnvironmentFile=${identity.environmentFile}\nEnvironment=PORT=${project.port}\nExecStart=${start}\nRestart=on-failure\nRestartSec=5\nNoNewPrivileges=true\nPrivateTmp=true\nProtectHome=true\nProtectSystem=strict\nReadWritePaths=${identity.root}\n\n[Install]\nWantedBy=multi-user.target\n`;
 }
 
@@ -80,6 +82,7 @@ export function createRelease(projectInput, revision = null) {
     revision,
     runtime: project.runtime,
     ...(project.runtime === 'python' ? validatePythonProjectSettings(project) : {}),
+    ...(project.runtime === 'php' ? validatePhpProjectSettings(project) : {}),
     buildScript: project.buildScript ?? null,
     startScript: project.startScript ?? null,
     health: {

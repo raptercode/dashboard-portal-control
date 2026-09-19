@@ -34,6 +34,63 @@ test('repository metadata detection recognises Bun and Node scripts in a selecte
   assert.ok(result.evidence.some((item) => item.kind === 'bun-lock'));
 });
 
+test('repository metadata detection recognises Next.js, Nuxt, and Django', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'hostmgr-framework-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await writeFile(join(root, 'package.json'), JSON.stringify({ dependencies: { next: '15.0.0' }, scripts: { build: 'next build', start: 'next start' } }));
+  const next = await scanProjectRuntimeDirectory(root, '/');
+  assert.equal(next.recommendedRuntime, 'node');
+  assert.equal(next.recommendedFramework, 'next');
+
+  await writeFile(join(root, 'package.json'), JSON.stringify({ dependencies: { nuxt: '3.0.0' }, scripts: { build: 'nuxt build', start: 'nuxt start' } }));
+  const nuxt = await scanProjectRuntimeDirectory(root, '/');
+  assert.equal(nuxt.recommendedRuntime, 'node');
+  assert.equal(nuxt.recommendedFramework, 'nuxt');
+
+  await rm(join(root, 'package.json'));
+  await writeFile(join(root, 'manage.py'), '#!/usr/bin/env python\n');
+  await writeFile(join(root, 'requirements.txt'), 'Django>=5.0\n');
+  const django = await scanProjectRuntimeDirectory(root, '/');
+  assert.equal(django.recommendedRuntime, 'python');
+  assert.equal(django.recommendedFramework, 'django');
+  assert.equal(django.pythonMode, 'wsgi');
+});
+
+test('repository metadata detection recognises Express Nest Elysia Laravel and CodeIgniter', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'hostmgr-more-frameworks-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await writeFile(join(root, 'package.json'), JSON.stringify({ dependencies: { express: '5.0.0' }, scripts: { start: 'node server.js' } }));
+  const express = await scanProjectRuntimeDirectory(root, '/');
+  assert.equal(express.recommendedRuntime, 'node');
+  assert.equal(express.recommendedFramework, 'express');
+
+  await writeFile(join(root, 'package.json'), JSON.stringify({ dependencies: { '@nestjs/core': '11.0.0' }, scripts: { build: 'nest build', start: 'node dist/main' } }));
+  const nest = await scanProjectRuntimeDirectory(root, '/');
+  assert.equal(nest.recommendedFramework, 'nestjs');
+
+  await writeFile(join(root, 'package.json'), JSON.stringify({ dependencies: { elysia: '1.0.0' }, scripts: { start: 'bun src/index.ts' } }));
+  await writeFile(join(root, 'bun.lock'), 'lockfile');
+  const elysia = await scanProjectRuntimeDirectory(root, '/');
+  assert.equal(elysia.recommendedRuntime, 'bun');
+  assert.equal(elysia.recommendedFramework, 'elysia');
+
+  await rm(join(root, 'package.json'));
+  await rm(join(root, 'bun.lock'));
+  await writeFile(join(root, 'composer.json'), JSON.stringify({ require: { 'laravel/framework': '^11.0' } }));
+  await writeFile(join(root, 'artisan'), '#!/usr/bin/env php\n');
+  const laravel = await scanProjectRuntimeDirectory(root, '/');
+  assert.equal(laravel.recommendedRuntime, 'php');
+  assert.equal(laravel.recommendedFramework, 'laravel');
+  assert.equal(laravel.phpMode, 'artisan');
+
+  await rm(join(root, 'artisan'));
+  await writeFile(join(root, 'composer.json'), JSON.stringify({ require: { 'codeigniter4/framework': '^4.0' } }));
+  await writeFile(join(root, 'spark'), '#!/usr/bin/env php\n');
+  const ci = await scanProjectRuntimeDirectory(root, '/');
+  assert.equal(ci.recommendedFramework, 'codeigniter');
+  assert.equal(ci.phpMode, 'spark');
+});
+
 test('a Dockerfile without Compose remains manual instead of producing an invalid Docker deployment', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'hostmgr-runtime-'));
   t.after(() => rm(root, { recursive: true, force: true }));
