@@ -65,6 +65,8 @@ test('mail service generates DKIM keys, DNS values, and validates inputs', () =>
   assert.deepEqual(records.mx.provider, { type: 'MX', host: '@', value: 'mail.example.test', priority: 10, ttl: 'Auto' });
   assert.equal(records.spf.value, 'v=spf1 include:spf.smtp2go.com ~all');
   assert.deepEqual(records.spf.provider, { type: 'TXT', host: '@', value: 'v=spf1 include:spf.smtp2go.com ~all', priority: null, ttl: 'Auto' });
+  assert.equal(spfValue({ mode: 'relay-587', hostname: 'mail.example.test', relayHost: 'smtp-relay.brevo.com' }), 'v=spf1 include:spf.brevo.com ~all');
+  assert.equal(spfValue({ mode: 'relay-587', hostname: 'mail.example.test', relayHost: 'smtp-relay.sendinblue.com' }), 'v=spf1 include:spf.brevo.com ~all');
   assert.equal(records.dkim.name, 'portal2026._domainkey.example.test');
   assert.equal(records.dkim.provider.host, 'portal2026._domainkey');
   assert.match(records.dmarc.value, /^v=DMARC1; p=none/);
