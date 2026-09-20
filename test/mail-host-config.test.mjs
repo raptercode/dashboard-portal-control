@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildMailPortPlan, renderDovecotConfiguration, renderPostfixMain, renderPostfixMaster } from '../scripts/mail-host-config.mjs';
+import { buildMailPortPlan, renderDovecotConfiguration, renderOpenDkimConfiguration, renderPostfixMain, renderPostfixMaster } from '../scripts/mail-host-config.mjs';
 
 const outbound = { ports: [{ port: 25, status: 'open' }, { port: 587, status: 'open' }, { port: 2525, status: 'blocked' }] };
 
@@ -29,4 +29,10 @@ test('mail templates never create SMTP or IMAPS listeners for blocked or unknown
   assert.doesNotMatch(renderPostfixMaster(plan), /^submission\s+inet/m);
   assert.match(renderPostfixMaster(plan), /^127\.0\.0\.1:25 inet/m);
   assert.match(renderDovecotConfiguration({ plan }), /listen = 127\.0\.0\.1/);
+});
+
+test('OpenDKIM configuration matches the Ubuntu forking service contract', () => {
+  const configuration = renderOpenDkimConfiguration();
+  assert.match(configuration, /^UserID\s+opendkim$/m);
+  assert.match(configuration, /^PidFile\s+\/run\/opendkim\/opendkim\.pid$/m);
 });

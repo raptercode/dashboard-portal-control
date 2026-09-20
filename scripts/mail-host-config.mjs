@@ -156,6 +156,8 @@ export function renderOpenDkimConfiguration() {
   return `# Managed by Dashboard Portal. Do not edit.
 Syslog                  yes
 UMask                   007
+UserID                  opendkim
+PidFile                 /run/opendkim/opendkim.pid
 Mode                    sv
 Canonicalization        relaxed/simple
 Socket                  inet:8891@127.0.0.1
