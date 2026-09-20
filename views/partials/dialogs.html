@@ -4,7 +4,7 @@
       <div class="title">
         <div>
           <h2 id="deploy-dialog-title">Deploy project</h2>
-          <p id="deploy-project-label" class="subtitle">—</p>
+          <p id="deploy-project-label" class="subtitle">…</p>
         </div>
         <button class="close-btn" id="deploy-close" type="button" data-dialog-close aria-label="ปิด"><svg class="icon" aria-hidden="true"><use href="#icon-close"></use></svg></button>
       </div>
@@ -18,66 +18,70 @@
     </div>
     <div class="drawer-body">
       <section class="field-group" data-deploy-pane="1">
-        <h3>Environment Variables</h3>
-        <p id="deploy-saved-env-message">ดูและแก้ไขค่าได้ทุกตัว หรือวางเนื้อหาทั้งไฟล์ .env</p>
+        <h3>Environment variables</h3>
+        <p id="deploy-saved-env-message">ค่าที่บันทึกที่นี่จะถูกเขียนเป็นไฟล์ .env ให้ release ถัดไป release ที่กำลังทำงานอยู่ไม่เปลี่ยน แก้ได้ทั้งไฟล์หรือทีละรายการ แล้วกด "บันทึก ENV" ก่อนไปขั้นถัดไป</p>
         <div class="deploy-env-toolbar">
           <div class="deploy-env-modes" role="group" aria-label="รูปแบบการแก้ไข ENV">
-            <button id="deploy-env-file-mode" class="btn btn-ghost btn-sm" type="button" aria-pressed="true">แก้ทั้งไฟล์ .env</button>
-            <button id="deploy-env-rows-mode" class="btn btn-ghost btn-sm" type="button" aria-pressed="false">แก้ทีละรายการ</button>
+            <button id="deploy-env-file-mode" class="btn btn-ghost btn-sm" type="button" aria-pressed="true">ทั้งไฟล์ .env</button>
+            <button id="deploy-env-rows-mode" class="btn btn-ghost btn-sm" type="button" aria-pressed="false">ทีละรายการ</button>
           </div>
           <button id="deploy-env-upload" class="btn btn-ghost btn-sm" type="button">อัปโหลดไฟล์ .env</button>
           <input id="deploy-env-file" type="file" hidden aria-label="เลือกไฟล์ .env">
         </div>
         <div id="deploy-env-editor-pane">
-          <label for="deploy-env-editor" class="field-hint">.env · KEY=value</label>
-          <textarea id="deploy-env-editor" class="input deploy-env-editor" rows="10" spellcheck="false" autocomplete="off" autocapitalize="off" wrap="off" aria-describedby="deploy-env-hint" placeholder="NODE_ENV=production&#10;API_URL=https://example.com&#10;API_KEY="></textarea>
+          <label for="deploy-env-editor">.env (KEY=value)
+            <textarea id="deploy-env-editor" class="input deploy-env-editor" rows="10" spellcheck="false" autocomplete="off" autocapitalize="off" wrap="off" aria-describedby="deploy-env-hint" placeholder="NODE_ENV=production&#10;API_URL=https://example.com&#10;API_KEY="></textarea>
+          </label>
         </div>
         <div id="deploy-env-rows-pane" hidden>
           <div id="deploy-environment-rows" class="deploy-env-rows"></div>
-          <button id="deploy-add-variable" class="btn btn-ghost btn-sm" type="button"><svg class="icon" aria-hidden="true"><use href="#icon-plus"></use></svg>Add variable</button>
+          <button id="deploy-add-variable" class="btn btn-ghost btn-sm" type="button"><svg class="icon" aria-hidden="true"><use href="#icon-plus"></use></svg>เพิ่มตัวแปร</button>
         </div>
-        <p id="deploy-env-hint" class="field-hint">อัปโหลดเพื่อเพิ่ม key ใหม่และอัปเดตชื่อซ้ำ · ลบบรรทัดเพื่อลบ key · KEY= บันทึกค่าว่าง</p>
+        <p id="deploy-env-hint" class="field-hint">การอัปโหลดจะเพิ่ม key ใหม่และเขียนทับ key ที่ชื่อซ้ำ ลบบรรทัดเพื่อลบ key และเขียน KEY= เพื่อบันทึกค่าว่าง ค่าที่บันทึกถูกเก็บบน host และปิดบังใน log</p>
         <div class="deploy-env-save-row">
           <button id="deploy-env-save" class="btn btn-ghost btn-sm" type="button">บันทึก ENV</button>
           <span id="deploy-env-status" class="field-hint" role="status">ยังไม่มีการเปลี่ยนแปลง</span>
         </div>
         <div class="deploy-configuration">
-          <h3>Build Configuration</h3>
+          <h3>Build configuration</h3>
+          <p class="field-hint">อ่านจากการตั้งค่าโปรเจคและ lockfile ใน source ที่ sync ล่าสุด แสดงเพื่อตรวจทาน แก้ได้จากหน้าแก้ไขโปรเจคเท่านั้น</p>
           <div class="info-card deploy-build-info">
-            <div><div class="k">Package manager</div><div id="deploy-package-manager" class="v mono">—</div></div>
-            <div><div class="k">Lockfile</div><div id="deploy-lockfile" class="v">—</div></div>
-            <div><div class="k">Runtime version</div><div id="deploy-node-version" class="v mono">—</div></div>
-            <div><div class="k">Build script</div><div id="deploy-build-script" class="v mono">—</div></div>
+            <div><div class="k">Package manager</div><div id="deploy-package-manager" class="v mono">…</div></div>
+            <div><div class="k">Lockfile</div><div id="deploy-lockfile" class="v">…</div></div>
+            <div><div class="k">Runtime version</div><div id="deploy-node-version" class="v mono">…</div></div>
+            <div><div class="k">Build script</div><div id="deploy-build-script" class="v mono">…</div></div>
           </div>
           <div class="toggle-row deploy-skip-build">
-            <div><div style="font-weight:500;">Skip build step</div><div class="text-secondary" style="font-size:12px;">Configured in project settings.</div></div>
+            <div><span>Skip build step</span><small>เมื่อเปิด release จะติดตั้ง dependencies แล้วรันทันทีโดยไม่ build เปลี่ยนได้จากหน้าแก้ไขโปรเจค</small></div>
             <div id="deploy-skip-build-toggle" class="toggle" role="img" aria-label="Skip build step setting" aria-disabled="true"></div>
           </div>
         </div>
       </section>
       <section class="field-group" data-deploy-pane="2" hidden>
         <h3>Build plan</h3>
+        <p>ระบบจะดึง commit ล่าสุดของ branch นี้มาไว้ในโฟลเดอร์ release ใหม่ ติดตั้ง dependencies และรัน build แยกจาก release ที่กำลังทำงาน ผู้ใช้ยังใช้งานเวอร์ชันเดิมได้ตลอดช่วง build</p>
         <div class="info-card deploy-build-info">
-          <div><div class="k">Runtime</div><div id="deploy-runtime" class="v">—</div></div>
-          <div><div class="k">Branch</div><div id="deploy-branch" class="v mono">—</div></div>
-          <div><div class="k">Start step</div><div id="deploy-start-script" class="v mono">—</div></div>
+          <div><div class="k">Runtime</div><div id="deploy-runtime" class="v">…</div></div>
+          <div><div class="k">Branch</div><div id="deploy-branch" class="v mono">…</div></div>
+          <div><div class="k">Start step</div><div id="deploy-start-script" class="v mono">…</div></div>
         </div>
         <aside class="notice"><svg class="icon" aria-hidden="true"><use href="#icon-info"></use></svg><p id="deploy-build-note">การตั้งค่า build เปลี่ยนได้จากหน้าแก้ไขโปรเจคเท่านั้น</p></aside>
       </section>
       <section class="field-group" data-deploy-pane="3" hidden>
         <h3>Release</h3>
+        <p>ตรวจสรุปแล้วกด "Create release" ระบบจะสร้าง candidate จาก source และ ENV ล่าสุด ตรวจสุขภาพบน loopback แล้วจึงสลับ traffic มาที่ release ใหม่</p>
         <div class="info-card deploy-release-info">
-          <div><div class="k">Project</div><div id="deploy-release-project" class="v">—</div></div>
-          <div><div class="k">Source</div><div id="deploy-release-source" class="v mono">—</div></div>
-          <div><div class="k">Environment</div><div id="deploy-release-environment" class="v">—</div></div>
+          <div><div class="k">Project</div><div id="deploy-release-project" class="v">…</div></div>
+          <div><div class="k">Source</div><div id="deploy-release-source" class="v mono">…</div></div>
+          <div><div class="k">Environment</div><div id="deploy-release-environment" class="v">…</div></div>
           <div><div class="k">Safety check</div><div class="v deploy-safe">Candidate health check</div></div>
         </div>
-        <aside class="notice"><svg class="icon" aria-hidden="true"><use href="#icon-info"></use></svg><p>ระบบจะสร้าง candidate, build และตรวจสุขภาพก่อน activate เสมอ หากขั้นตอนใดล้มเหลว release ปัจจุบันจะยังทำงานต่อไป</p></aside>
+        <aside class="notice"><svg class="icon" aria-hidden="true"><use href="#icon-info"></use></svg><p>หากขั้นตอนใดล้มเหลว release ปัจจุบันจะยังทำงานต่อไปตามเดิม ดูเหตุการณ์และ output ของแต่ละขั้นได้จาก Deployment log ในหน้า Logs ของโปรเจค</p></aside>
       </section>
     </div>
     <footer class="drawer-foot">
-      <button class="btn btn-ghost" id="deploy-cancel" type="button" data-dialog-close>Cancel</button>
-      <button class="btn btn-ghost" id="deploy-back" type="button" hidden>Back</button>
+      <button class="btn btn-ghost" id="deploy-cancel" type="button" data-dialog-close>ยกเลิก</button>
+      <button class="btn btn-ghost" id="deploy-back" type="button" hidden>ย้อนกลับ</button>
       <span class="modal-spacer"></span>
       <button id="deploy-submit" class="btn btn-primary" type="submit">Next: Build</button>
     </footer>
@@ -88,7 +92,7 @@
   <header class="modal-header">
     <div>
       <h2 id="deployment-log-title">รายละเอียด release</h2>
-      <p id="deployment-log-summary" class="modal-sub">—</p>
+      <p id="deployment-log-summary" class="modal-sub">…</p>
     </div>
     <button id="deployment-log-close" class="modal-close" type="button" data-dialog-close aria-label="ปิด"><svg class="icon" aria-hidden="true"><use href="#icon-close"></use></svg></button>
   </header>
@@ -97,28 +101,28 @@
     <ol id="deployment-log-events" class="deployment-log-events"></ol>
     <section id="deployment-log-output-panel" class="deployment-log-output-panel" hidden>
       <h3>รายละเอียดข้อผิดพลาด</h3>
-      <p class="field-hint">ข้อมูลล่าสุดสูงสุด 48 KiB · ปิดบังค่า ENV และ secrets ที่ตรวจพบ</p>
+      <p class="field-hint">output ของขั้นที่ล้มเหลว แสดงส่วนท้ายสุดไม่เกิน 48 KiB และปิดบังค่า ENV กับ secrets ที่ตรวจพบ</p>
       <pre id="deployment-log-output" class="deployment-log-output" aria-label="Deployment output" tabindex="0"></pre>
     </section>
   </div>
-  <footer class="modal-footer"><button id="deployment-log-copy" type="button" disabled>คัดลอก log</button><span class="modal-spacer"></span><button id="deployment-log-dismiss" type="button" data-dialog-close>ปิด</button></footer>
+  <footer class="modal-footer"><button id="deployment-log-copy" class="secondary" type="button" disabled>คัดลอก log</button><span class="modal-spacer"></span><button id="deployment-log-dismiss" type="button" data-dialog-close>ปิด</button></footer>
 </dialog>
 
 <dialog id="domain-dialog" class="modal" aria-labelledby="domain-dialog-title">
   <form id="domain-form" class="modal-form">
     <header class="modal-header">
       <div>
-        <h2 id="domain-dialog-title">ตั้งค่าโดเมนโปรเจค</h2>
-        <p id="domain-project-label" class="modal-sub">—</p>
+        <h2 id="domain-dialog-title">โดเมนของโปรเจค</h2>
+        <p id="domain-project-label" class="modal-sub">…</p>
       </div>
       <button class="modal-close" id="domain-close" type="button" data-dialog-close aria-label="ปิด"><svg class="icon" aria-hidden="true"><use href="#icon-close"></use></svg></button>
     </header>
     <div class="modal-body" data-domain-view="list">
       <section class="domain-list-panel">
-        <div class="domain-list-heading"><div><h3>Public domains</h3><p>ตรวจ DNS, Nginx reverse proxy, และ reload หลัง release จากหน้านี้</p></div><button class="secondary" id="domain-refresh" type="button">Refresh status</button></div>
+        <div class="domain-list-heading"><div><h3>Public domains</h3><p>แต่ละโดเมนต้องมี DNS record ชี้มาที่ host นี้ Dashboard จะตั้ง Nginx reverse proxy ไปยังพอร์ตของโปรเจคและออก TLS certificate ให้</p></div><button class="secondary" id="domain-refresh" type="button">ตรวจสถานะใหม่</button></div>
         <div id="domain-list" class="domain-list" aria-live="polite"></div>
         <section id="domain-edge" class="edge-panel" hidden></section>
-        <p id="domain-list-empty" class="field-hint">ยังไม่มีโดเมน — กดเพิ่มโดเมนเพื่อเริ่มต้น</p>
+        <p id="domain-list-empty" class="empty-state">ยังไม่มีโดเมน กด "เพิ่มโดเมน" เพื่อเริ่มต้น</p>
       </section>
       <section class="domain-add-panel" hidden>
         <ol class="step-list" aria-label="ขั้นตอนเพิ่มโดเมน">
@@ -126,25 +130,24 @@
           <li data-domain-dot="2"><span>2</span> ตรวจ DNS</li>
         </ol>
         <div data-domain-step="1">
-          <h3>เพิ่มโดเมน</h3>
-          <label for="domain-hostname">Domain name<input id="domain-hostname" type="text" maxlength="253" placeholder="app.example.com" spellcheck="false" autocomplete="off"></label>
+          <label for="domain-hostname">Domain name<small class="field-hint">ใส่เฉพาะ hostname ไม่ต้องมี https:// หรือ path ตั้ง A หรือ AAAA record ของโดเมนนี้ให้ชี้มาที่ IP ของ host ก่อน ระบบจะตรวจในขั้นถัดไป</small><input id="domain-hostname" type="text" maxlength="253" placeholder="app.example.com" spellcheck="false" autocomplete="off"></label>
         </div>
         <div data-domain-step="2" hidden>
           <h3>สถานะ DNS</h3>
           <p id="domain-check-summary">กำลังตรวจสอบ…</p>
           <dl id="domain-check-detail" class="detail-list"></dl>
-          <aside class="notice"><svg class="icon" aria-hidden="true"><use href="#icon-info"></use></svg><p>ยังเพิ่มโดเมนได้แม้ DNS ยังไม่ชี้ถูก — TLS sync จะสำเร็จเมื่อ record พร้อม</p></aside>
+          <aside class="notice"><svg class="icon" aria-hidden="true"><use href="#icon-info"></use></svg><p>เพิ่มโดเมนได้แม้ DNS ยังไม่ชี้มาที่ host Nginx จะพร้อมทันที ส่วน TLS certificate จะออกสำเร็จเมื่อ record ชี้ถูกแล้ว กด "ตรวจสถานะใหม่" ในรายการเพื่อลองอีกครั้ง</p></aside>
         </div>
       </section>
-      <aside class="notice domain-list-notice"><svg class="icon" aria-hidden="true"><use href="#icon-info"></use></svg><p>การ sync จะเปลี่ยนเฉพาะ Nginx files ที่ Dashboard Portal เป็นเจ้าของ และทดสอบ config ก่อน reload</p></aside>
+      <aside class="notice domain-list-notice"><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg><div><strong>การ sync แตะเฉพาะไฟล์ของ Dashboard Portal</strong><p>เขียนใหม่เฉพาะ Nginx site ที่ Dashboard Portal เป็นเจ้าของ ไม่แก้ config อื่นบน host และทดสอบ config ก่อน reload ทุกครั้ง ถ้าทดสอบไม่ผ่านจะไม่ reload</p></div></aside>
     </div>
     <footer class="modal-footer">
       <button class="secondary" id="domain-cancel" type="button" data-dialog-close>ปิด</button>
       <button class="secondary" id="domain-back" type="button" hidden>ย้อนกลับ</button>
-      <button class="secondary" id="domain-recheck" type="button" hidden>ตรวจอีกครั้ง</button>
+      <button class="secondary" id="domain-recheck" type="button" hidden>ตรวจ DNS อีกครั้ง</button>
       <span class="modal-spacer"></span>
       <button id="domain-add-start" type="button">เพิ่มโดเมน</button>
-      <button id="domain-check" type="button" hidden>ตรวจสอบ</button>
+      <button id="domain-check" type="button" hidden>ตรวจ DNS</button>
       <button id="domain-submit" type="submit" hidden>เพิ่มโดเมน</button>
     </footer>
   </form>
@@ -154,31 +157,31 @@
   <form id="project-notification-hook-form" class="modal-form">
     <header class="modal-header">
       <div>
-        <h2 id="notification-hook-dialog-title">Deployment notifications</h2>
-        <p id="notification-hook-project-label" class="modal-sub">—</p>
+        <h2 id="notification-hook-dialog-title">การแจ้งเตือน deploy</h2>
+        <p id="notification-hook-project-label" class="modal-sub">…</p>
       </div>
       <button class="modal-close" id="notification-hook-close" type="button" data-dialog-close aria-label="ปิด"><svg class="icon" aria-hidden="true"><use href="#icon-close"></use></svg></button>
     </header>
     <div class="modal-body">
       <section class="notification-hook-list-panel">
         <div>
-          <h3>Webhooks for this project</h3>
-          <p>ส่งผลลัพธ์เมื่อ deploy สำเร็จหรือล้มเหลวไปยังปลายทางที่เลือก</p>
+          <h3>Webhooks ของโปรเจคนี้</h3>
+          <p>ทุกครั้งที่ deploy สำเร็จหรือล้มเหลว Dashboard จะส่งผลลัพธ์ไปยัง webhook เหล่านี้ พร้อมสถานะการส่งล่าสุด</p>
         </div>
         <div id="project-notification-hook-list" class="notification-hook-list" aria-live="polite"></div>
       </section>
       <section id="notification-hook-create-panel" class="notification-hook-create-panel">
-        <h3>Add webhook</h3>
-        <label for="project-notification-hook-name">Hook name<input id="project-notification-hook-name" name="name" maxlength="80" placeholder="production-discord" required></label>
-        <label for="project-notification-provider">Destination<select id="project-notification-provider" name="provider"><option value="discord">Discord</option><option value="google-chat">Google Chat</option><option value="slack">Slack</option><option value="generic">Generic webhook</option></select></label>
-        <label for="project-notification-hook-endpoint">Webhook URL<input id="project-notification-hook-endpoint" name="endpoint" type="url" maxlength="2048" placeholder="https://…" autocomplete="off" required></label>
-        <fieldset class="fieldset compact-fieldset"><legend>Notify when</legend><label class="check-row"><input name="events" type="checkbox" value="deployment.succeeded" checked><span><b>Deploy success</b></span></label><label class="check-row"><input name="events" type="checkbox" value="deployment.failed" checked><span><b>Deploy failed</b></span></label></fieldset>
+        <h3>เพิ่ม webhook</h3>
+        <label for="project-notification-hook-name">ชื่อ hook<small class="field-hint">ชื่อสำหรับจำว่าส่งไปที่ไหน เช่น ชื่อ channel</small><input id="project-notification-hook-name" name="name" maxlength="80" placeholder="production-discord" required></label>
+        <label for="project-notification-provider">ปลายทาง<small class="field-hint">กำหนดรูปแบบข้อความให้ตรงกับบริการ เลือก Generic webhook เพื่อรับ JSON ดิบ</small><select id="project-notification-provider" name="provider"><option value="discord">Discord</option><option value="google-chat">Google Chat</option><option value="slack">Slack</option><option value="generic">Generic webhook</option></select></label>
+        <label for="project-notification-hook-endpoint">Webhook URL<small class="field-hint">URL มักมี secret อยู่ในตัว ระบบเก็บแบบเข้ารหัสบน host และจะไม่แสดงซ้ำหลังบันทึก ถ้าต้องเปลี่ยนให้ลบแล้วเพิ่มใหม่</small><input id="project-notification-hook-endpoint" name="endpoint" type="url" maxlength="2048" placeholder="https://" autocomplete="off" required></label>
+        <fieldset class="fieldset compact-fieldset"><legend>แจ้งเมื่อ</legend><label class="check-row"><input name="events" type="checkbox" value="deployment.succeeded" checked><span><b>Deploy สำเร็จ</b><small>release ใหม่ผ่าน health check และ activate แล้ว</small></span></label><label class="check-row"><input name="events" type="checkbox" value="deployment.failed" checked><span><b>Deploy ล้มเหลว</b><small>build หรือ health check ไม่ผ่าน release เดิมยังทำงานต่อ</small></span></label></fieldset>
       </section>
     </div>
     <footer class="modal-footer">
       <button class="secondary" id="notification-hook-cancel" type="button" data-dialog-close>ปิด</button>
       <span class="modal-spacer"></span>
-      <button id="notification-hook-submit" type="submit">Save webhook</button>
+      <button id="notification-hook-submit" type="submit">บันทึก webhook</button>
     </footer>
   </form>
 </dialog>
@@ -186,14 +189,14 @@
 <dialog id="confirm-dialog" class="modal confirm-modal" aria-labelledby="confirm-title" aria-describedby="confirm-message">
   <form method="dialog" class="confirm-form">
     <div class="warning-mark" aria-hidden="true"><svg class="icon" aria-hidden="true"><use href="#icon-alert"></use></svg></div>
-    <h2 id="confirm-title">ยืนยันการติดตั้ง</h2>
+    <h2 id="confirm-title">ยืนยันการดำเนินการ</h2>
     <p id="confirm-message"></p>
-    <p class="muted">กิจกรรมนี้จะถูกบันทึกใน audit log</p>
+    <p class="muted">การดำเนินการนี้จะถูกบันทึกใน audit log</p>
     <div class="modal-footer">
       <button class="secondary" value="cancel" type="submit">ยกเลิก</button>
       <span class="modal-spacer"></span>
       <button id="confirm-reject" class="secondary" value="reject" type="submit" hidden>ไม่ต้อง</button>
-      <button id="confirm-accept" value="confirm" type="submit">ติดตั้งต่อ</button>
+      <button id="confirm-accept" value="confirm" type="submit">ยืนยัน</button>
     </div>
   </form>
 </dialog>
@@ -201,17 +204,17 @@
 <dialog id="project-delete-dialog" class="modal confirm-modal project-delete-modal" aria-labelledby="project-delete-title" aria-describedby="project-delete-message">
   <form id="project-delete-form" method="dialog" class="confirm-form">
     <div class="warning-mark danger-mark" aria-hidden="true"><svg class="icon" aria-hidden="true"><use href="#icon-alert"></use></svg></div>
-    <h2 id="project-delete-title">ลบโปรเจกต์</h2>
-    <p id="project-delete-message">การดำเนินการนี้จะลบการตั้งค่า release, domain และข้อมูลของโปรเจกต์ออกจาก Dashboard</p>
-    <label class="project-delete-confirmation" for="project-delete-confirmation">พิมพ์ชื่อโปรเจกต์เพื่อยืนยัน
+    <h2 id="project-delete-title">ลบโปรเจคออกจาก host ถาวร</h2>
+    <p id="project-delete-message">ระบบจะหยุดและถอน service ของโปรเจค ลบ release ทุกเวอร์ชันและไฟล์ .env บน host ถอดโดเมนออกจาก Nginx และลบ webhook กับประวัติ release ออกจาก Dashboard ผู้ใช้จะเข้าโดเมนไม่ได้ทันที และย้อนกลับไม่ได้ Repository ต้นทางไม่ถูกแตะ</p>
+    <label class="project-delete-confirmation" for="project-delete-confirmation">พิมพ์ชื่อโปรเจคเพื่อยืนยัน
       <code id="project-delete-name"></code>
       <input id="project-delete-confirmation" type="text" autocomplete="off" spellcheck="false" required>
     </label>
-    <p class="muted">ต้องตรงกับชื่อโปรเจกต์ทุกตัวอักษร</p>
+    <p class="muted">ปุ่มลบจะเปิดใช้เมื่อพิมพ์ตรงกับชื่อโปรเจคทุกตัวอักษร</p>
     <div class="modal-footer">
       <button class="secondary" value="cancel" type="submit">ยกเลิก</button>
       <span class="modal-spacer"></span>
-      <button id="project-delete-accept" class="danger" value="confirm" type="submit" disabled>ลบโปรเจกต์</button>
+      <button id="project-delete-accept" class="danger" value="confirm" type="submit" disabled>ลบโปรเจคถาวร</button>
     </div>
   </form>
 </dialog>

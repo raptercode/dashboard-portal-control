@@ -7,25 +7,37 @@ Greenfield UI is live; the old `public/index.html` shell is not served.
 - Templates: `views/layout.html`, `views/pages/*`, `views/partials/*`
 - Renderer: `src/render.mjs` (zero-dependency include + escape helpers)
 - Routes: `src/ui-routes.mjs`
-- Assets: `public/ui/admin.css`, `public/ui/v2-source.css`, `public/ui/v2-compat.css`, `public/ui/app.js`, `public/ui/router.js`
+- Assets: `public/ui/app.css` (the only stylesheet), `public/ui/app.js`, `public/ui/router.js`
 
-## v2 visual system
+## Visual system
 
-`public/ui/v2-source.css` is the supplied Dashboard Portal v2 design system,
-kept as a separate source asset so its palette, typography, layout, cards,
-timeline, and responsive rules remain traceable. `v2-compat.css` adapts the
-live server-rendered templates and data-driven controls to that system without
-changing any API, session, CSRF, deployment, or secret-handling behaviour.
+`public/ui/app.css` is the single stylesheet for every shell and page. It
+defines the light and dark tokens (`--bg`, `--surface`, `--text`, `--accent`,
+status colors, chart series colors, radii), the shell (sidebar, topbar, page
+container, page loader), shared components (buttons, forms, panels, lists,
+chips, notices, dialogs, the deploy drawer, toast) and the Mail application
+shell. Dark is the default theme (system light preference is honoured on first visit) and the navigation rail stays dark in both themes. Layouts load exactly one `<link rel="stylesheet">`; no versioned or
+compatibility stylesheets exist, and fonts come from the system stack rather
+than an external font service.
 
-The visual shell now follows the supplied v2 topbar/sidebar layout. Dashboard,
-Projects, Activity, Setup, Credentials, Databases, and Settings are backed by
-the Portal's real routes. Mail is a real route with its own app shell for
+Design intent: an operations console. One teal accent that never collides
+with status colors, near-black surfaces, monospace for every identifier and
+number, 6px controls and 10px panels, a dense project list instead of cards, labels above inputs with helper text on
+anything irreversible, and explicit empty, loading (skeleton rows under the
+page loader), error, and success states on every data surface. Destructive
+actions always confirm and state the consequence; deleting a project requires
+typing its exact name.
+
+The Portal shell is a sidebar (brand, navigation, owner, mode, sign out) plus
+a slim topbar (host name, connection mode, theme toggle). Dashboard, Projects,
+Activity, Setup, Credentials, Databases, and Settings are backed by the
+Portal's real routes. Mail is a real route with its own app shell for
 service and mailbox management. Before Mail service is configured, it presents
 a clearly labelled inbox fixture to orient the owner; the fixture and its
-compose actions are hidden as soon as setup is configured. The supplied static
-examples for Rules, a standalone Nginx view, and standalone
-Certificates/Deploys pages are not added as dead routes: their relevant
-operations continue to live on real project, domain, log, and settings flows.
+compose actions are hidden as soon as setup is configured. Standalone Rules,
+Nginx, Certificates, and Deploys pages are not added as dead routes: their
+relevant operations continue to live on real project, domain, log, and
+settings flows.
 
 ## Routes
 

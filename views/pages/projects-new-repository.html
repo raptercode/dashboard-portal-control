@@ -1,42 +1,44 @@
 <section class="page" data-page="projects">
   <header class="page-header">
     <div>
-      <h1 id="flow-title">สร้างโปรเจค</h1>
-      <p class="subtitle">ขั้นที่ 2 จาก 3 · repository และสคริปต์</p>
+      <h1 id="flow-title" class="page-title">สร้างโปรเจค</h1>
+      <p class="subtitle">ขั้นที่ 2 จาก 3: เชื่อมต่อ repository และกำหนดวิธีรันบน host</p>
     </div>
-    <a class="secondary button" href="/projects">ยกเลิก</a>
+    <div class="page-header-actions">
+      <a class="secondary button" href="/projects">ยกเลิก</a>
+    </div>
   </header>
   <ol class="step-list flow-steps" aria-label="ขั้นตอน">
-    <li class="done"><span>1</span> ข้อมูล</li>
-    <li class="current"><span>2</span> Repository</li>
-    <li><span>3</span> ตรวจสอบ</li>
+    <li class="done"><span>1</span> ชื่อโปรเจค</li>
+    <li class="current"><span>2</span> Repository และ runtime</li>
+    <li><span>3</span> ตรวจสอบและ sync</li>
   </ol>
   <section class="panel project-config-panel">
     <form id="project-repository-form" class="form-grid project-config-form">
       <div class="project-config-layout">
         <section class="project-config-column project-source-column" aria-labelledby="project-source-heading">
           <header class="project-config-heading">
-            <p>ต้นทางโปรเจกต์</p>
-            <h2 id="project-source-heading">ชื่อ, remote และ branch</h2>
+            <p>ต้นทางโปรเจค</p>
+            <h2 id="project-source-heading">Repository ที่จะ sync มาที่ host</h2>
           </header>
           <div class="project-source-identity">
-            <div class="project-source-identity-title"><span class="project-source-identity-label">ชื่อโปรเจกต์</span><a id="project-source-edit" href="/projects/new">แก้ชื่อ</a></div>
-            <strong id="project-source-name">—</strong>
-            <small id="project-source-meta" class="field-hint">—</small>
+            <div class="project-source-identity-title"><span class="project-source-identity-label">ชื่อโปรเจค</span><a id="project-source-edit" href="/projects/new">แก้ชื่อ</a></div>
+            <strong id="project-source-name">…</strong>
+            <small id="project-source-meta" class="field-hint">…</small>
           </div>
-          <label for="repository">Remote repository<input id="repository" name="repository" maxlength="500" placeholder="https://github.com/org/repo.git หรือ git@github.com:org/repo.git" required><small id="repository-connection-note" class="field-hint" aria-live="polite">วาง HTTPS หรือ git@ URL — ระบบจะเลือกวิธีเชื่อมต่อให้</small></label>
+          <label for="repository">Remote repository<input id="repository" name="repository" maxlength="500" placeholder="https://github.com/org/repo.git หรือ git@github.com:org/repo.git" autocomplete="off" spellcheck="false" required><small id="repository-connection-note" class="field-hint" aria-live="polite">วาง HTTPS หรือ git@ URL ระบบจะเลือกวิธีเชื่อมต่อให้</small></label>
           <div id="https-credential">
-            <label for="credential-id">Credential <small class="field-hint">เลือกเฉพาะ private repository ผ่าน HTTPS</small>
-              <select id="credential-id" name="credentialId"><option value="">Public repository — ไม่ต้องใช้ credential</option></select>
+            <label for="credential-id">Credential<small class="field-hint">ใช้เฉพาะ private repository ที่เชื่อมต่อผ่าน HTTPS เพิ่ม token ได้ที่หน้า Credentials</small>
+              <select id="credential-id" name="credentialId"><option value="">Public repository (ไม่ต้องใช้ credential)</option></select>
             </label>
           </div>
-          <label for="branch">Branch <small class="field-hint">ดึงรายการจาก Git ก่อนเลือก</small>
+          <label for="branch">Branch<small class="field-hint">ทุก release จะ build จาก commit ล่าสุดของ branch นี้ กด "ดึง branch" เพื่อโหลดรายการจาก remote</small>
             <span class="branch-picker">
               <select id="branch" name="branch" required><option value="main">main</option></select>
               <button id="fetch-branches" class="secondary" type="button">ดึง branch</button>
             </span>
           </label>
-          <label for="project-directory">Directory <small class="field-hint">โฟลเดอร์ของแอปภายใน repository</small><input id="project-directory" name="directory" list="directory-suggestions" value="/" maxlength="240" placeholder="/examples" required><datalist id="directory-suggestions"><option value="/"></option><option value="/apps"></option><option value="/examples"></option><option value="/packages"></option></datalist></label>
+          <label for="project-directory">Directory<small class="field-hint">โฟลเดอร์ของแอปภายใน repository ใช้ / เมื่อแอปอยู่ที่ root หรือระบุ เช่น /apps/web สำหรับ monorepo</small><input id="project-directory" name="directory" list="directory-suggestions" value="/" maxlength="240" placeholder="/examples" autocomplete="off" spellcheck="false" required><datalist id="directory-suggestions"><option value="/"></option><option value="/apps"></option><option value="/examples"></option><option value="/packages"></option></datalist></label>
           <div class="form-actions runtime-detect-actions">
             <button id="detect-project-runtime" class="secondary" type="button"><svg class="icon" aria-hidden="true"><use href="#icon-search"></use></svg>ตรวจ App อัตโนมัติ</button>
             <small id="runtime-detection-note" class="field-hint">อ่านเฉพาะ metadata ของ branch ที่เลือก ไม่รันโค้ดจาก repository</small>
@@ -44,83 +46,92 @@
         </section>
         <section class="project-config-column project-settings-column" aria-labelledby="project-settings-heading">
           <header class="project-config-heading">
-            <p>การตั้งค่าโปรเจกต์</p>
-            <h2 id="project-settings-heading">Runtime, การรัน และ health check</h2>
+            <p>การตั้งค่าโปรเจค</p>
+            <h2 id="project-settings-heading">Port, runtime, การรัน และ health check</h2>
           </header>
-          <div class="two-fields project-port-fields">
-            <label id="project-port-row" for="project-port">Port ภายในเครื่อง <small class="field-hint">ระบบจะกันพอร์ตนี้ให้กับโปรเจกต์</small><input id="project-port" name="port" type="number" min="1024" max="65535" readonly placeholder="จะสุ่มตอนบันทึก"></label>
-            <label class="check-row project-auto-port"><input id="auto-project-port" name="autoPort" type="checkbox" checked><span><b>สุ่มพอร์ตว่างอัตโนมัติ</b><small>ตรวจพอร์ตของโปรเจกต์อื่นและ listener บน host; ถ้าชนจะสุ่มใหม่</small></span></label>
-          </div>
-      <fieldset class="fieldset runtime-picker">
-        <legend>Runtime</legend>
-        <input id="project-runtime" name="runtime" type="hidden" value="node">
-        <input id="project-framework" name="framework" type="hidden" value="">
-        <details id="runtime-menu" class="runtime-menu">
-          <summary><span id="runtime-selection-icon" class="runtime-option-icon"><img class="runtime-logo runtime-logo-node" src="/ui/runtime-logos/nodejs.svg" alt="" aria-hidden="true"></span><span><b id="runtime-selection-label">Node.js</b><small id="runtime-selection-detail">build และ run ด้วย npm script ใน systemd</small></span><svg class="icon runtime-chevron" aria-hidden="true"><use href="#icon-arrow-right"></use></svg></summary>
-          <div class="runtime-menu-options" role="listbox" aria-label="เลือก Runtime">
-            <button type="button" class="runtime-menu-option" data-runtime-option="node" role="option" aria-selected="true"><span class="runtime-option-icon"><img class="runtime-logo runtime-logo-node" src="/ui/runtime-logos/nodejs.svg" alt="" aria-hidden="true"></span><span><b>Node.js</b><small>npm และ systemd</small></span></button>
-            <button type="button" class="runtime-menu-option" data-runtime-option="bun" role="option" aria-selected="false"><span class="runtime-option-icon"><img class="runtime-logo runtime-logo-bun" src="/ui/runtime-logos/bun.svg" alt="" aria-hidden="true"></span><span><b>Bun</b><small>Bun install และ systemd</small></span></button>
-            <button type="button" class="runtime-menu-option" data-runtime-option="go" role="option" aria-selected="false"><span class="runtime-option-icon"><img class="runtime-logo runtime-logo-go" src="/ui/runtime-logos/go.svg" alt="" aria-hidden="true"></span><span><b>Go</b><small>Go build และ systemd</small></span></button>
-            <button type="button" class="runtime-menu-option" data-runtime-option="python" role="option" aria-selected="false"><span class="runtime-option-icon"><img class="runtime-logo runtime-logo-python" src="/ui/runtime-logos/python.svg" alt="" aria-hidden="true"></span><span><b>Python</b><small>แยก .venv ต่อ release</small></span></button>
-            <button type="button" class="runtime-menu-option" data-runtime-option="php" role="option" aria-selected="false"><span class="runtime-option-icon"><img class="runtime-logo runtime-logo-php" src="/ui/runtime-logos/php.svg" alt="" aria-hidden="true"></span><span><b>PHP</b><small>PHP built-in server และ Composer</small></span></button>
-            <button type="button" class="runtime-menu-option" data-runtime-option="docker-compose" role="option" aria-selected="false"><span class="runtime-option-icon"><img class="runtime-logo runtime-logo-docker" src="/ui/runtime-logos/docker.svg" alt="" aria-hidden="true"></span><span><b>Docker Compose</b><small>Compose ที่ผ่าน policy check</small></span></button>
-          </div>
-        </details>
-        <details id="framework-menu" class="runtime-menu framework-menu" hidden>
-          <summary><span id="framework-selection-icon" class="runtime-option-icon"></span><span><b id="framework-selection-label">Framework</b><small id="framework-selection-detail">ตรวจจาก repository · เปลี่ยนได้</small></span><svg class="icon runtime-chevron" aria-hidden="true"><use href="#icon-arrow-right"></use></svg></summary>
-          <div id="framework-menu-options" class="runtime-menu-options" role="listbox" aria-label="เลือก Framework"></div>
-        </details>
-      </fieldset>
-      <label id="skip-build-row" class="check-row"><input id="skip-build" name="skipBuild" type="checkbox"><span><b>Skip Build</b><small>ใช้เมื่อโปรเจคพร้อม run ได้ทันที เช่น Bun start</small></span></label>
-      <div class="two-fields">
-        <label id="build-script-row" for="build-script">Build script <small class="field-hint">เว้นว่างได้ถ้าไม่มีขั้น build</small><input id="build-script" name="buildScript" value="build" maxlength="64" pattern="[A-Za-z0-9:_-]*" placeholder="build"></label>
-        <label id="start-script-row" for="start-script">Start script<input id="start-script" name="startScript" value="start" maxlength="64" pattern="[A-Za-z0-9:_-]+" placeholder="start" required></label>
-      </div>
-      <div id="go-fields" hidden>
-        <label for="go-package">Main package<input id="go-package" name="goPackage" value="." maxlength="240" placeholder="./cmd/api" disabled></label>
-        <small class="field-hint">Directory ต้องมี go.mod · ใช้ . เมื่อ main อยู่ที่ root หรือ ./cmd/api สำหรับ package ย่อย · แอปต้องอ่าน PORT จาก environment · build ทุกครั้งก่อนรัน binary</small>
-      </div>
-      <fieldset id="python-fields" class="fieldset" hidden>
-        <legend>Python environment</legend>
-        <div class="two-fields">
-          <label for="python-mode">Run type<select id="python-mode" name="pythonMode" disabled><option value="script">Python script</option><option value="asgi">ASGI · FastAPI / Starlette</option><option value="wsgi">WSGI · Flask / Django</option></select></label>
-          <label for="python-entry">Entry point<input id="python-entry" name="pythonEntry" value="main.py" maxlength="240" placeholder="main.py" disabled></label>
-        </div>
-        <small id="python-entry-hint" class="field-hint">ไฟล์ .py เช่น main.py หรือ src/server.py; แอปต้องอ่าน PORT จาก environment</small>
-        <div class="two-fields">
-          <label for="python-install">Dependencies<select id="python-install" name="pythonInstall" disabled><option value="requirements">requirements.txt</option><option value="project">Install project · pyproject.toml</option><option value="none">ไม่มี dependencies</option></select></label>
-          <label id="python-requirements-row" for="python-requirements">Requirements file<input id="python-requirements" name="pythonRequirements" value="requirements.txt" maxlength="240" placeholder="requirements/production.txt" disabled></label>
-        </div>
-        <small class="field-hint">สร้าง .venv แยกในแต่ละ release · ติดตั้งและรันด้วย user ของโปรเจกต์ · ไม่ใช้ sudo pip หรือ Python packages ของระบบ</small>
-      </fieldset>
-      <fieldset id="php-fields" class="fieldset" hidden>
-        <legend>PHP environment</legend>
-        <div class="two-fields">
-          <label for="php-mode">Run type<select id="php-mode" name="phpMode" disabled><option value="server">PHP built-in server</option><option value="artisan">Laravel · artisan serve</option><option value="spark">CodeIgniter · spark serve</option></select></label>
-          <label for="php-install">Dependencies<select id="php-install" name="phpInstall" disabled><option value="composer">composer.json</option><option value="none">ไม่มี dependencies</option></select></label>
-        </div>
-        <div class="two-fields" id="php-server-fields">
-          <label for="php-docroot">Document root<input id="php-docroot" name="phpDocroot" value="public" maxlength="240" placeholder="public" disabled></label>
-          <label id="php-router-row" for="php-router">Router<small class="field-hint">เว้นว่างได้</small><input id="php-router" name="phpRouter" value="" maxlength="240" placeholder="public/index.php" disabled></label>
-        </div>
-        <small id="php-entry-hint" class="field-hint">PHP built-in server ฟัง PORT บน loopback; ใส่ router เมื่อแอปใช้ front controller เช่น public/index.php</small>
-      </fieldset>
-      <div id="docker-compose-fields" class="two-fields" hidden>
-        <label for="compose-file">Compose file<input id="compose-file" name="composeFile" value="compose.yaml" maxlength="240" placeholder="compose.yaml"></label>
-        <label for="compose-service">Web service<input id="compose-service" name="composeService" maxlength="80" placeholder="web"></label>
-      </div>
-      <fieldset class="fieldset">
-        <legend>Health check</legend>
-        <label class="check-row"><input id="health-check-enabled" name="healthCheckEnabled" type="checkbox" checked><span><b>ตรวจสอบ candidate ก่อน activate</b><small>ปิดเมื่อโปรเจคไม่มี HTTP endpoint</small></span></label>
-        <div id="health-check-details">
-          <label id="health-check-path-row" for="health-check-path">Health check path<input id="health-check-path" name="healthCheckPath" value="/" maxlength="200" placeholder="/healthz" required></label>
-          <small class="field-hint">ส่ง HTTP GET ไปที่ candidate บน loopback; สถานะ 2xx หรือ 3xx ภายในเวลาที่กำหนดจึงผ่าน</small>
-        </div>
-      </fieldset>
+          <section class="block project-settings-group" aria-labelledby="project-port-group">
+            <div class="block-head"><div><h2 id="project-port-group">Port</h2><p>พอร์ต loopback ที่กันไว้ให้โปรเจคนี้บน host ระบบส่งค่าให้แอปทาง PORT และใช้เป็นปลายทางของ reverse proxy</p></div></div>
+            <div class="two-fields project-port-fields">
+              <label id="project-port-row" for="project-port">Port ภายในเครื่อง<small class="field-hint">ต้องไม่ชนกับโปรเจคอื่นหรือ service บน host</small><input id="project-port" name="port" type="number" min="1024" max="65535" readonly placeholder="จะสุ่มตอนบันทึก"></label>
+              <label class="check-row project-auto-port"><input id="auto-project-port" name="autoPort" type="checkbox" checked><span><b>สุ่มพอร์ตว่างอัตโนมัติ</b><small>ตรวจพอร์ตของโปรเจคอื่นและ listener บน host ถ้าชนจะสุ่มใหม่ ปิดเมื่อต้องระบุพอร์ตเอง</small></span></label>
+            </div>
+          </section>
+          <section class="block project-settings-group" aria-labelledby="project-runtime-group">
+            <div class="block-head"><div><h2 id="project-runtime-group">Runtime</h2><p>กำหนดวิธี install, build และรันแอป กด "ตรวจ App อัตโนมัติ" เพื่อให้ระบบเสนอ runtime และ framework จาก repository</p></div></div>
+            <div class="runtime-picker">
+              <input id="project-runtime" name="runtime" type="hidden" value="node">
+              <input id="project-framework" name="framework" type="hidden" value="">
+              <details id="runtime-menu" class="runtime-menu">
+                <summary><span id="runtime-selection-icon" class="runtime-option-icon"><img class="runtime-logo runtime-logo-node" src="/ui/runtime-logos/nodejs.svg" alt="" aria-hidden="true"></span><span><b id="runtime-selection-label">Node.js</b><small id="runtime-selection-detail">build และ run ด้วย npm script ใน systemd</small></span><svg class="icon runtime-chevron" aria-hidden="true"><use href="#icon-arrow-right"></use></svg></summary>
+                <div class="runtime-menu-options" role="listbox" aria-label="เลือก Runtime">
+                  <button type="button" class="runtime-menu-option" data-runtime-option="node" role="option" aria-selected="true"><span class="runtime-option-icon"><img class="runtime-logo runtime-logo-node" src="/ui/runtime-logos/nodejs.svg" alt="" aria-hidden="true"></span><span><b>Node.js</b><small>npm และ systemd</small></span></button>
+                  <button type="button" class="runtime-menu-option" data-runtime-option="bun" role="option" aria-selected="false"><span class="runtime-option-icon"><img class="runtime-logo runtime-logo-bun" src="/ui/runtime-logos/bun.svg" alt="" aria-hidden="true"></span><span><b>Bun</b><small>Bun install และ systemd</small></span></button>
+                  <button type="button" class="runtime-menu-option" data-runtime-option="go" role="option" aria-selected="false"><span class="runtime-option-icon"><img class="runtime-logo runtime-logo-go" src="/ui/runtime-logos/go.svg" alt="" aria-hidden="true"></span><span><b>Go</b><small>Go build และ systemd</small></span></button>
+                  <button type="button" class="runtime-menu-option" data-runtime-option="python" role="option" aria-selected="false"><span class="runtime-option-icon"><img class="runtime-logo runtime-logo-python" src="/ui/runtime-logos/python.svg" alt="" aria-hidden="true"></span><span><b>Python</b><small>แยก .venv ต่อ release</small></span></button>
+                  <button type="button" class="runtime-menu-option" data-runtime-option="php" role="option" aria-selected="false"><span class="runtime-option-icon"><img class="runtime-logo runtime-logo-php" src="/ui/runtime-logos/php.svg" alt="" aria-hidden="true"></span><span><b>PHP</b><small>PHP built-in server และ Composer</small></span></button>
+                  <button type="button" class="runtime-menu-option" data-runtime-option="docker-compose" role="option" aria-selected="false"><span class="runtime-option-icon"><img class="runtime-logo runtime-logo-docker" src="/ui/runtime-logos/docker.svg" alt="" aria-hidden="true"></span><span><b>Docker Compose</b><small>Compose ที่ผ่าน policy check</small></span></button>
+                </div>
+              </details>
+              <details id="framework-menu" class="runtime-menu framework-menu" hidden>
+                <summary><span id="framework-selection-icon" class="runtime-option-icon"></span><span><b id="framework-selection-label">Framework</b><small id="framework-selection-detail">ตรวจจาก repository และเปลี่ยนได้</small></span><svg class="icon runtime-chevron" aria-hidden="true"><use href="#icon-arrow-right"></use></svg></summary>
+                <div id="framework-menu-options" class="runtime-menu-options" role="listbox" aria-label="เลือก Framework"></div>
+              </details>
+            </div>
+          </section>
+          <section class="block project-settings-group" aria-labelledby="project-run-group">
+            <div class="block-head"><div><h2 id="project-run-group">การรัน</h2><p>คำสั่งที่ระบบเรียกในโฟลเดอร์ release ใหม่ทุกครั้งที่ deploy แอปต้องอ่าน PORT จาก environment</p></div></div>
+            <label id="skip-build-row" class="check-row"><input id="skip-build" name="skipBuild" type="checkbox"><span><b>ข้ามขั้น build</b><small>ใช้เมื่อโปรเจครันได้ทันทีโดยไม่ต้อง build เช่น Bun start ระบบยังติดตั้ง dependencies และตรวจ health check ตามปกติ</small></span></label>
+            <div class="two-fields">
+              <label id="build-script-row" for="build-script">Build script<small class="field-hint">ชื่อ script ใน package.json เว้นว่างได้ถ้าไม่มีขั้น build</small><input id="build-script" name="buildScript" value="build" maxlength="64" pattern="[A-Za-z0-9:_-]*" placeholder="build" autocomplete="off" spellcheck="false"></label>
+              <label id="start-script-row" for="start-script">Start script<small class="field-hint">ชื่อ script ที่ systemd ใช้รันแอปแบบค้างไว้</small><input id="start-script" name="startScript" value="start" maxlength="64" pattern="[A-Za-z0-9:_-]+" placeholder="start" autocomplete="off" spellcheck="false" required></label>
+            </div>
+            <div id="go-fields" hidden>
+              <label for="go-package">Main package<input id="go-package" name="goPackage" value="." maxlength="240" placeholder="./cmd/api" autocomplete="off" spellcheck="false" disabled></label>
+              <small class="field-hint">Directory ต้องมี go.mod ใช้ . เมื่อ main อยู่ที่ root หรือ ./cmd/api สำหรับ package ย่อย ระบบจะ build เป็น binary ก่อนรันทุก release</small>
+            </div>
+            <fieldset id="python-fields" class="fieldset" hidden>
+              <legend>Python environment</legend>
+              <div class="two-fields">
+                <label for="python-mode">Run type<select id="python-mode" name="pythonMode" disabled><option value="script">Python script</option><option value="asgi">ASGI (FastAPI, Starlette)</option><option value="wsgi">WSGI (Flask, Django)</option></select></label>
+                <label for="python-entry">Entry point<input id="python-entry" name="pythonEntry" value="main.py" maxlength="240" placeholder="main.py" autocomplete="off" spellcheck="false" disabled></label>
+              </div>
+              <small id="python-entry-hint" class="field-hint">ไฟล์ .py เช่น main.py หรือ src/server.py แอปต้องอ่าน PORT จาก environment</small>
+              <div class="two-fields">
+                <label for="python-install">Dependencies<select id="python-install" name="pythonInstall" disabled><option value="requirements">requirements.txt</option><option value="project">Install project (pyproject.toml)</option><option value="none">ไม่มี dependencies</option></select></label>
+                <label id="python-requirements-row" for="python-requirements">Requirements file<input id="python-requirements" name="pythonRequirements" value="requirements.txt" maxlength="240" placeholder="requirements/production.txt" autocomplete="off" spellcheck="false" disabled></label>
+              </div>
+              <small class="field-hint">สร้าง .venv แยกในแต่ละ release ติดตั้งและรันด้วย user ของโปรเจค ไม่ใช้ sudo pip หรือ Python packages ของระบบ</small>
+            </fieldset>
+            <fieldset id="php-fields" class="fieldset" hidden>
+              <legend>PHP environment</legend>
+              <div class="two-fields">
+                <label for="php-mode">Run type<select id="php-mode" name="phpMode" disabled><option value="server">PHP built-in server</option><option value="artisan">Laravel (artisan serve)</option><option value="spark">CodeIgniter (spark serve)</option></select></label>
+                <label for="php-install">Dependencies<select id="php-install" name="phpInstall" disabled><option value="composer">composer.json</option><option value="none">ไม่มี dependencies</option></select></label>
+              </div>
+              <div class="two-fields" id="php-server-fields">
+                <label for="php-docroot">Document root<input id="php-docroot" name="phpDocroot" value="public" maxlength="240" placeholder="public" autocomplete="off" spellcheck="false" disabled></label>
+                <label id="php-router-row" for="php-router">Router<small class="field-hint">เว้นว่างได้</small><input id="php-router" name="phpRouter" value="" maxlength="240" placeholder="public/index.php" autocomplete="off" spellcheck="false" disabled></label>
+              </div>
+              <small id="php-entry-hint" class="field-hint">PHP built-in server ฟัง PORT บน loopback ใส่ router เมื่อแอปใช้ front controller เช่น public/index.php</small>
+            </fieldset>
+            <div id="docker-compose-fields" class="two-fields" hidden>
+              <label for="compose-file">Compose file<small class="field-hint">path ภายใน directory ของโปรเจค</small><input id="compose-file" name="composeFile" value="compose.yaml" maxlength="240" placeholder="compose.yaml" autocomplete="off" spellcheck="false"></label>
+              <label for="compose-service">Web service<small class="field-hint">ชื่อ service ใน compose file ที่รับ HTTP ของแอป</small><input id="compose-service" name="composeService" maxlength="80" placeholder="web" autocomplete="off" spellcheck="false"></label>
+            </div>
+          </section>
+          <section class="block project-settings-group" aria-labelledby="project-health-group">
+            <div class="block-head"><div><h2 id="project-health-group">Health check</h2><p>ด่านสุดท้ายก่อนสลับ traffic ระบบยิง HTTP ไปที่ candidate บน loopback และจะ activate เมื่อผ่านเท่านั้น</p></div></div>
+            <label class="check-row"><input id="health-check-enabled" name="healthCheckEnabled" type="checkbox" checked><span><b>ตรวจสอบ candidate ก่อน activate</b><small>ปิดเฉพาะเมื่อแอปไม่มี HTTP endpoint ให้ตรวจ เมื่อปิด release ใหม่จะ activate ทันทีโดยไม่มีการตรวจ และ release ที่เสียจะไปแทนของเดิมทันที</small></span></label>
+            <div id="health-check-details">
+              <label id="health-check-path-row" for="health-check-path">Health check path<input id="health-check-path" name="healthCheckPath" value="/" maxlength="200" placeholder="/healthz" autocomplete="off" spellcheck="false" required></label>
+              <small class="field-hint">ส่ง HTTP GET ไปที่ candidate บน loopback ต้องได้สถานะ 2xx หรือ 3xx ภายในเวลาที่กำหนดจึงผ่าน ถ้าไม่ผ่าน release ปัจจุบันจะทำงานต่อ</small>
+            </div>
+          </section>
         </section>
       </div>
       <div class="form-actions">
         <a id="flow-back" class="secondary button" href="/projects/new">ย้อนกลับ</a>
+        <small class="field-hint">ยังไม่บันทึก ขั้นถัดไปจะสรุปค่าทั้งหมดให้ตรวจอีกครั้ง</small>
         <span class="modal-spacer"></span>
         <button type="submit">ถัดไป</button>
       </div>

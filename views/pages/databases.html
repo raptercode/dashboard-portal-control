@@ -2,17 +2,29 @@
   <header class="page-header">
     <div>
       <h1 class="page-title">Databases</h1>
-      <p class="page-subtitle">Client connectors for MongoDB, PostgreSQL, MySQL and Redis</p>
+      <p class="page-subtitle">Connector ไปยัง PostgreSQL, MySQL, MongoDB และ Redis ที่โปรเจคบน host นี้ใช้งาน</p>
     </div>
   </header>
-  <section class="panel">
+  <section class="block" aria-labelledby="database-list-title">
+    <div class="block-head">
+      <div>
+        <h2 id="database-list-title">Connector ที่บันทึกไว้</h2>
+        <p>กด "ทดสอบ" เพื่อลองเชื่อมต่อจริงจาก host นี้ หรือเปิด Console เพื่อรันคำสั่งกับฐานข้อมูล</p>
+      </div>
+      <span id="database-count" class="count">…</span>
+    </div>
+    <section id="databases" class="credential-list" aria-live="polite">
+      <span class="skeleton" aria-hidden="true"></span><span class="skeleton" aria-hidden="true"></span>
+    </section>
+  </section>
+  <section class="panel narrow" aria-labelledby="database-form-title">
     <header class="panel-head">
-      <h2>เพิ่ม connector</h2>
-      <p>เก็บเฉพาะ metadata และรหัสผ่านแบบเข้ารหัส</p>
+      <h2 id="database-form-title">เพิ่ม connector</h2>
+      <p>Portal เก็บเฉพาะข้อมูลการเชื่อมต่อ รหัสผ่านถูกเข้ารหัสก่อนบันทึกและจะไม่แสดงอีก</p>
     </header>
     <form id="database-form" class="form-grid">
       <div class="two-fields">
-        <label for="database-name">ชื่อ<input id="database-name" name="name" pattern="[a-z][a-z0-9\-]{0,79}" maxlength="80" placeholder="app-postgres" required></label>
+        <label for="database-name">ชื่อ connector<input id="database-name" name="name" pattern="[a-z][a-z0-9\-]{0,79}" maxlength="80" placeholder="app-postgres" autocomplete="off" required><small class="field-hint">ตัวพิมพ์เล็ก a-z ตัวเลข และ - เท่านั้น</small></label>
         <label for="database-provider">Provider
           <select id="database-provider" name="provider" required>
             <option value="postgresql">PostgreSQL</option>
@@ -20,21 +32,20 @@
             <option value="mongodb">MongoDB</option>
             <option value="redis">Redis</option>
           </select>
+          <small class="field-hint">เปลี่ยน provider แล้ว port จะปรับเป็นค่าเริ่มต้นให้</small>
         </label>
       </div>
       <div class="two-fields">
-        <label for="database-host">Host<input id="database-host" name="host" maxlength="253" placeholder="127.0.0.1" required></label>
-        <label for="database-port">Port<input id="database-port" name="port" type="number" min="1" max="65535" value="5432" required></label>
+        <label for="database-host">Host<input id="database-host" name="host" maxlength="253" placeholder="127.0.0.1" required><small class="field-hint">IP หรือ hostname ที่เข้าถึงได้จาก host นี้</small></label>
+        <label for="database-port">Port<input id="database-port" name="port" type="number" min="1" max="65535" value="5432" required><small class="field-hint">แก้ได้ถ้าฐานข้อมูลใช้พอร์ตอื่น</small></label>
       </div>
       <div class="two-fields">
-        <label for="database-db">Database<input id="database-db" name="database" maxlength="128" placeholder="app"></label>
-        <label for="database-username">Username<input id="database-username" name="username" maxlength="128" placeholder="app"></label>
+        <label for="database-db">Database<input id="database-db" name="database" maxlength="128" placeholder="app"><small class="field-hint">เว้นว่างได้สำหรับ Redis หรือถ้าจะเลือกภายหลัง</small></label>
+        <label for="database-username">Username<input id="database-username" name="username" maxlength="128" placeholder="app" autocomplete="off"><small class="field-hint">เว้นว่างได้ถ้าฐานข้อมูลไม่ต้องยืนยันตัวตน</small></label>
       </div>
-      <label for="database-password">Password<input id="database-password" name="password" type="password" maxlength="4096" autocomplete="new-password"></label>
-      <label class="check-row"><input id="database-tls" name="tls" type="checkbox"><span><b>ใช้ TLS</b><small>สำหรับ provider ที่รองรับการเชื่อมต่อเข้ารหัส</small></span></label>
-      <div class="form-actions"><button type="submit">บันทึก connector</button></div>
+      <label for="database-password">Password<input id="database-password" name="password" type="password" maxlength="4096" autocomplete="new-password"><small class="field-hint">เข้ารหัสก่อนบันทึก และดูค่าเดิมไม่ได้อีก ถ้าต้องเปลี่ยนให้ลบ connector แล้วเพิ่มใหม่</small></label>
+      <label class="check-row"><input id="database-tls" name="tls" type="checkbox"><span><b>ใช้ TLS</b><small>เปิดเมื่อฐานข้อมูลรองรับการเชื่อมต่อแบบเข้ารหัส เช่น managed database นอก host นี้</small></span></label>
+      <div class="form-actions"><button type="submit">บันทึก</button></div>
     </form>
   </section>
-  <div class="section-head"><h2>ที่บันทึกไว้</h2><span id="database-count" class="count">0</span></div>
-  <section id="databases" class="credential-list" aria-live="polite"></section>
 </section>

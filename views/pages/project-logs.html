@@ -1,32 +1,35 @@
 <section class="page" data-page="projects">
   <header class="page-header">
     <div>
-      <h1 id="log-page-title">Logs</h1>
-      <p class="subtitle" id="log-page-subtitle">—</p>
+      <h1 id="log-page-title" class="page-title">Logs</h1>
+      <p class="subtitle" id="log-page-subtitle">…</p>
     </div>
-    <a class="secondary button" href="/projects">กลับไปโปรเจค</a>
+    <div class="page-header-actions">
+      <a class="secondary button" href="/projects"><svg class="icon" aria-hidden="true"><use href="#icon-arrow-left"></use></svg>กลับไปหน้า Projects</a>
+    </div>
   </header>
-  <section class="panel">
-    <div class="section-head">
+  <section class="panel" aria-labelledby="runtime-log-title">
+    <div class="panel-head-row">
       <div>
-        <h2>Runtime log</h2>
-        <p class="muted" id="log-unit-name">—</p>
+        <h2 id="runtime-log-title">Runtime log</h2>
+        <p class="muted mono" id="log-unit-name">…</p>
+        <p class="field-hint">บรรทัดล่าสุดจาก journal ของ systemd unit ที่กำลังรัน ใช้ดูว่าแอปเริ่มติดหรือไม่และ error ตอนรัน</p>
       </div>
-      <div class="form-actions">
-        <label class="check-row" style="margin: 0;">
+      <div class="log-controls">
+        <label class="check-row">
           <input id="log-auto-refresh" type="checkbox" checked>
-          <span><b>Auto-refresh</b><small>ทุก 5 วินาที</small></span>
+          <span><b>รีเฟรชอัตโนมัติ</b><small>ดึง log ใหม่ทุก 5 วินาที</small></span>
         </label>
-        <button id="log-refresh-now" class="secondary" type="button">รีเฟรชตอนนี้</button>
+        <button id="log-refresh-now" class="secondary btn-sm" type="button"><svg class="icon" aria-hidden="true"><use href="#icon-refresh"></use></svg>รีเฟรชตอนนี้</button>
       </div>
     </div>
-    <p id="log-runtime-notice" class="field-hint" hidden></p>
-    <pre id="log-runtime" class="log-viewer" aria-live="polite" aria-label="Runtime log" tabindex="0">กำลังโหลด…</pre>
+    <p id="log-runtime-notice" class="notice warn mt-14" hidden></p>
+    <pre id="log-runtime" class="log-viewer mt-14" aria-live="polite" aria-label="Runtime log" tabindex="0">กำลังโหลด…</pre>
   </section>
-  <section class="panel">
-    <div class="section-head">
-      <h2>Deployment log</h2>
+  <section class="block" aria-labelledby="deploy-log-title">
+    <div class="block-head"><div><h2 id="deploy-log-title">Deployment log</h2><p>release ทั้งหมดของโปรเจค เรียงจากล่าสุด กด "ดู log" เพื่อเปิดเหตุการณ์ของ release นั้นทีละขั้นตั้งแต่ดึง source, build, health check จนถึง activate พร้อม output ของขั้นที่ล้มเหลว</p></div></div>
+    <div id="log-releases" class="readiness-list">
+      <span class="skeleton" aria-hidden="true"></span><span class="skeleton" aria-hidden="true"></span>
     </div>
-    <div id="log-releases" class="readiness-list"></div>
   </section>
 </section>

@@ -2,50 +2,58 @@
   <header class="page-header">
     <div>
       <h1 class="page-title">Settings</h1>
-      <p class="page-subtitle">Password, updates and portal status</p>
+      <p class="page-subtitle">รหัสผ่านของบัญชี การอัปเดต Portal โหมดการทำงาน และ token สำหรับอ่านสถานะ deploy จากภายนอก</p>
     </div>
   </header>
   <section class="settings-stack">
     <article class="setting-row">
       <div>
         <h2>เปลี่ยนรหัสผ่าน</h2>
-        <p>ยืนยันรหัสผ่านเดิมก่อนเปลี่ยน ระบบจะออกจาก session อื่นทั้งหมดทันที</p>
+        <p>ต้องยืนยันรหัสผ่านเดิมก่อน เมื่อเปลี่ยนสำเร็จ session อื่นทั้งหมดจะถูกออกจากระบบทันที และต้องเข้าสู่ระบบใหม่ด้วยรหัสผ่านใหม่</p>
       </div>
       <form id="password-change-form" class="form-grid compact">
         <label for="current-password">รหัสผ่านปัจจุบัน<input id="current-password" name="currentPassword" type="password" autocomplete="current-password" maxlength="128" required></label>
-        <label for="new-password">รหัสผ่านใหม่<small class="field-hint">อย่างน้อย 12 ตัว · ตัวพิมพ์ใหญ่/เล็ก · ตัวเลข · สัญลักษณ์</small><input id="new-password" name="newPassword" type="password" autocomplete="new-password" minlength="12" maxlength="128" required></label>
-        <label for="confirm-password">ยืนยันรหัสผ่านใหม่<input id="confirm-password" name="confirmPassword" type="password" autocomplete="new-password" minlength="12" maxlength="128" required></label>
-        <button type="submit">บันทึกรหัสผ่านใหม่</button>
+        <label for="new-password">รหัสผ่านใหม่<input id="new-password" name="newPassword" type="password" autocomplete="new-password" minlength="12" maxlength="128" required><small class="field-hint">อย่างน้อย 12 ตัว มีตัวพิมพ์ใหญ่ ตัวพิมพ์เล็ก ตัวเลข และสัญลักษณ์</small></label>
+        <label for="confirm-password">ยืนยันรหัสผ่านใหม่<input id="confirm-password" name="confirmPassword" type="password" autocomplete="new-password" minlength="12" maxlength="128" required><small class="field-hint">พิมพ์รหัสผ่านใหม่อีกครั้งให้ตรงกัน</small></label>
+        <div class="form-actions"><button type="submit">เปลี่ยนรหัสผ่าน</button></div>
       </form>
     </article>
     <article class="setting-row">
       <div id="software-update">
         <h2>อัปเดตซอฟต์แวร์</h2>
-        <p>กำลังตรวจสอบช่องทาง release</p>
+        <p>กำลังตรวจสอบ release channel</p>
       </div>
       <div class="update-command">
-        <code id="update-command">sudo dashboard-portal update</code>
-        <button id="copy-update-command" class="secondary" type="button">คัดลอก</button>
+        <small class="field-hint">Portal ไม่อัปเดตตัวเองจากหน้านี้ ให้ SSH เข้า host แล้วรันคำสั่งด้านล่าง บริการจะรีสตาร์ตสั้น ๆ ระหว่างอัปเดต</small>
+        <code id="update-command" class="command-block">sudo dashboard-portal update</code>
+        <button id="copy-update-command" class="secondary btn-sm" type="button">คัดลอกคำสั่ง</button>
       </div>
     </article>
     <article class="setting-row">
       <div>
         <h2>โหมดการทำงาน</h2>
-        <p id="mode-description">—</p>
+        <p id="mode-description">…</p>
       </div>
-      <span id="settings-mode" class="mode-badge">—</span>
+      <span id="settings-mode" class="mode-badge">…</span>
     </article>
     <article class="setting-row">
       <div>
         <h2>Monitor Logs Token</h2>
-        <p>Read safe deployment status for one project only; runtime logs, secrets, and repository URLs are excluded.</p>
-        <p id="monitor-token-value" class="field-hint" hidden></p>
+        <p>Token แบบอ่านอย่างเดียวสำหรับให้ระบบภายนอกดูสถานะ deploy ของโปรเจคเดียว ไม่เปิดเผย runtime log, secrets หรือ URL ของ repository ยกเลิกได้ทุกเมื่อด้วยปุ่ม Revoke</p>
+        <p id="monitor-token-value" class="token-reveal" hidden></p>
         <div id="monitor-token-list" class="env-key-list"></div>
       </div>
       <form id="monitor-token-form" class="form-grid compact">
-        <label for="monitor-token-name">Token name<input id="monitor-token-name" name="name" maxlength="80" placeholder="monitor-logs" pattern="[a-z][a-z0-9-]{0,79}" required></label>
-        <label for="monitor-token-project">Project<select id="monitor-token-project" name="projectSlug" required></select></label>
-        <button type="submit">Create token</button>
+        <label for="monitor-token-name">ชื่อ token<input id="monitor-token-name" name="name" maxlength="80" placeholder="monitor-logs" pattern="[a-z][a-z0-9-]{0,79}" autocomplete="off" required><small class="field-hint">ตัวพิมพ์เล็ก a-z ตัวเลข และ - เท่านั้น ตั้งให้บอกได้ว่าใครใช้ เช่น uptime-bot</small></label>
+        <label for="monitor-token-project">โปรเจค<select id="monitor-token-project" name="projectSlug" required></select><small class="field-hint">Token หนึ่งอันอ่านได้เฉพาะโปรเจคนี้</small></label>
+        <div class="notice warn" role="note">
+          <svg class="icon" aria-hidden="true"><use href="#icon-alert"></use></svg>
+          <div>
+            <strong>Token แสดงครั้งเดียว</strong>
+            <p>ค่า token จะแสดงบนหน้านี้เพียงครั้งเดียวหลังสร้าง คัดลอกเก็บทันที ถ้าทำหาย ให้ Revoke แล้วสร้างใหม่</p>
+          </div>
+        </div>
+        <div class="form-actions"><button type="submit">สร้าง token</button></div>
       </form>
     </article>
   </section>

@@ -2,9 +2,10 @@
   <header class="page-header">
     <div>
       <h1 class="page-title">Activity</h1>
-      <p class="page-subtitle">Audit trail across all projects and system events</p>
+      <p class="page-subtitle">บันทึกทุกการกระทำบน host นี้ ทั้งระดับโปรเจคและระบบ เรียงจากล่าสุดไปเก่าสุด</p>
     </div>
   </header>
-  <div class="activity-filter"><span class="chip active">All events</span><span class="chip">Live audit trail</span></div>
-  <section id="audit" class="timeline" aria-live="polite"></section>
+  <section id="audit" class="timeline" aria-live="polite">
+    <span class="skeleton" aria-hidden="true"></span><span class="skeleton" aria-hidden="true"></span><span class="skeleton" aria-hidden="true"></span>
+  </section>
 </section>

@@ -2,15 +2,16 @@
   <header class="page-header">
     <div>
       <h1 class="page-title">Mail</h1>
-      <p class="page-subtitle">ติดตั้งและจัดการ mail hostname, mail domain และ mailbox ของโฮสต์นี้</p>
+      <p class="page-subtitle">สถานะ Mail service ของโฮสต์นี้ ติดตั้งครั้งแรกผ่าน Mail Setup แล้วกลับมาดู hostname, domain และ mailbox ที่นี่</p>
     </div>
-    <span id="mail-page-status" class="status-chip">กำลังตรวจสถานะ…</span>
+    <span id="mail-page-status" class="status-chip muted">กำลังตรวจสถานะ…</span>
   </header>
   <div id="mail-setup-notice" class="mail-setup-notice" hidden></div>
   <section id="mail-preview" class="mail-preview" aria-label="ตัวอย่าง inbox ก่อนติดตั้ง" hidden>
     <div class="mail-preview-notice">
+      <svg class="icon" aria-hidden="true"><use href="#icon-flask"></use></svg>
       <strong>ตัวอย่าง inbox ก่อนติดตั้ง</strong>
-      <span>ข้อมูลในหน้านี้เป็นตัวอย่างเท่านั้น และจะหายไปทันทีที่ติดตั้ง Mail service สำเร็จ</span>
+      <span>ข้อความและ mailbox ในกรอบนี้เป็นข้อมูลสมมติ ไม่ได้เชื่อมกับ mail server ใด และจะหายไปเมื่อติดตั้ง Mail service สำเร็จ</span>
     </div>
     <div class="mail-shell">
       <aside class="mail-nav">
@@ -20,12 +21,12 @@
         </button>
         <div class="mail-nav-section">Inboxes</div>
         <nav id="mail-categories" aria-label="Mail categories"></nav>
-        <div class="mail-nav-section">Groups <small class="muted">อัตโนมัติ</small></div>
+        <div class="mail-nav-section">Groups <small class="muted">จัดกลุ่มอัตโนมัติ</small></div>
         <nav id="mail-groups" aria-label="Mail groups"></nav>
         <div class="mail-mailbox-card">
           <small>ตัวอย่าง mailbox</small>
           <p>portal@ops.example.com</p>
-          <small>ข้อมูลตัวอย่างก่อนติดตั้ง Mail service</small>
+          <small>ข้อมูลสมมติ จะถูกแทนด้วย mailbox จริงหลังติดตั้ง</small>
         </div>
       </aside>
       <section class="mail-list">
@@ -34,7 +35,7 @@
             <strong id="mail-list-title">Inbox</strong>
             <span id="mail-list-count" class="count">0</span>
           </div>
-          <input id="mail-search" type="search" placeholder="ค้นหาอีเมล…" autocomplete="off">
+          <input id="mail-search" type="search" placeholder="ค้นหาในตัวอย่าง…" autocomplete="off" aria-label="ค้นหาอีเมลตัวอย่าง">
         </div>
         <div id="mail-rows" class="mail-rows" aria-live="polite"></div>
       </section>
@@ -43,22 +44,24 @@
     <div id="mail-compose-overlay" class="mail-compose-overlay" hidden></div>
     <div id="mail-compose" class="mail-compose-window" hidden>
       <header class="mail-compose-head">
-        <strong>เขียนอีเมลใหม่ <small>(ตัวอย่าง)</small></strong>
+        <strong>เขียนอีเมลใหม่ <small class="muted">(ตัวอย่าง)</small></strong>
         <button id="mail-compose-close" class="close-btn" type="button" aria-label="ปิด">
           <svg class="icon" aria-hidden="true"><use href="#icon-close"></use></svg>
         </button>
       </header>
       <form id="mail-compose-form" class="form-grid">
-        <label>From
+        <p class="muted">ฟอร์มนี้เป็นตัวอย่างหน้าตาเท่านั้น กดส่งแล้วจะไม่มีอีเมลออกจากโฮสต์</p>
+        <label>จาก
           <select>
             <option>portal@ops.example.com (ตัวอย่าง)</option>
             <option>alerts@ops.example.com</option>
           </select>
         </label>
-        <label>To<input type="email" placeholder="recipient@example.com" required></label>
-        <label>Subject<input maxlength="200" placeholder="หัวข้อ" required></label>
+        <label>ถึง<input type="email" placeholder="recipient@example.com" required></label>
+        <label>หัวข้อ<input maxlength="200" placeholder="หัวข้อ" required></label>
         <label>ข้อความ<textarea rows="6" placeholder="เขียนข้อความ…"></textarea></label>
         <div class="form-actions">
+          <span class="modal-spacer"></span>
           <button type="submit">
             <svg class="icon" aria-hidden="true"><use href="#icon-send"></use></svg>
             ส่งตัวอย่าง
@@ -71,15 +74,21 @@
     <header class="mail-management-head">
       <div>
         <h2>จัดการ mailbox</h2>
-        <p>สร้างหรือลบ mailbox ผ่าน Mail Setup</p>
+        <p>Mail service ติดตั้งแล้ว สร้างหรือลบ mailbox ได้จาก Mail Setup ขั้นตอน Mailbox</p>
       </div>
       <a id="mail-mailbox-manage" class="secondary button" href="/mail/setup">จัดการ mailbox</a>
     </header>
     <div class="mail-mailbox-card">
       <small>สถานะ mailbox</small>
       <p id="mail-mailbox-name">กำลังอ่านสถานะ mailbox…</p>
-      <small id="mail-mailbox-status" class="mail-mailbox-ok">—</small>
+      <small id="mail-mailbox-status" class="mail-mailbox-ok">…</small>
     </div>
-    <p class="muted">หน้านี้ใช้จัดการ Mail service เท่านั้น — การอ่านและเขียนอีเมลใช้โปรแกรม IMAP/SMTP ของคุณ</p>
+    <div class="notice">
+      <svg class="icon" aria-hidden="true"><use href="#icon-info"></use></svg>
+      <div>
+        <strong>หน้านี้ใช้ดูสถานะและจัดการ Mail service เท่านั้น</strong>
+        <p>การรับส่งอีเมลจริงใช้โปรแกรม IMAP/SMTP ของคุณกับ mailbox ที่สร้างไว้ ทุกการเปลี่ยนแปลงจากหน้านี้ถูกบันทึกใน Activity</p>
+      </div>
+    </div>
   </section>
 </section>

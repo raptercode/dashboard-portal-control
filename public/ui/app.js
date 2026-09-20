@@ -8,8 +8,8 @@ const DRAFT_KEY = 'hostmgr.projectDraft';
 const SIDEBAR_COLLAPSED_KEY = 'hostmgr.sidebarCollapsed';
 const PROJECT_ORG_KEY = 'hostmgr.selectedOrganization';
 const THEME_KEY = 'hostmgr.theme';
-const THEME_COLOR_LIGHT = '#f8fafc';
-const THEME_COLOR_DARK = '#0b1220';
+const THEME_COLOR_LIGHT = '#f3f4f6';
+const THEME_COLOR_DARK = '#0b0d10';
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 
@@ -209,8 +209,13 @@ function resetForm(form) {
   if (form instanceof HTMLFormElement) form.reset();
 }
 
+function submitButton(event) {
+  return event.submitter || event.currentTarget?.querySelector?.('button[type="submit"]') || null;
+}
+
 async function withBusy(button, work) {
   if (!button) return work();
+  if (button.disabled) return undefined;
   button.disabled = true;
   button.classList.add('is-busy');
   button.setAttribute('aria-busy', 'true');
@@ -562,9 +567,9 @@ async function refresh() {
   const ownerLabel = state.owner?.email || 'owner';
   const initials = ownerLabel.split('@')[0].split(/[._-]/).map((part) => part[0]).join('').slice(0, 2).toUpperCase() || 'OW';
   const hostBreadcrumb = $('#host-breadcrumb');
-  if (hostBreadcrumb) hostBreadcrumb.textContent = doctor.host?.hostname || '—';
+  if (hostBreadcrumb) hostBreadcrumb.textContent = doctor.host?.hostname || '…';
   const tlsBadge = $('#tls-badge');
-  if (tlsBadge?.lastChild) tlsBadge.lastChild.textContent = doctor.mode === 'host' ? ' Host connected' : ' Sandbox';
+  if (tlsBadge?.lastChild) tlsBadge.lastChild.textContent = doctor.mode === 'host' ? ' Host' : ' Sandbox';
   const ownerAvatar = $('#owner-avatar');
   if (ownerAvatar) ownerAvatar.textContent = initials;
   const sidebarAvatar = $('#sidebar-avatar');
@@ -656,7 +661,7 @@ function renderResourceCards(host) {
   $('#resource-memory').textContent = formatBytes(memoryUsed);
   $('#resource-memory-bar').style.width = `${Math.min(100, memoryPercent)}%`;
   $('#resource-memory-detail').textContent = `${formatPercent(memoryPercent)}% · ${formatBytes(memoryTotal)} รวม`;
-  $('#resource-disk').textContent = diskTotal ? formatBytes(diskUsed) : '—';
+  $('#resource-disk').textContent = diskTotal ? formatBytes(diskUsed) : '…';
   $('#resource-disk-bar').style.width = `${Math.min(100, diskPercent)}%`;
   $('#resource-disk-detail').textContent = diskTotal ? `${formatPercent(diskPercent)}% · ${formatBytes(diskTotal)} รวม` : 'ยังไม่อ่านดิสก์ได้';
   $('#resource-uptime').textContent = duration(current?.uptimeSeconds ?? host.uptimeSeconds ?? 0);
@@ -692,9 +697,9 @@ function drawMetricsChart(samples) {
   const ctx = canvas.getContext('2d');
   ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
   ctx.clearRect(0, 0, width, height);
-  const bgColor = cssVar('--panel', '#ffffff');
-  const gridColor = cssVar('--line-soft', '#e2e8f0');
-  const textColor = cssVar('--muted', '#64748b');
+  const bgColor = cssVar('--surface', '#ffffff');
+  const gridColor = cssVar('--border', '#e3e6ec');
+  const textColor = cssVar('--text-2', '#515868');
   ctx.fillStyle = bgColor;
   ctx.fillRect(0, 0, width, height);
   const pad = { top: 16, right: 16, bottom: 28, left: 36 };
@@ -702,7 +707,7 @@ function drawMetricsChart(samples) {
   const chartH = height - pad.top - pad.bottom;
   ctx.strokeStyle = gridColor;
   ctx.fillStyle = textColor;
-  ctx.font = '11px Inter, Segoe UI, sans-serif';
+  ctx.font = `11px ${cssVar('--font', 'system-ui, sans-serif')}`;
   for (let i = 0; i <= 4; i += 1) {
     const y = pad.top + (chartH * i) / 4;
     ctx.beginPath();
@@ -712,7 +717,7 @@ function drawMetricsChart(samples) {
     ctx.fillText(String(100 - i * 25), 8, y + 3);
   }
   if (!samples.length) {
-    ctx.fillText('ยังไม่มีข้อมูลประวัติ — จะเริ่มสะสมทุก 5 นาที', pad.left, pad.top + chartH / 2);
+    ctx.fillText('ยังไม่มีข้อมูลประวัติ ระบบจะเริ่มสะสมทุก 5 นาที', pad.left, pad.top + chartH / 2);
     return;
   }
   const times = samples.map((sample) => Date.parse(sample.at));
@@ -720,9 +725,9 @@ function drawMetricsChart(samples) {
   const maxX = Math.max(...times);
   const spanX = Math.max(1, maxX - minX);
   const series = [
-    { key: 'cpuPercent', color: cssVar('--danger', '#ef4444') },
-    { key: 'memoryPercent', color: cssVar('--ok', '#10b981') },
-    { key: 'diskPercent', color: cssVar('--accent', '#4f46e5') }
+    { key: 'cpuPercent', color: cssVar('--chart-cpu', '#2e63e7') },
+    { key: 'memoryPercent', color: cssVar('--chart-memory', '#14a37f') },
+    { key: 'diskPercent', color: cssVar('--chart-disk', '#d97a1e') }
   ];
   for (const line of series) {
     ctx.beginPath();
@@ -789,7 +794,7 @@ const MAIL_PORT_STATUS = Object.freeze({
 });
 
 const MAIL_PLAN_GUIDE = Object.freeze({
-  direct: { label: 'ส่งตรงแบบ Direct MX ได้', detail: 'พอร์ต 25 เปิด: โฮสต์นี้รัน mail server ส่งตรงถึงปลายทางได้ — ก่อนใช้งานจริงต้องตั้ง Reverse DNS (PTR), SPF, DKIM และ DMARC' },
+  direct: { label: 'ส่งตรงแบบ Direct MX ได้', detail: 'พอร์ต 25 เปิด: โฮสต์นี้รัน mail server ส่งตรงถึงปลายทางได้ ก่อนใช้งานจริงต้องตั้ง Reverse DNS (PTR), SPF, DKIM และ DMARC' },
   'relay-587': { label: 'ใช้ relay พอร์ต 587', detail: 'พอร์ต 25 ถูกบล็อค: ให้ส่งออกผ่าน relay (smarthost) พอร์ต 587 ด้วย SMTP AUTH + STARTTLS และใส่ relay ไว้ใน SPF record' },
   'relay-2525': { label: 'ใช้ relay พอร์ต 2525', detail: 'เหลือเฉพาะพอร์ต 2525: สมัคร relay ที่รองรับ 2525 (เช่น SMTP2GO, Mailgun, SendGrid) แล้วตั้ง smarthost เป็น [โฮสต์ relay]:2525 พร้อม SMTP AUTH และใช้ SPF/DKIM ของผู้ให้บริการ relay' },
   'api-only': { label: 'ต้องส่งผ่าน HTTPS API', detail: 'พอร์ต SMTP ขาออกถูกบล็อคทั้งหมด: ส่งอีเมลผ่าน HTTPS API (เช่น Resend, Amazon SES, Mailgun API) หรือขอผู้ให้บริการเครือข่ายเปิดพอร์ต' }
@@ -816,7 +821,7 @@ function renderMailOutboundReport(report) {
   const advice = element('article', 'tool-row');
   const adviceCopy = element('div');
   adviceCopy.append(
-    element('h3', '', `คำแนะนำ: ${plan?.label ?? outbound.recommendation?.mode ?? '—'}`),
+    element('h3', '', `คำแนะนำ: ${plan?.label ?? outbound.recommendation?.mode ?? '…'}`),
     element('p', 'muted', plan?.detail ?? outbound.recommendation?.summary ?? ''),
     element('small', '', `ตรวจเมื่อ ${new Date(outbound.checkedAt).toLocaleString()}`)
   );
@@ -844,7 +849,7 @@ function renderProjects() {
     filterBanner.hidden = !statusFilter;
     if (statusFilter) {
       const meta = PROJECT_STATUS[statusFilter];
-      filterLabel.textContent = `กรองสถานะ ${meta.label} — ${meta.detail}`;
+      filterLabel.textContent = `กรองสถานะ ${meta.label} ${meta.detail}`;
     }
   }
   const query = ($('#project-search')?.value || '').trim().toLocaleLowerCase('th-TH');
@@ -856,12 +861,12 @@ function renderProjects() {
     if (!query) return true;
     return [project.name, project.slug, project.organization, project.repository, project.branch].join(' ').toLocaleLowerCase('th-TH').includes(query);
   });
-  $('#project-count').textContent = `${projects.length} projects`;
-  $('#projects-subtitle').textContent = `${projects.length} projects · ${projectStatusCounts(projects).ready} running · ${projectStatusCounts(projects).pause} pending`;
+  $('#project-count').textContent = `${projects.length} โปรเจค`;
+  $('#projects-subtitle').textContent = `${projects.length} โปรเจค · ทำงานอยู่ ${projectStatusCounts(projects).ready} · รอ release ${projectStatusCounts(projects).pause}`;
   if (!projects.length) {
     const empty = statusFilter
       ? `ไม่มีโปรเจคในสถานะ ${PROJECT_STATUS[statusFilter].label}`
-      : (query ? 'ไม่พบโปรเจคที่ตรงกับคำค้นหา' : 'ยังไม่มีโปรเจค — เริ่มเชื่อมต่อ repository แรกของคุณ');
+      : (query ? 'ไม่พบโปรเจคที่ตรงกับคำค้นหา' : 'ยังไม่มีโปรเจค เริ่มเชื่อมต่อ repository แรกของคุณ');
     root.replaceChildren(element('div', 'empty-state', empty));
     return;
   }
@@ -899,11 +904,13 @@ function renderProjectsHealth() {
   const memoryUsed = host.memoryUsedBytes || 0;
   const pill = (label, warning = false) => {
     const item = element('span', `health-pill${warning ? ' warn' : ''}`);
-    item.append(element('span', 'check', warning ? '⚠' : '✓'), document.createTextNode(` ${label}`));
+    const mark = element('span', 'check');
+    mark.append(icon(warning ? 'alert' : 'check'));
+    item.append(mark, document.createTextNode(label));
     return item;
   };
   const items = [
-    pill(`Node ${state.doctor?.supportedNodeMajor ? `v${state.doctor.supportedNodeMajor}` : '—'}`),
+    pill(`Node ${state.doctor?.supportedNodeMajor ? `v${state.doctor.supportedNodeMajor}` : '…'}`),
     pill('Bun supported'),
     pill(installed('nginx') ? 'Nginx running' : 'Nginx not installed', !installed('nginx')),
     pill(installed('certbot') ? 'Certbot ready' : 'Certbot not installed', !installed('certbot')),
@@ -971,7 +978,7 @@ function projectRow(project) {
   } else {
     meta.append(portMeta, branchMeta);
   }
-  meta.append(element('span', `project-state ${displayStatus.tone}`, displayStatus.label));
+  const stateLabel = element('span', `project-state ${displayStatus.tone}`, displayStatus.label);
   const details = element('details', 'project-details');
   const detailSummary = element('summary', '', 'รายละเอียดการตั้งค่า');
   const detailList = element('dl', 'project-detail-list');
@@ -996,8 +1003,10 @@ function projectRow(project) {
   values.forEach(([label, value]) => detailList.append(element('dt', '', label), element('dd', '', value)));
   details.append(detailSummary, detailList);
   headline.append(cardTitle, identity);
-  secondary.append(domains, details);
-  copy.append(headline, repository, meta, secondary);
+  const source = element('div', 'project-source');
+  source.append(repository, meta);
+  secondary.append(stateLabel, domains);
+  copy.append(headline, source, secondary, details);
   const actions = element('div', 'card-actions project-actions');
   const primaryAction = element('button', 'btn btn-primary btn-sm', displayStatus.key === 'deploying' ? 'Deploying…' : (displayStatus.key === 'attention' && deployment.previousReleaseId ? 'Rollback' : 'Deploy'));
   primaryAction.type = 'button';
@@ -1014,8 +1023,10 @@ function projectRow(project) {
   logsPageLink.href = `/projects/${encodeURIComponent(project.slug)}/logs`;
   actions.append(logsPageLink);
   const menu = element('details', 'project-actions-menu');
-  const menuSummary = element('summary', '', '⋯');
+  const menuSummary = element('summary');
+  menuSummary.append(icon('more'));
   menuSummary.setAttribute('aria-label', `จัดการ ${project.name}`);
+  menuSummary.title = 'การจัดการเพิ่มเติม';
   const actionList = element('div', 'project-action-list');
   const closeMenu = (callback) => (...args) => {
     menu.open = false;
@@ -1034,17 +1045,12 @@ function projectRow(project) {
       if (menu.open) positionProjectActionMenu(menu, actionList);
     });
   });
-  const syncLatest = element('button', 'secondary', 'Sync latest');
-  syncLatest.type = 'button';
-  syncLatest.addEventListener('click', closeMenu(() => syncExistingProject(project, syncLatest).catch(showError)));
-  actionList.append(syncLatest);
-  const deploy = element('button', 'secondary', 'สร้าง release');
+  const deploy = element('button', 'secondary', 'แก้ไข ENV และ deploy');
   deploy.type = 'button';
-  deploy.disabled = sync.status !== 'synced';
-  deploy.addEventListener('click', closeMenu(() => startProjectDeploy(project, deploy).catch(showError)));
+  deploy.addEventListener('click', closeMenu(() => openDeployDialog(project).catch(showError)));
   actionList.append(deploy);
   if (latestRelease) {
-    const logs = element('button', 'secondary', 'ดู log');
+    const logs = element('button', 'secondary', 'ดู release ล่าสุด');
     logs.type = 'button';
     logs.addEventListener('click', closeMenu(() => openDeploymentLog(project, latestRelease)));
     actionList.append(logs);
@@ -1061,10 +1067,7 @@ function projectRow(project) {
   autoSync.type = 'button';
   autoSync.addEventListener('click', closeMenu(() => configureAutoSync(project, autoSync).catch(showError)));
   actionList.append(autoSync);
-  const logsPage = element('a', 'secondary button', 'Logs');
-  logsPage.href = `/projects/${encodeURIComponent(project.slug)}/logs`;
-  actionList.append(logsPage);
-  const edit = element('a', 'secondary button', 'แก้ไข');
+  const edit = element('a', 'secondary button', 'แก้ไขโปรเจค');
   edit.href = `/projects/${encodeURIComponent(project.slug)}/edit`;
   actionList.append(edit);
   if (deployment.previousReleaseId) {
@@ -1133,7 +1136,7 @@ async function syncExistingProject(project, button) {
 function renderCredentials() {
   const root = $('#credentials');
   if (!state.vaultReady) {
-    root.replaceChildren(element('div', 'empty-state', 'Credential vault ยังไม่พร้อม — ตั้งค่า HOSTMGR_SECRET_KEY ก่อนบันทึก token'));
+    root.replaceChildren(element('div', 'empty-state', 'Credential vault ยังไม่พร้อม ตั้งค่า HOSTMGR_SECRET_KEY ก่อนบันทึก token'));
     return;
   }
   if (!state.credentials.length) {
@@ -1194,7 +1197,7 @@ async function renderDatabases() {
     });
   }
   if (!state.vaultReady) {
-    root.replaceChildren(element('div', 'empty-state', 'Credential vault ยังไม่พร้อม — ตั้งค่า HOSTMGR_SECRET_KEY ก่อนบันทึก connector'));
+    root.replaceChildren(element('div', 'empty-state', 'Credential vault ยังไม่พร้อม ตั้งค่า HOSTMGR_SECRET_KEY ก่อนบันทึก connector'));
     return;
   }
   if (!state.databases.length) {
@@ -1240,8 +1243,8 @@ async function renderDatabases() {
 }
 
 const CONSOLE_HINTS = Object.freeze({
-  postgresql: { hint: 'SQL เช่น SELECT * FROM users LIMIT 10 — กด Run หรือ Ctrl+Enter', placeholder: 'SELECT now();' },
-  mysql: { hint: 'SQL เช่น SHOW TABLES หรือ SELECT * FROM users LIMIT 10 — กด Run หรือ Ctrl+Enter', placeholder: 'SELECT version();' },
+  postgresql: { hint: 'SQL เช่น SELECT * FROM users LIMIT 10 กด Run หรือ Ctrl+Enter', placeholder: 'SELECT now();' },
+  mysql: { hint: 'SQL เช่น SHOW TABLES หรือ SELECT * FROM users LIMIT 10 กด Run หรือ Ctrl+Enter', placeholder: 'SELECT version();' },
   mongodb: { hint: 'Command JSON เช่น {"find":"users","limit":10} หรือ {"listCollections":1}', placeholder: '{"listCollections": 1}' },
   redis: { hint: 'คำสั่ง Redis เช่น GET mykey, SCAN 0, HGETALL user:1', placeholder: 'PING' }
 });
@@ -1253,7 +1256,7 @@ async function renderDatabaseConsole() {
   const connection = state.databases.find((item) => item.id === editSlug);
   if (!connection) {
     $('#console-title').textContent = 'ไม่พบ connector';
-    $('#console-subtitle').textContent = 'connector นี้อาจถูกลบไปแล้ว — กลับไปหน้า Databases';
+    $('#console-subtitle').textContent = 'connector นี้อาจถูกลบไปแล้ว กลับไปหน้า Databases';
     $('#console-editor-panel').hidden = true;
     return;
   }
@@ -1265,7 +1268,7 @@ async function renderDatabaseConsole() {
   $('#console-statement').placeholder = hints.placeholder;
   if (driver && !driver.installed) {
     $('#console-driver-warning').hidden = false;
-    $('#console-driver-detail').textContent = `Console ของ ${connection.provider} ต้องติดตั้ง driver "${driver.package}" ก่อน (optional dependency — core ของ Portal ไม่ต้องมีก็ทำงานได้)`;
+    $('#console-driver-detail').textContent = `Console ของ ${connection.provider} ต้องติดตั้ง driver "${driver.package}" ก่อน (optional dependency core ของ Portal ไม่ต้องมีก็ทำงานได้)`;
     $('#console-driver-command').textContent = `npm install ${driver.package}`;
     $('#console-run').disabled = true;
     return;
@@ -1307,7 +1310,7 @@ function renderConsoleResult(result) {
   $('#console-meta').textContent = meta.join(' · ');
   const root = $('#console-results');
   if (!result.rows?.length) {
-    root.replaceChildren(element('p', 'muted', result.notice || 'คำสั่งสำเร็จ — ไม่มีแถวข้อมูลส่งกลับ'));
+    root.replaceChildren(element('p', 'muted', result.notice || 'คำสั่งสำเร็จ ไม่มีแถวข้อมูลส่งกลับ'));
     return;
   }
   const table = element('table', 'console-table');
@@ -1344,39 +1347,39 @@ const MAIL_DEMO = [
   {
     id: 'm1', category: 'certs', level: 'warning', chip: { text: 'CERT', tone: 'warn' }, avatar: '🔒', unread: true,
     from: "Let's Encrypt", address: 'noreply@letsencrypt.org', time: 'เมื่อสักครู่',
-    subject: 'TLS certificate จะหมดอายุใน 7 วัน — docs.example.com',
+    subject: 'TLS certificate จะหมดอายุใน 7 วัน docs.example.com',
     preview: 'Certificate ของ docs.example.com จะหมดอายุวันที่ 2026-08-23 ต่ออายุก่อนเพื่อเลี่ยง downtime…',
     body: [
       'สวัสดีครับ',
       'Certificate ของโดเมนด้านล่างจะหมดอายุภายใน 7 วัน (2026-08-23) กรุณาต่ออายุก่อนถึงกำหนด ไม่เช่นนั้นผู้เข้าชมเว็บไซต์จะพบข้อผิดพลาดด้านความปลอดภัย',
       'โดเมนที่ได้รับผลกระทบ: docs.example.com',
-      '— The Let’s Encrypt Team'
+      'The Let’s Encrypt Team'
     ],
     related: [
-      { badge: 'renewed', tone: 'ready', text: 'ต่ออายุครั้งก่อน — docs.example.com', when: '2026-05-22' },
+      { badge: 'renewed', tone: 'ready', text: 'ต่ออายุครั้งก่อน docs.example.com', when: '2026-05-22' },
       { badge: 'nginx', tone: 'muted', text: 'Server block ใช้งานอยู่ → 127.0.0.1:3214', when: 'stable' }
     ]
   },
   {
     id: 'm2', category: 'alerts', level: 'critical', chip: { text: 'ALERT', tone: 'danger' }, avatar: '⚠️', unread: true,
     from: 'Uptime Monitor', address: 'alerts@ops.example.com', time: '4 นาที',
-    subject: '[CRITICAL] auth-gateway error rate สูง — 5xx เกิน 12%',
+    subject: '[CRITICAL] auth-gateway error rate สูง 5xx เกิน 12%',
     preview: 'Instance 127.0.0.1:3213 ตอบ HTTP 5xx จำนวน 34 จาก 60 requests ล่าสุด เริ่มตั้งแต่ 22:15…',
-    body: ['Instance 127.0.0.1:3213 ตอบ HTTP 5xx จำนวน 34 จาก 60 requests ล่าสุด (12.4%)', 'เริ่ม firing ตั้งแต่ 22:15 — ตรวจสอบ log ของ service auth-gateway'],
+    body: ['Instance 127.0.0.1:3213 ตอบ HTTP 5xx จำนวน 34 จาก 60 requests ล่าสุด (12.4%)', 'เริ่ม firing ตั้งแต่ 22:15 ตรวจสอบ log ของ service auth-gateway'],
     related: [{ badge: 'logs', tone: 'muted', text: 'ดู runtime log ของ auth-gateway ได้จากหน้า Projects', when: 'ตอนนี้' }]
   },
   {
     id: 'm3', category: 'deploys', level: 'info', chip: { text: 'DEPLOY', tone: 'info' }, avatar: '🚀', unread: true,
     from: 'Dashboard Portal', address: 'portal@ops.example.com', time: '18 นาที',
-    subject: 'Deploy สำเร็จ — my-api v1.4.2 · health check ผ่านใน 4.2s',
+    subject: 'Deploy สำเร็จ my-api v1.4.2 · health check ผ่านใน 4.2s',
     preview: 'Release a3f4c21 ถูก activate บนพอร์ต 3210 เก็บ release เดิม v1.4.1 ไว้สำหรับ rollback…',
     body: ['Release a3f4c21 ถูก activate บนพอร์ต 3210', 'Release เดิม v1.4.1 ยังเก็บไว้สำหรับ rollback หนึ่งคลิก'],
-    related: [{ badge: 'deploy', tone: 'ready', text: 'Job สำเร็จ — candidate health check ผ่าน', when: '18 นาที' }]
+    related: [{ badge: 'deploy', tone: 'ready', text: 'Job สำเร็จ candidate health check ผ่าน', when: '18 นาที' }]
   },
   {
     id: 'm4', category: 'github', level: 'info', chip: { text: 'GITHUB', tone: 'github' }, avatar: '🐙', unread: true,
     from: 'github.com', address: 'notifications@github.com', time: '1 ชม.',
-    subject: '[rapter/my-api] PR #42 — Add rate limiting middleware',
+    subject: '[rapter/my-api] PR #42 Add rate limiting middleware',
     preview: 'alice เปิด pull request · 3 files changed · +142 −18 · CI ผ่าน…',
     body: ['alice เปิด pull request ใน rapter/my-api', '3 files changed · +142 −18 · CI ผ่านทุกขั้น', 'Review ได้ที่ github.com/rapter/my-api/pull/42']
   },
@@ -1390,21 +1393,21 @@ const MAIL_DEMO = [
   {
     id: 'm6', category: 'deploys', level: 'info', chip: { text: 'DEPLOY', tone: 'info' }, avatar: '↩️', unread: false,
     from: 'Dashboard Portal', address: 'portal@ops.example.com', time: '3 ชม.',
-    subject: 'Rollback สำเร็จ — landing-page → v0.8.9',
+    subject: 'Rollback สำเร็จ landing-page → v0.8.9',
     preview: 'Candidate v0.9.1 ไม่ผ่าน health check 3 ครั้งติด ระบบย้อนกลับให้เรียบร้อย…',
     body: ['Candidate v0.9.1 ไม่ผ่าน health check 3 ครั้งติด', 'ระบบย้อนกลับเป็น v0.8.9 โดย release ที่ใช้งานอยู่ไม่สะดุด']
   },
   {
     id: 'm7', category: 'github', level: 'normal', chip: { text: 'GITHUB', tone: 'github' }, avatar: '🐙', unread: false,
     from: 'github.com', address: 'notifications@github.com', time: 'เมื่อวาน',
-    subject: '[rapter/worker] Issue #17 — Memory leak in queue processor',
+    subject: '[rapter/worker] Issue #17 Memory leak in queue processor',
     preview: 'bob commented: reproduce ได้บน staging แนบ heap dump มาให้…',
     body: ['bob commented: reproduce ได้บน staging', 'แนบ heap dump ไว้ใน issue แล้ว']
   },
   {
     id: 'm8', category: 'human', level: 'normal', chip: { text: 'HUMAN', tone: 'human' }, avatar: 'SM', unread: false,
     from: 'sam@partner.io', address: 'sam@partner.io', time: 'เมื่อวาน',
-    subject: 'Integration webhook — แนบ sample payload มาให้',
+    subject: 'Integration webhook แนบ sample payload มาให้',
     preview: 'นี่คือ payload format ที่เราจะส่ง สังเกต signature header ด้วยนะครับ…',
     body: ['นี่คือ payload format ที่เราจะส่งครับ', 'สังเกต signature header X-Partner-Signature สำหรับ verify ด้วย']
   }
@@ -1464,7 +1467,7 @@ function renderMailPreview() {
   $('#mail-compose-form').addEventListener('submit', (event) => {
     event.preventDefault();
     toggleMailCompose(false);
-    toast('ตัวอย่างก่อนติดตั้ง — ยังไม่ได้ส่งอีเมลจริง');
+    toast('ตัวอย่างก่อนติดตั้ง ยังไม่ได้ส่งอีเมลจริง');
   });
 }
 
@@ -1481,7 +1484,7 @@ async function configureAutoSync(project, button) {
   await withBusy(button, async () => {
     await api(`/api/projects/${encodeURIComponent(project.slug)}/auto-sync`, { method: 'POST', body: { enabled: true } });
     await refresh();
-    toast('เปิด Auto deploy แล้ว — เมื่อ sync Git จะสร้าง release อัตโนมัติ');
+    toast('เปิด Auto deploy แล้ว เมื่อ sync Git จะสร้าง release อัตโนมัติ');
   });
 }
 
@@ -1499,7 +1502,7 @@ function renderMailSetupNotice(mail) {
       element('span', '', ` ${mail.hostname} · ${mail.domains.length} โดเมน · ${mail.mailboxes.length} mailbox`)
     );
   } else {
-    text.append(element('span', '', 'ยังไม่ได้ติดตั้ง mail service — ด้านล่างเป็นตัวอย่าง inbox ก่อนติดตั้ง ใช้ Mail Setup เพื่อติดตั้งจริง'));
+    text.append(element('span', '', 'ยังไม่ได้ติดตั้ง mail service ด้านล่างเป็นตัวอย่าง inbox ก่อนติดตั้ง ใช้ Mail Setup เพื่อติดตั้งจริง'));
   }
   notice.replaceChildren(text, link);
   notice.hidden = false;
@@ -1592,7 +1595,7 @@ function renderMailReader() {
     const button = element('button', 'secondary');
     button.type = 'button';
     button.append(icon(iconName), element('span', '', label));
-    button.addEventListener('click', () => toast('ตัวอย่างก่อนติดตั้ง — ปุ่มนี้ยังไม่ทำงานจริง'));
+    button.addEventListener('click', () => toast('ตัวอย่างก่อนติดตั้ง ปุ่มนี้ยังไม่ทำงานจริง'));
     return button;
   };
   const actions = element('div', 'mail-reader-actions');
@@ -1768,13 +1771,13 @@ function wizardStepOutbound() {
     const plan = MAIL_PLAN_GUIDE[wizard.outbound.recommendation?.mode];
     const advice = element('article', 'tool-row');
     const adviceCopy = element('div');
-    adviceCopy.append(element('h3', '', `คำแนะนำ: ${plan?.label ?? '—'}`), element('p', 'muted', plan?.detail ?? ''), element('small', '', `ตรวจเมื่อ ${new Date(wizard.outbound.checkedAt).toLocaleString()}`));
+    adviceCopy.append(element('h3', '', `คำแนะนำ: ${plan?.label ?? '…'}`), element('p', 'muted', plan?.detail ?? ''), element('small', '', `ตรวจเมื่อ ${new Date(wizard.outbound.checkedAt).toLocaleString()}`));
     advice.append(adviceCopy);
     results.append(advice);
     if ((wizard.outbound.ports ?? []).find((entry) => entry.port === 25)?.status !== 'open') {
-      results.append(element('p', 'muted', '⚠ พอร์ต 25 ขาออกถูกบล็อค — มักแปลว่า inbound 25 อาจถูกบล็อคด้วย หากต้องการรับเมลเข้า ติดต่อผู้ให้บริการเครือข่ายของ host นี้'));
+      results.append(element('p', 'muted', '⚠ พอร์ต 25 ขาออกถูกบล็อค มักแปลว่า inbound 25 อาจถูกบล็อคด้วย หากต้องการรับเมลเข้า ติดต่อผู้ให้บริการเครือข่ายของ host นี้'));
     }
-    results.append(element('h3', 'wizard-subhead', 'ขาเข้า — policy firewall บน host'));
+    results.append(element('h3', 'wizard-subhead', 'ขาเข้า policy firewall บน host'));
     for (const entry of wizard.inbound?.ports ?? []) {
       const row = element('article', 'tool-row');
       const status = entry.status === 'allowed' ? { label: 'อนุญาต', variant: 'ready' } : entry.status === 'blocked' ? { label: 'ถูกบล็อค', variant: 'needs' } : { label: 'ยังไม่ยืนยัน', variant: 'muted' };
@@ -1783,7 +1786,7 @@ function wizardStepOutbound() {
     }
     results.append(element('p', 'muted', 'ผลขาเข้าตรวจได้เพียง firewall ของเครื่องนี้; network/provider ภายนอกต้องพิสูจน์ด้วยการส่ง mail จริง และ Portal จะไม่เปิดพอร์ตที่ผลเป็น blocked หรือ unknown'));
   } else {
-    results.append(element('p', 'muted', 'ยังไม่เคยตรวจ — กดปุ่มด้านล่างเพื่อทดสอบ outbound 25/587/2525 และ firewall ขาเข้า 25/587/993'));
+    results.append(element('p', 'muted', 'ยังไม่เคยตรวจ กดปุ่มด้านล่างเพื่อทดสอบ outbound 25/587/2525 และ firewall ขาเข้า 25/587/993'));
   }
   panel.append(results);
   const check = element('button', 'secondary', 'ตรวจสอบความพร้อม mail');
@@ -1827,7 +1830,7 @@ function wizardStepIdentity() {
   if (mail.hostnameCheck) {
     const status = MAIL_DNS_STATUS[mail.hostnameCheck.status] ?? { label: mail.hostnameCheck.status, variant: 'muted' };
     const line = element('p', 'muted');
-    line.append(statusChip(status.label, status.variant), element('span', '', ` A/AAAA ของ hostname ${mail.hostnameCheck.detail ? `— ${mail.hostnameCheck.detail}` : ''}`));
+    line.append(statusChip(status.label, status.variant), element('span', '', ` A/AAAA ของ hostname ${mail.hostnameCheck.detail ? `(${mail.hostnameCheck.detail})` : ''}`));
     form.append(line);
   }
   form.addEventListener('submit', async (event) => {
@@ -1842,13 +1845,13 @@ function wizardStepIdentity() {
   });
   panel.append(form);
 
-  const domainsHead = element('h3', 'wizard-subhead', `Mail domain(s) — เลือกแล้ว ${mail.domains.length}/${wizard.settings.maxDomains}`);
+  const domainsHead = element('h3', 'wizard-subhead', `Mail domain(s) เลือกแล้ว ${mail.domains.length}/${wizard.settings.maxDomains}`);
   panel.append(domainsHead);
   const list = element('section', 'tool-list wizard-domain-list');
   for (const entry of mail.domains) {
     const row = element('article', 'tool-row wizard-domain-row');
     const copy = element('div', 'wizard-domain-copy');
-    copy.append(element('h3', '', entry.domain), element('p', 'muted', `DKIM selector: ${entry.dkimSelector ?? '—'}`));
+    copy.append(element('h3', '', entry.domain), element('p', 'muted', `DKIM selector: ${entry.dkimSelector ?? '…'}`));
     const side = element('div');
     const remove = element('button', 'secondary danger', 'ลบ');
     remove.type = 'button';
@@ -1933,7 +1936,7 @@ function dnsRecordRow(domainName, kind, title, record, state) {
   copyButton.type = 'button';
   copyButton.addEventListener('click', async () => {
     try { await navigator.clipboard.writeText(String(provider.value ?? record.value)); toast('คัดลอก Value แล้ว'); }
-    catch { toast('คัดลอกไม่สำเร็จ — เลือกข้อความเองได้', true); }
+    catch { toast('คัดลอกไม่สำเร็จ เลือกข้อความเองได้', true); }
   });
   const verify = element('button', 'secondary', 'ตรวจสอบ');
   verify.type = 'button';
@@ -1966,11 +1969,11 @@ function dnsProviderRecord(record, domainName) {
 
 function wizardStepDns() {
   const mail = wizard.settings.mail;
-  const panel = wizardPanel(3, 'DNS records', 'copy ค่าไปวางที่ DNS provider ของโดเมน แล้วกดตรวจสอบทีละรายการ — DNS ใหม่อาจใช้เวลา propagate เป็นชั่วโมง ข้ามไปก่อนแล้วกลับมาตรวจทีหลังได้');
+  const panel = wizardPanel(3, 'DNS records', 'copy ค่าไปวางที่ DNS provider ของโดเมน แล้วกดตรวจสอบทีละรายการ DNS ใหม่อาจใช้เวลา propagate เป็นชั่วโมง ข้ามไปก่อนแล้วกลับมาตรวจทีหลังได้');
   const guide = element('aside', 'mail-dns-guide');
   guide.append(
     element('strong', '', 'กรอกตามชื่อช่องได้เลย'),
-    element('span', '', 'DNS provider บางรายเรียก Name ว่า Host หรือ Record name — เป็นช่องเดียวกัน ใช้ TTL = Auto ได้')
+    element('span', '', 'DNS provider บางรายเรียก Name ว่า Host หรือ Record name เป็นช่องเดียวกัน ใช้ TTL = Auto ได้')
   );
   panel.append(guide);
   for (const entry of mail.domains) {
@@ -1999,12 +2002,12 @@ function wizardStepDns() {
     panel.append(list, actions);
   }
 
-  panel.append(element('h3', 'wizard-subhead', 'แนะนำเพิ่มเติม — PTR / rDNS (ตั้งที่ผู้ให้บริการ IP ไม่ใช่ DNS ของโดเมน)'));
+  panel.append(element('h3', 'wizard-subhead', 'แนะนำเพิ่มเติม PTR / rDNS (ตั้งที่ผู้ให้บริการ IP ไม่ใช่ DNS ของโดเมน)'));
   const ptrList = element('section', 'tool-list');
   const ptrRow = element('article', 'tool-row');
   const ptrCopy = element('div');
   const ptrStatus = MAIL_DNS_STATUS[mail.ptr?.status ?? 'pending'] ?? MAIL_DNS_STATUS.pending;
-  ptrCopy.append(element('h3', '', 'PTR / rDNS'), element('p', 'muted', mail.ptr?.detail || `IP ของ host ต้องชี้กลับมาที่ ${mail.hostname ?? 'mail hostname'} — ไม่บังคับ แต่ช่วยเรื่อง deliverability มาก`));
+  ptrCopy.append(element('h3', '', 'PTR / rDNS'), element('p', 'muted', mail.ptr?.detail || `IP ของ host ต้องชี้กลับมาที่ ${mail.hostname ?? 'mail hostname'} ไม่บังคับ แต่ช่วยเรื่อง deliverability มาก`));
   const ptrSide = element('div');
   const ptrCheck = element('button', 'secondary', 'ตรวจสอบ');
   ptrCheck.type = 'button';
@@ -2030,7 +2033,7 @@ function wizardStepMode() {
   const panel = wizardPanel(4, 'เลือกโหมดส่งออก', recommended ? `ผลตรวจ step 1 แนะนำ: ${MAIL_PLAN_GUIDE[recommended]?.label ?? recommended}` : 'เลือกวิธีส่งอีเมลขาออกของ host นี้');
   const form = element('form', 'form-grid');
   const modes = [
-    { id: 'direct', label: 'Direct MX', detail: port25Open ? 'ส่งตรงถึงปลายทาง (พอร์ต 25 เปิด)' : 'ต้องพอร์ต 25 เปิด — ผลตรวจล่าสุดยังถูกบล็อค เลือกได้แต่มีความเสี่ยงส่งไม่ออก' },
+    { id: 'direct', label: 'Direct MX', detail: port25Open ? 'ส่งตรงถึงปลายทาง (พอร์ต 25 เปิด)' : 'ต้องพอร์ต 25 เปิด ผลตรวจล่าสุดยังถูกบล็อค เลือกได้แต่มีความเสี่ยงส่งไม่ออก' },
     { id: 'relay-587', label: 'Relay :587', detail: 'ส่งผ่าน relay ด้วย SMTP AUTH + STARTTLS' },
     { id: 'relay-2525', label: 'Relay :2525', detail: 'สำหรับเครือข่ายที่เหลือแค่พอร์ต 2525 (SMTP2GO, Mailgun, SendGrid)' }
   ];
@@ -2067,7 +2070,7 @@ function wizardStepMode() {
   relayUser.value = mail.relay?.username ?? '';
   const relayPass = element('input');
   relayPass.type = 'password';
-  relayPass.placeholder = mail.relay?.hasPassword ? '(ใช้รหัสผ่านเดิม — พิมพ์ใหม่เพื่อเปลี่ยน)' : '';
+  relayPass.placeholder = mail.relay?.hasPassword ? '(ใช้รหัสผ่านเดิม พิมพ์ใหม่เพื่อเปลี่ยน)' : '';
   const labelled = (text, input) => { const label = element('label', '', text); label.append(input); return label; };
   relayWrap.append(labelled('Relay host', relayHost), labelled('Port', relayPort), labelled('Username', relayUser), labelled('Password', relayPass));
   form.append(relayWrap);
@@ -2104,7 +2107,7 @@ function wizardStepMode() {
 function wizardStepInstall() {
   const mail = wizard.settings.mail;
   const tool = wizard.settings.tool;
-  const panel = wizardPanel(5, 'ติดตั้ง Mail Server', 'mail service ผูกพอร์ตของตัวเอง (25/587/993) ไม่ผ่าน Nginx — ไม่กระทบเว็บโปรเจคที่รันอยู่');
+  const panel = wizardPanel(5, 'ติดตั้ง Mail Server', 'mail service ผูกพอร์ตของตัวเอง (25/587/993) ไม่ผ่าน Nginx ไม่กระทบเว็บโปรเจคที่รันอยู่');
   panel.append(element('p', 'muted', `สรุป: ${mail.hostname} · ${mail.domains.length} โดเมน (${mail.domains.map((entry) => entry.domain).join(', ')}) · โหมด ${mail.outboundMode}`));
   const list = element('section', 'tool-list');
   const stepRow = (title, done, detail) => {
@@ -2123,9 +2126,9 @@ function wizardStepInstall() {
     stepRow('Configure: hostname, โดเมน, DKIM, TLS, โหมดส่งออก', configured, configured ? mail.configure.detail : 'เขียน config + เปิด services หลังติดตั้ง package')
   );
   panel.append(list);
-  if (wizard.settings.mode === 'demo') panel.append(element('p', 'muted', '⚠ DEMO MODE — การติดตั้งถูกจำลอง ไม่เปลี่ยนแปลงเครื่องจริง'));
+  if (wizard.settings.mode === 'demo') panel.append(element('p', 'muted', '⚠ DEMO MODE การติดตั้งถูกจำลอง ไม่เปลี่ยนแปลงเครื่องจริง'));
   const unverified = mail.domains.filter((entry) => ['mx', 'spf', 'dkim'].some((kind) => entry.dns?.[kind]?.status !== 'verified'));
-  if (unverified.length) panel.append(element('p', 'muted', `⚠ ${unverified.map((entry) => entry.domain).join(', ')} ยังมี DNS record ที่ไม่ผ่าน — ติดตั้งได้ แต่ step 7 จะยังส่งไม่ผ่านจนกว่า DNS จะพร้อม`));
+  if (unverified.length) panel.append(element('p', 'muted', `⚠ ${unverified.map((entry) => entry.domain).join(', ')} ยังมี DNS record ที่ไม่ผ่าน ติดตั้งได้ แต่ step 7 จะยังส่งไม่ผ่านจนกว่า DNS จะพร้อม`));
 
   const actions = element('div', 'form-actions');
   if (!installed) {
@@ -2184,12 +2187,12 @@ function wizardStepInstall() {
 
 function wizardStepMailbox() {
   const mail = wizard.settings.mail;
-  const panel = wizardPanel(6, 'สร้าง mailbox แรก', 'สร้างกล่องจดหมายแรกของ mail service — ข้ามได้ แล้วมาสร้างทีหลัง');
+  const panel = wizardPanel(6, 'สร้าง mailbox แรก', 'สร้างกล่องจดหมายแรกของ mail service ข้ามได้ แล้วมาสร้างทีหลัง');
   const list = element('section', 'tool-list');
   for (const mailbox of mail.mailboxes) {
     const row = element('article', 'tool-row');
     const copy = element('div');
-    copy.append(element('h3', '', `${mailbox.localPart}@${mailbox.domain}`), element('p', 'muted', mailbox.displayName || '—'));
+    copy.append(element('h3', '', `${mailbox.localPart}@${mailbox.domain}`), element('p', 'muted', mailbox.displayName || '…'));
     const side = element('div');
     const remove = element('button', 'secondary danger', 'ลบ');
     remove.type = 'button';
@@ -2244,9 +2247,9 @@ function wizardStepMailbox() {
 
 function wizardStepTest() {
   const mail = wizard.settings.mail;
-  const panel = wizardPanel(7, 'ทดสอบส่งจริง', 'ส่งอีเมลทดสอบไปที่อีเมลภายนอกของคุณ (เช่น Gmail) — การทดสอบรับเข้าอัตโนมัติจะมาใน Phase 2');
+  const panel = wizardPanel(7, 'ทดสอบส่งจริง', 'ส่งอีเมลทดสอบไปที่อีเมลภายนอกของคุณ (เช่น Gmail) การทดสอบรับเข้าอัตโนมัติจะมาใน Phase 2');
   if (!mail.mailboxes.length) {
-    panel.append(element('p', 'muted', 'ต้องมี mailbox อย่างน้อย 1 กล่องก่อน — ย้อนกลับไป step 6'));
+    panel.append(element('p', 'muted', 'ต้องมี mailbox อย่างน้อย 1 กล่องก่อน ย้อนกลับไป step 6'));
     return wizardNav(panel, { next: false });
   }
   const form = element('form', 'form-grid');
@@ -2288,7 +2291,7 @@ function wizardStepTest() {
   const backButton = element('button', 'secondary', '← ย้อนกลับ');
   backButton.type = 'button';
   backButton.addEventListener('click', () => { wizard.step = 6; paintWizard(); });
-  const done = element('button', '', 'เสร็จสิ้น — ไปหน้า Mail');
+  const done = element('button', '', 'เสร็จสิ้น ไปหน้า Mail');
   done.type = 'button';
   done.addEventListener('click', () => { location.href = '/mail'; });
   finish.append(backButton, done);
@@ -2299,7 +2302,7 @@ function wizardStepTest() {
 function fillCredentialSelect(selected = '', { useDefault = true } = {}) {
   const select = $('#credential-id');
   if (!select) return;
-  select.replaceChildren(new Option('Public repository — ไม่ต้องใช้ credential', ''), ...state.credentials.map((credential) => new Option(`${credential.name}${credential.host ? ` · ${credential.host}` : ''}`, credential.id)));
+  select.replaceChildren(new Option('Public repository ไม่ต้องใช้ credential', ''), ...state.credentials.map((credential) => new Option(`${credential.name}${credential.host ? ` · ${credential.host}` : ''}`, credential.id)));
   const wanted = selected || (useDefault ? defaultCredentialForRepository($('#repository')?.value || '')?.id : '');
   select.value = [...select.options].some((option) => option.value === wanted) ? wanted : '';
   select.dataset.protocolCleared = 'false';
@@ -2310,7 +2313,7 @@ function renderAudit() {
   if (!root) return;
   const toneFor = (outcome) => outcome === 'success' ? 'success' : (outcome === 'failed' || outcome === 'error' ? 'error' : outcome === 'warning' ? 'warning' : 'info');
   if (!state.audit.length) {
-    root.replaceChildren(element('div', 'empty-state', 'No activity recorded yet.'));
+    root.replaceChildren(element('div', 'empty-state', 'ยังไม่มีเหตุการณ์ในระบบ'));
     return;
   }
   root.replaceChildren(...state.audit.map((event) => {
@@ -2333,8 +2336,8 @@ function renderSettings() {
   renderMonitorTokens().catch(showError);
   $('#settings-mode').textContent = state.mode === 'host' ? 'host' : 'sandbox';
   $('#mode-description').textContent = state.mode === 'host'
-    ? 'โหมด host — คำสั่งติดตั้งและ deploy ทำงานบนเครื่องจริงผ่าน privileged helper'
-    : 'โหมด sandbox — การติดตั้งถูกจำลองและไม่แก้ host จริง';
+    ? 'โหมด host คำสั่งติดตั้งและ deploy ทำงานบนเครื่องจริงผ่าน privileged helper'
+    : 'โหมด sandbox การติดตั้งถูกจำลองและไม่แก้ host จริง';
 }
 
 async function openNotificationHookDialog(project) {
@@ -2414,7 +2417,7 @@ async function renderMonitorTokens() {
       row.append(remove);
     }
     return row;
-  }) : [element('span', '', 'No Monitor Logs Tokens')]));
+  }) : [element('span', '', 'ยังไม่มี token')]));
 }
 
 function renderSoftwareUpdate() {
@@ -2430,7 +2433,7 @@ function renderSoftwareUpdate() {
   }
   const status = update.status === 'available' ? 'มีเวอร์ชันใหม่พร้อมติดตั้ง' : update.status === 'current' ? 'ใช้งานเวอร์ชันล่าสุดแล้ว' : update.status === 'ahead' ? 'เครื่องนี้ใหม่กว่า release channel' : 'ตรวจสอบ release ไม่สำเร็จ';
   const detail = update.status === 'available'
-    ? `v${update.update.version} พร้อมแล้ว — ${update.update.notes || 'ไม่มีหมายเหตุเพิ่มเติม'}`
+    ? `v${update.update.version} พร้อมแล้ว ${update.update.notes || 'ไม่มีหมายเหตุเพิ่มเติม'}`
     : update.status === 'current'
       ? `v${update.currentVersion} · channel ${update.channel}`
       : update.issue || `v${update.currentVersion} · channel ${update.channel}`;
@@ -2522,16 +2525,13 @@ async function rollbackProject(project, button) {
 }
 
 async function startProjectDeploy(project, button) {
-  if (!project.deployment?.releases?.length) {
+  if (!project.environment?.keys?.length) {
+    toast('บันทึก ENV อย่างน้อยหนึ่งค่าก่อน จึงสร้าง release ได้');
     await openDeployDialog(project);
     return;
   }
-  const choice = await confirmChoice('ต้องการแก้ไขข้อมูลหรือไม่?', `แก้ไข env หรือการตั้งค่าของ ${project.name} ก่อน deploy หรือข้ามไปสร้าง release เลย`, { acceptLabel: 'แก้ไข', rejectLabel: 'ไม่ต้อง' });
-  if (choice === 'accept') {
-    await openDeployDialog(project);
-    return;
-  }
-  if (choice !== 'reject') return;
+  const confirmed = await confirmAction('สร้าง release ใหม่', `สร้าง release ของ ${project.name} จาก source ที่ sync ล่าสุดและ ENV ที่บันทึกไว้ ระบบจะตรวจสุขภาพก่อนสลับ traffic หากล้มเหลว release ปัจจุบันยังทำงานต่อ`, 'ตกลง');
+  if (!confirmed) return;
   await withBusy(button, () => deployExistingProject(project));
 }
 
@@ -2567,7 +2567,7 @@ async function openDeployDialog(project) {
   lockfile.classList.toggle('deploy-lock-invalid', configuration.lockfile.valid === false);
   $('#deploy-skip-build-toggle').classList.toggle('on', configuration.skipBuild);
   $('#deploy-build-note').textContent = configuration.lockfile.valid === false
-    ? `No ${configuration.lockfile.name} found — deployment will use ${configuration.packageManager}, not npm ci.`
+    ? `No ${configuration.lockfile.name} found deployment will use ${configuration.packageManager}, not npm ci.`
     : configuration.skipBuild
       ? 'Build step is skipped by this project configuration; dependencies and health checks still run.'
       : 'The build plan uses the configuration shown in the Environment step.';
@@ -2666,7 +2666,7 @@ async function importDeployEnvironmentFile(event) {
     state.deployEnvironmentMode = 'file';
     setDeployEnvironmentMode('file');
     markDeployEnvironmentChanged();
-    $('#deploy-env-status').textContent = `นำเข้า ${file.name} แล้ว — ตรวจสอบและกดบันทึก ENV`;
+    $('#deploy-env-status').textContent = `นำเข้า ${file.name} แล้ว ตรวจสอบและกดบันทึก ENV`;
   } finally { event.target.value = ''; }
 }
 
@@ -2846,7 +2846,7 @@ async function hydrateProjectLogs() {
   async function loadRuntimeLog() {
     try {
       const data = await api(`/api/projects/${encodeURIComponent(slug)}/logs`);
-      $('#log-unit-name').textContent = data.unit || '—';
+      $('#log-unit-name').textContent = data.unit || '…';
       if (data.simulated) { notice.hidden = false; notice.textContent = 'Sandbox mode: ข้อความจำลอง ไม่ใช่ log จริงจาก host'; }
       else if (data.available === false) { notice.hidden = false; notice.textContent = data.notice || 'อ่าน log ไม่ได้ในขณะนี้'; }
       else { notice.hidden = true; }
@@ -2968,7 +2968,7 @@ function renderDomainList() {
     const header = element('div', 'domain-row-head');
     header.append(element('span', 'domain-hostname', host), domainStatusChip(result));
     const actions = element('div', 'domain-row-actions');
-    const refresh = element('button', 'secondary', 'Refresh');
+    const refresh = element('button', 'secondary', 'ตรวจใหม่');
     refresh.type = 'button';
     refresh.disabled = result?.status === 'checking';
     refresh.addEventListener('click', () => refreshDomainStatuses([host]));
@@ -2979,7 +2979,7 @@ function renderDomainList() {
     header.append(actions);
     row.append(header, element('p', 'domain-row-detail', domainStatusDetail(result)));
     if (result?.resolved?.length || result?.expected?.length) {
-      row.append(element('p', 'domain-records', `DNS: ${result.resolved?.join(', ') || '—'} · Origin: ${result.expected?.join(', ') || 'not configured'}`));
+      row.append(element('p', 'domain-records', `DNS: ${result.resolved?.join(', ') || '…'} · Origin: ${result.expected?.join(', ') || 'not configured'}`));
     }
     return row;
   }));
@@ -3004,7 +3004,7 @@ function domainStatusChip(result) {
 function domainStatusDetail(result) {
   if (!result || result.status === 'checking') return 'กำลังตรวจ DNS และสถานะ proxy…';
   if (result.status === 'ok') return 'DNS ชี้เข้าเครื่องนี้แล้ว พร้อมออก certificate และเปิดใช้งานโดเมน';
-  if (result.status === 'proxied') return `${result.proxy?.provider || 'CDN'} Proxy กำลังรับ traffic อยู่ — ตั้ง DNS only และปิด forced HTTPS ชั่วคราวก่อนออก certificate แบบ HTTP-01 แล้วกด Refresh`;
+  if (result.status === 'proxied') return `${result.proxy?.provider || 'CDN'} Proxy กำลังรับ traffic อยู่ ตั้ง DNS only และปิด forced HTTPS ชั่วคราวก่อนออก certificate แบบ HTTP-01 แล้วกด Refresh`;
   if (result.status === 'mismatch') return 'DNS ยังไม่ชี้มาที่ origin ของ Dashboard Portal';
   if (result.status === 'unresolved') return 'ไม่พบ DNS record ที่ใช้งานได้ รอ propagation แล้วกด Refresh';
   return result.detail || 'ตรวจ DNS ไม่สำเร็จ ลอง Refresh อีกครั้ง';
@@ -3097,10 +3097,10 @@ function renderDomainCheck(result) {
   const pairs = [
     ['Hostname', result.hostname],
     ['สถานะ', domainStatusLabel(result.status)],
-    ['รายละเอียด', result.detail || result.message || '—']
+    ['รายละเอียด', result.detail || result.message || '…']
   ];
   for (const [term, value] of pairs) {
-    detail.append(element('dt', '', term), element('dd', '', value || '—'));
+    detail.append(element('dt', '', term), element('dd', '', value || '…'));
   }
 }
 
@@ -3193,9 +3193,9 @@ async function hydrateRepositoryStep() {
   $('#flow-title').textContent = flowMode === 'edit' ? `แก้ไข ${draft.name}` : 'สร้างโปรเจค';
   $('#flow-back').href = flowPath('identity');
   $('#project-source-edit').href = flowPath('identity');
-  $('#project-source-name').textContent = draft.name || '—';
+  $('#project-source-name').textContent = draft.name || '…';
   const sourceMeta = [draft.organization && `องค์กร: ${draft.organization}`, draft.slug && `slug: ${draft.slug}`].filter(Boolean);
-  $('#project-source-meta').textContent = sourceMeta.join(' · ') || '—';
+  $('#project-source-meta').textContent = sourceMeta.join(' · ') || '…';
   fillCredentialSelect(draft.credentialId || '', { useDefault: flowMode !== 'edit' && !draft.repository });
   $('#repository').value = draft.repository || '';
   $('#project-directory').value = draft.directory || '/';
@@ -3235,12 +3235,12 @@ async function hydrateReviewStep() {
   $('#flow-title').textContent = flowMode === 'edit' ? `แก้ไข ${draft.name}` : 'สร้างโปรเจค';
   $('#flow-back').href = flowPath('repository');
   const pairs = [
-    ['องค์กร', draft.organization || '—'],
-    ['ชื่อโปรเจค', draft.name || '—'],
-    ['Slug', draft.slug || '—'],
-    ['Repository', draft.repository || '—'],
+    ['องค์กร', draft.organization || '…'],
+    ['ชื่อโปรเจค', draft.name || '…'],
+    ['Slug', draft.slug || '…'],
+    ['Repository', draft.repository || '…'],
     ['Directory', draft.directory || '/'],
-    ['Branch', draft.branch || '—'],
+    ['Branch', draft.branch || '…'],
     ['Runtime', projectRuntimeSummary(draft)],
     ['Build', draft.runtime === 'python' ? `สร้าง .venv · ${draft.pythonInstall === 'none' ? 'ไม่ติดตั้ง dependencies' : draft.pythonInstall === 'project' ? 'pip install .' : draft.pythonRequirements || 'requirements.txt'}` : draft.runtime === 'php' ? (draft.phpInstall === 'none' ? 'ไม่ติดตั้ง Composer' : 'composer install --no-dev') : draft.runtime === 'go' ? `go build ${draft.goPackage || '.'}` : draft.skipBuild === true || draft.buildScript === null ? 'Skipped' : (draft.buildScript || 'build')],
     ...(draft.runtime === 'python' ? [['Start', `${draft.pythonMode || 'script'} · ${draft.pythonEntry || 'main.py'}`]] : []),
@@ -3254,12 +3254,12 @@ async function hydrateReviewStep() {
 }
 
 function connectionLabel(data) {
-  if (data.protocol === 'ssh') return 'SSH — ต้องมี deploy key ก่อน sync';
+  if (data.protocol === 'ssh') return 'SSH ต้องมี deploy key ก่อน sync';
   if (data.credentialId) {
     const credential = state.credentials.find((item) => item.id === data.credentialId);
-    return `HTTPS — ${credential?.name || 'private credential'}`;
+    return `HTTPS ${credential?.name || 'private credential'}`;
   }
-  return 'HTTPS — public repository';
+  return 'HTTPS public repository';
 }
 
 function setBranchOptions(branches, selected) {
@@ -3282,7 +3282,7 @@ function runtimeValue() {
 
 function projectRuntimeSummary(draft) {
   const choice = projectFrameworks[draft.framework] || projectRuntimes[draft.runtime] || projectRuntimes.node;
-  if (draft.runtime === 'docker-compose') return `Docker Compose · ${draft.composeFile || 'compose.yaml'} · service ${draft.composeService || '—'}`;
+  if (draft.runtime === 'docker-compose') return `Docker Compose · ${draft.composeFile || 'compose.yaml'} · service ${draft.composeService || '…'}`;
   if (draft.runtime === 'php') return `${choice.label} / PHP / systemd`;
   if (draft.runtime === 'python') return `${choice.label} / Python / .venv`;
   if (draft.runtime === 'go') return 'Go / systemd';
@@ -3570,10 +3570,10 @@ function updateRepositoryConnection() {
     credential.dataset.protocolCleared = 'false';
   }
   $('#repository-connection-note').textContent = !repository
-    ? 'วาง HTTPS หรือ git@ URL — ระบบจะเลือกวิธีเชื่อมต่อให้'
+    ? 'วาง HTTPS หรือ git@ URL ระบบจะเลือกวิธีเชื่อมต่อให้'
     : protocol === 'ssh'
-      ? 'SSH — ตรวจพบจาก Remote URL; ต้องมี deploy key บน host ก่อน sync'
-      : 'HTTPS — ตรวจพบจาก Remote URL; เลือก credential เฉพาะ private repository';
+      ? 'SSH ตรวจพบจาก Remote URL; ต้องมี deploy key บน host ก่อน sync'
+      : 'HTTPS ตรวจพบจาก Remote URL; เลือก credential เฉพาะ private repository';
 }
 
 async function fetchBranches({ quiet = false, request = null } = {}) {
@@ -3709,7 +3709,7 @@ async function detectProjectRuntimeFromRepository({ quiet = false, request = nul
     if (detection?.composeService) $('#compose-service').value = detection.composeService;
     if (note) {
       const evidence = (detection?.evidence || []).map((item) => item.path).join(' · ');
-      note.textContent = [detection?.notice, evidence].filter(Boolean).join(' — ') || 'ยังตรวจ runtime ไม่ได้';
+      note.textContent = [detection?.notice, evidence].filter(Boolean).join(' ') || 'ยังตรวจ runtime ไม่ได้';
     }
     if (!quiet && (detection?.recommendedFramework || detection?.recommendedRuntime)) toast(`เลือก ${projectFrameworks[detection.recommendedFramework]?.label || projectRuntimes[detection.recommendedRuntime]?.label || 'runtime'} ให้แล้ว`);
     return true;
@@ -3761,50 +3761,59 @@ function bindEvents() {
     event.preventDefault();
     const error = $('#login-error');
     error.textContent = '';
-    try {
-      const values = Object.fromEntries(new FormData(event.currentTarget));
-      const result = await api('/api/login', { method: 'POST', body: values });
-      state.csrfToken = result.csrfToken;
-      state.mode = result.mode;
-      state.owner = result.owner;
-      await showDashboard();
-    } catch (err) {
-      if (err.message?.includes('bootstrap')) {
-        await showBootstrap(true);
-        return;
+    const form = event.currentTarget;
+    await withBusy(submitButton(event), async () => {
+      try {
+        const values = Object.fromEntries(new FormData(form));
+        const result = await api('/api/login', { method: 'POST', body: values });
+        state.csrfToken = result.csrfToken;
+        state.mode = result.mode;
+        state.owner = result.owner;
+        await showDashboard();
+      } catch (err) {
+        if (err.message?.includes('bootstrap')) {
+          await showBootstrap(true);
+          return;
+        }
+        error.textContent = err.message;
       }
-      error.textContent = err.message;
-    }
+    });
   });
   $('#bootstrap-form')?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const error = $('#bootstrap-error');
     error.textContent = '';
-    try {
-      const values = Object.fromEntries(new FormData(event.currentTarget));
-      const result = await api('/api/bootstrap', { method: 'POST', body: values });
-      state.csrfToken = result.csrfToken;
-      state.mode = result.mode;
-      state.owner = result.owner;
-      state.bootstrapRequired = false;
-      await showDashboard();
-    } catch (err) {
-      error.textContent = err.message;
-    }
+    const form = event.currentTarget;
+    await withBusy(submitButton(event), async () => {
+      try {
+        const values = Object.fromEntries(new FormData(form));
+        if (values.password !== values.confirmPassword) throw new Error('ยืนยันรหัสผ่านใหม่ไม่ตรงกัน');
+        const result = await api('/api/bootstrap', { method: 'POST', body: values });
+        state.csrfToken = result.csrfToken;
+        state.mode = result.mode;
+        state.owner = result.owner;
+        state.bootstrapRequired = false;
+        await showDashboard();
+      } catch (err) {
+        error.textContent = err.message;
+      }
+    });
   });
   $('#database-form')?.addEventListener('submit', async (event) => {
     event.preventDefault();
-    try {
-      const form = event.currentTarget;
-      const values = Object.fromEntries(new FormData(form));
-      values.tls = form.elements.namedItem('tls')?.checked === true;
-      values.port = Number(values.port);
-      await api('/api/databases', { method: 'POST', body: values });
-      form.reset();
-      $('#database-port').value = '5432';
-      toast('บันทึก database connector แล้ว');
-      await renderDatabases();
-    } catch (error) { showError(error); }
+    const form = event.currentTarget;
+    await withBusy(submitButton(event), async () => {
+      try {
+        const values = Object.fromEntries(new FormData(form));
+        values.tls = form.elements.namedItem('tls')?.checked === true;
+        values.port = Number(values.port);
+        await api('/api/databases', { method: 'POST', body: values });
+        form.reset();
+        $('#database-port').value = '5432';
+        toast('บันทึก database connector แล้ว');
+        await renderDatabases();
+      } catch (error) { showError(error); }
+    });
   });
   $('#logout')?.addEventListener('click', async () => {
     try { await api('/api/logout', { method: 'POST', body: {} }); } catch { /* expired ok */ }
@@ -3834,7 +3843,7 @@ function bindEvents() {
     localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(collapsed));
     setSidebarCollapsed(collapsed);
   });
-  applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light');
+  applyTheme(document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark');
   $('#theme-toggle')?.addEventListener('click', () => {
     const next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
     localStorage.setItem(THEME_KEY, next);
@@ -3859,65 +3868,76 @@ function bindEvents() {
         renderMailOutboundReport(await api('/api/mail/readiness-check', { method: 'POST', body: {} }));
       });
     } catch (error) {
-      root?.replaceChildren(element('p', 'muted', 'ตรวจสอบไม่สำเร็จ — ลองใหม่อีกครั้ง'));
+      root?.replaceChildren(element('p', 'muted', 'ตรวจสอบไม่สำเร็จ ลองใหม่อีกครั้ง'));
       showError(error);
     }
   });
   $('#git-form')?.addEventListener('submit', async (event) => {
     event.preventDefault();
-    try {
-      await api('/api/git-config', { method: 'POST', body: Object.fromEntries(new FormData(event.currentTarget)) });
-      toast('บันทึก Git identity แล้ว');
-      await refresh();
-    } catch (error) { showError(error); }
+    const form = event.currentTarget;
+    await withBusy(submitButton(event), async () => {
+      try {
+        await api('/api/git-config', { method: 'POST', body: Object.fromEntries(new FormData(form)) });
+        toast('บันทึก Git identity แล้ว');
+        await refresh();
+      } catch (error) { showError(error); }
+    });
   });
   $('#credential-form')?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
-    try {
-      await api('/api/credentials', { method: 'POST', body: Object.fromEntries(new FormData(form)) });
-      resetForm(form);
-      toast('บันทึก credential แล้ว');
-      await refresh();
-    } catch (error) { showError(error); }
+    await withBusy(submitButton(event), async () => {
+      try {
+        await api('/api/credentials', { method: 'POST', body: Object.fromEntries(new FormData(form)) });
+        resetForm(form);
+        toast('บันทึก credential แล้ว');
+        await refresh();
+      } catch (error) { showError(error); }
+    });
   });
   $('#password-change-form')?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
-    try {
-      const values = new FormData(form);
-      if (values.get('newPassword') !== values.get('confirmPassword')) throw new Error('ยืนยันรหัสผ่านใหม่ไม่ตรงกัน');
-      const result = await api('/api/settings/password', { method: 'POST', body: { currentPassword: values.get('currentPassword'), newPassword: values.get('newPassword') } });
-      state.csrfToken = result.csrfToken;
-      resetForm(form);
-      toast('เปลี่ยนรหัสผ่านแล้ว และออกจาก session อื่นทั้งหมดแล้ว');
-    } catch (error) { showError(error); }
+    await withBusy(submitButton(event), async () => {
+      try {
+        const values = new FormData(form);
+        if (values.get('newPassword') !== values.get('confirmPassword')) throw new Error('ยืนยันรหัสผ่านใหม่ไม่ตรงกัน');
+        const result = await api('/api/settings/password', { method: 'POST', body: { currentPassword: values.get('currentPassword'), newPassword: values.get('newPassword') } });
+        state.csrfToken = result.csrfToken;
+        resetForm(form);
+        toast('เปลี่ยนรหัสผ่านแล้ว และออกจาก session อื่นทั้งหมดแล้ว');
+      } catch (error) { showError(error); }
+    });
   });
   $('#monitor-token-form')?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
-    try {
-      const result = await api('/api/monitor-tokens', { method: 'POST', body: Object.fromEntries(new FormData(form)) });
-      $('#monitor-token-value').hidden = false;
-      $('#monitor-token-value').textContent = `Copy this token now: ${result.token}`;
-      resetForm(form);
-      await renderMonitorTokens();
-    } catch (error) { showError(error); }
+    await withBusy(submitButton(event), async () => {
+      try {
+        const result = await api('/api/monitor-tokens', { method: 'POST', body: Object.fromEntries(new FormData(form)) });
+        $('#monitor-token-value').hidden = false;
+        $('#monitor-token-value').textContent = `คัดลอก token นี้ตอนนี้ จะไม่แสดงอีก: ${result.token}`;
+        resetForm(form);
+        await renderMonitorTokens();
+      } catch (error) { showError(error); }
+    });
   });
   $('#project-notification-hook-form')?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
-    try {
-      const data = Object.fromEntries(new FormData(form));
-      data.events = $$('input[name="events"]:checked', form).map((input) => input.value);
-      data.projectSlug = state.notificationProject?.slug;
-      if (!data.projectSlug) throw new Error('ไม่พบโปรเจกต์สำหรับ webhook นี้');
-      await api('/api/notification-hooks', { method: 'POST', body: data });
-      resetForm(form);
-      $$('input[name="events"]', form).forEach((input) => { input.checked = true; });
-      toast('บันทึก webhook แล้ว');
-      await renderProjectNotificationHooks();
-    } catch (error) { showError(error); }
+    await withBusy(submitButton(event), async () => {
+      try {
+        const data = Object.fromEntries(new FormData(form));
+        data.events = $$('input[name="events"]:checked', form).map((input) => input.value);
+        data.projectSlug = state.notificationProject?.slug;
+        if (!data.projectSlug) throw new Error('ไม่พบโปรเจคสำหรับ webhook นี้');
+        await api('/api/notification-hooks', { method: 'POST', body: data });
+        resetForm(form);
+        $$('input[name="events"]', form).forEach((input) => { input.checked = true; });
+        toast('บันทึก webhook แล้ว');
+        await renderProjectNotificationHooks();
+      } catch (error) { showError(error); }
+    });
   });
   $('#copy-update-command')?.addEventListener('click', async () => {
     try {

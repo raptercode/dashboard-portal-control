@@ -1,17 +1,23 @@
 <section class="page" data-page="projects">
   <header class="page-header">
     <div>
-      <h1 id="flow-title">สร้างโปรเจค</h1>
-      <p class="subtitle">ขั้นที่ 1 จาก 3 · ชื่อและองค์กร</p>
+      <h1 id="flow-title" class="page-title">สร้างโปรเจค</h1>
+      <p class="subtitle">ขั้นที่ 1 จาก 3: ตั้งชื่อโปรเจคและเลือกองค์กร</p>
     </div>
-    <a class="secondary button" href="/projects">ยกเลิก</a>
+    <div class="page-header-actions">
+      <a class="secondary button" href="/projects">ยกเลิก</a>
+    </div>
   </header>
   <ol class="step-list flow-steps" aria-label="ขั้นตอน">
-    <li class="current"><span>1</span> ข้อมูล</li>
-    <li><span>2</span> Repository</li>
-    <li><span>3</span> ตรวจสอบ</li>
+    <li class="current"><span>1</span> ชื่อโปรเจค</li>
+    <li><span>2</span> Repository และ runtime</li>
+    <li><span>3</span> ตรวจสอบและ sync</li>
   </ol>
   <section class="panel narrow">
+    <header class="panel-head">
+      <h2>ชื่อและองค์กร</h2>
+      <p>ชื่อกับ slug ใช้ระบุโปรเจคทั้งใน Dashboard และบน host ส่วนองค์กรใช้จัดกลุ่มในหน้า Projects เท่านั้น</p>
+    </header>
     <form id="project-identity-form" class="form-grid">
       <fieldset class="fieldset org-picker">
         <legend>องค์กร</legend>
@@ -19,20 +25,20 @@
         <details id="org-menu" class="runtime-menu org-menu">
           <summary>
             <span id="org-selection-avatar" class="org-switcher-avatar">P</span>
-            <span><b id="org-selection-label">Personal</b><small>เลือกองค์กรของโปรเจคนี้</small></span>
+            <span><b id="org-selection-label">Personal</b><small>ใช้จัดกลุ่มโปรเจคในหน้า Projects เปลี่ยนได้ทีหลัง</small></span>
             <svg class="icon runtime-chevron" aria-hidden="true"><use href="#icon-arrow-right"></use></svg>
           </summary>
           <div id="org-menu-options" class="runtime-menu-options" role="listbox" aria-label="เลือกองค์กร"></div>
           <div class="org-menu-create">
-            <label for="org-create-input">องค์กรใหม่<input id="org-create-input" maxlength="80" placeholder="ชื่อองค์กร" autocomplete="off"></label>
-            <button id="org-create-confirm" class="secondary" type="button">ใช้ชื่อนี้</button>
+            <label for="org-create-input">องค์กรใหม่<small class="field-hint">ตั้งชื่อกลุ่มใหม่ เช่น ชื่อทีมหรือชื่อลูกค้า</small><input id="org-create-input" maxlength="80" placeholder="ชื่อองค์กร" autocomplete="off"></label>
+            <div class="form-actions"><button id="org-create-confirm" class="secondary btn-sm" type="button">ใช้ชื่อนี้</button></div>
           </div>
         </details>
       </fieldset>
-      <label for="project-name">ชื่อโปรเจค<input id="project-name" name="name" maxlength="80" placeholder="Marketing site" required></label>
-      <label for="project-slug">Slug<small class="field-hint">สร้างอัตโนมัติจากชื่อโปรเจค แก้ได้</small><input id="project-slug" name="slug" pattern="[a-z][a-z0-9\-]{0,62}" maxlength="63" placeholder="marketing-site" required></label>
+      <label for="project-name">ชื่อโปรเจค<small class="field-hint">ชื่อที่แสดงในรายการโปรเจคและการแจ้งเตือน แก้ได้ทุกเมื่อ</small><input id="project-name" name="name" maxlength="80" placeholder="Marketing site" autocomplete="off" required></label>
+      <label for="project-slug">Slug<small class="field-hint">สร้างอัตโนมัติจากชื่อโปรเจค แก้ได้ตอนนี้เท่านั้น: ใช้เป็นชื่อ systemd service, user และโฟลเดอร์ release บน host จึงล็อกหลังบันทึก</small><input id="project-slug" name="slug" pattern="[a-z][a-z0-9\-]{0,62}" maxlength="63" placeholder="marketing-site" autocomplete="off" spellcheck="false" required></label>
       <div class="form-actions">
-        <a class="secondary button" href="/projects">ย้อนกลับ</a>
+        <small class="field-hint">ยังไม่มีอะไรถูกบันทึกบน host จนกว่าจะยืนยันในขั้นที่ 3</small>
         <span class="modal-spacer"></span>
         <button type="submit">ถัดไป</button>
       </div>

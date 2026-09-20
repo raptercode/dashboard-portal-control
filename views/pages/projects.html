@@ -2,33 +2,37 @@
   <header class="page-header">
     <div>
       <h1 class="page-title">Projects</h1>
-      <p id="projects-subtitle" class="page-subtitle">Repository, sync and release management</p>
+      <p id="projects-subtitle" class="page-subtitle">Repository, sync และ release ของแต่ละโปรเจค</p>
     </div>
-    <a id="create-project" class="btn btn-primary" href="/projects/new">
-      <svg class="icon" aria-hidden="true"><use href="#icon-plus"></use></svg>New Project
-    </a>
+    <div class="page-header-actions">
+      <a id="create-project" class="btn btn-primary" href="/projects/new">
+        <svg class="icon" aria-hidden="true"><use href="#icon-plus"></use></svg>สร้างโปรเจค
+      </a>
+    </div>
   </header>
   <section id="project-health-strip" class="health-strip" aria-label="Host health"></section>
   <div id="project-status-filter" class="filter-banner" hidden>
     <span id="project-status-filter-label"></span>
-    <a class="secondary button" href="/projects">ล้างตัวกรอง</a>
+    <a class="secondary button btn-sm" href="/projects">ล้างตัวกรอง</a>
   </div>
   <div class="toolbar">
     <div class="project-toolbar-controls">
       <details id="org-switcher" class="org-switcher">
         <summary>
           <span id="org-switcher-avatar" class="org-switcher-avatar">ALL</span>
-          <span><small>Organization</small><b id="org-switcher-label">ทุกองค์กร</b></span>
+          <span><small>องค์กร</small><b id="org-switcher-label">ทุกองค์กร</b></span>
           <svg class="icon runtime-chevron" aria-hidden="true"><use href="#icon-arrow-right"></use></svg>
         </summary>
         <div id="org-switcher-options" class="org-switcher-menu" role="listbox" aria-label="เลือกองค์กร"></div>
       </details>
-      <label class="search-field">
+      <label class="search-field" aria-label="ค้นหาโปรเจค">
         <svg class="icon icon-sm" aria-hidden="true"><use href="#icon-search"></use></svg>
-        <input id="project-search" type="search" placeholder="ค้นหาโปรเจคหรือ organization">
+        <input id="project-search" type="search" placeholder="ค้นหาโปรเจคหรือองค์กร" autocomplete="off">
       </label>
     </div>
-    <span id="project-count" class="count">0 โปรเจค</span>
+    <span id="project-count" class="count">…</span>
   </div>
-  <section id="projects" class="project-groups" aria-live="polite"></section>
+  <section id="projects" class="project-groups" aria-live="polite">
+    <div class="skeleton-grid" aria-hidden="true"><span></span><span></span><span></span></div>
+  </section>
 </section>

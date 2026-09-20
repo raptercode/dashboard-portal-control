@@ -15,7 +15,7 @@ test('Mail UI script remains syntactically valid before it can block session boo
 });
 
 test('Mail Setup keeps its desktop content inside a bounded vertical scroll container', async () => {
-  const css = await readFile(new URL('../public/ui/v2-compat.css', import.meta.url), 'utf8');
+  const css = await readFile(new URL('../public/ui/app.css', import.meta.url), 'utf8');
   const match = css.match(/\.mail-app-main > \.mail-setup-page\s*\{([\s\S]*?)\n\}/);
   assert.ok(match, 'Mail Setup needs its own desktop layout rule');
   assert.match(match[1], /height:\s*100%;/, 'the page must stay bounded by the Mail app viewport');
@@ -67,5 +67,5 @@ test('Mail fixture inbox is visible only before the service is configured', asyn
   assert.match(app, /\bMAIL_DEMO\b/);
   assert.match(app, /preview\.hidden = configured/);
   assert.match(app, /management\.hidden = !configured/);
-  assert.match(app, /ตัวอย่างก่อนติดตั้ง — ยังไม่ได้ส่งอีเมลจริง/);
+  assert.match(app, /ตัวอย่างก่อนติดตั้ง ยังไม่ได้ส่งอีเมลจริง/);
 });

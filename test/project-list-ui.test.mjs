@@ -6,12 +6,10 @@ const root = new URL('..', import.meta.url);
 const read = (path) => readFile(new URL(path, root), 'utf8');
 
 test('project list keeps technical settings behind details and protects deletion by exact name', async () => {
-  const [app, dialogs, css, compat, source, layout, sidebar, repository, icons, projects] = await Promise.all([
+  const [app, dialogs, css, layout, sidebar, repository, icons, projects] = await Promise.all([
     read('public/ui/app.js'),
     read('views/partials/dialogs.html'),
-    read('public/ui/admin.css'),
-    read('public/ui/v2-compat.css'),
-    read('public/ui/v2-source.css'),
+    read('public/ui/app.css'),
     read('views/layout.html'),
     read('views/partials/sidebar.html'),
     read('views/pages/projects-new-repository.html'),
@@ -28,7 +26,9 @@ test('project list keeps technical settings behind details and protects deletion
   assert.match(app, /project-manual-sync/);
   assert.match(app, /function startProjectDeploy\(project, button\)/);
   assert.match(app, /function confirmChoice\(/);
-  assert.match(app, /acceptLabel: 'แก้ไข', rejectLabel: 'ไม่ต้อง'/);
+  assert.match(app, /confirmAction\('สร้าง release ใหม่'/);
+  assert.match(app, /element\('button', 'secondary', 'แก้ไข ENV และ deploy'\)/);
+  assert.doesNotMatch(app, /rejectLabel: 'ไม่ต้อง'/);
   assert.match(app, /details\.project-actions-menu\[open\]/);
   assert.match(app, /event\.target\.closest\('\.project-actions-menu'\)/);
   assert.match(app, /Sync latest/);
@@ -76,22 +76,31 @@ test('project list keeps technical settings behind details and protects deletion
   assert.match(app, /function closeDeployDialog\(\)/);
   assert.match(app, /collectDeployEnvironmentVariables/);
   assert.match(app, /deploy-configuration/);
-  assert.match(compat, /project-action-divider/);
-  assert.match(compat, /project-actions-menu\.opens-upward \.project-action-list/);
-  assert.match(source, /\.project-new-commit/);
-  assert.match(compat, /project-card\.menu-open/);
-  assert.match(compat, /body\[data-shell="dashboard"\] \.app \{\s*grid-template-rows: var\(--topbar-h\) minmax\(0, 1fr\);\s*height: 100dvh;/);
-  assert.match(compat, /body\[data-shell="dashboard"\] \.main,\s*body\[data-shell="dashboard"\] \.sidebar \{\s*min-height: 0;/);
-  assert.match(compat, /body\[data-shell="dashboard"\] \.main \{ overflow: visible; \}/);
+
+  // The visible card row owns Sync latest and Logs; the overflow menu must not repeat them.
+  assert.match(app, /element\('button', 'btn btn-ghost btn-sm project-manual-sync', 'Sync latest'\)/);
+  assert.doesNotMatch(app, /element\('button', 'secondary', 'Sync latest'\)/);
+  assert.doesNotMatch(app, /element\('a', 'secondary button', 'Logs'\)/);
+
+  // One stylesheet carries the whole visual system.
+  assert.match(css, /project-action-divider/);
+  assert.match(css, /\.project-actions-menu\.opens-upward \.project-action-list/);
+  assert.match(css, /\.project-new-commit/);
+  assert.match(css, /\.project-card\.menu-open/);
+  assert.match(css, /body\[data-shell="dashboard"\] \.app \{ height: 100dvh; min-height: 0; \}/);
+  assert.match(css, /body\[data-shell="dashboard"\] \.main,\s*body\[data-shell="dashboard"\] \.sidebar \{ min-height: 0;/);
+  assert.match(css, /body\[data-shell="dashboard"\] \.main \{ overflow: visible; \}/);
   assert.match(app, /SIDEBAR_COLLAPSED_KEY/);
   assert.match(app, /function setSidebarCollapsed\(collapsed\)/);
-  assert.match(layout, /id="sidebar-toggle"/);
-  assert.match(compat, /body\.sidebar-collapsed \.app \{ --sidebar-w: 68px; \}/);
-  assert.match(compat, /:not\(\.runtime-menu-option\)/);
-  assert.match(compat, /\.runtime-menu-option \{ width: 100%; border: 0;/);
-  assert.match(compat, /\.runtime-logo \{ display: block; width: 23px; height: 23px;/);
-  assert.match(compat, /\.project-list \{ display: grid; grid-template-columns: repeat\(3, minmax\(0, 1fr\)\);/);
-  assert.match(compat, /\.deployment-log-output/);
+  assert.match(sidebar, /id="sidebar-toggle"/);
+  assert.match(css, /body\.sidebar-collapsed \.app \{ --sidebar-w: 64px; \}/);
+  assert.match(css, /\.runtime-menu-option \{[\s\S]*?width: 100%;[\s\S]*?border: 0;[\s\S]*?background: transparent;/);
+  assert.match(css, /\.runtime-logo \{ display: block; width: 22px; height: 22px;/);
+  assert.match(css, /\.project-list \{ display: grid; grid-template-columns: repeat\(3, minmax\(0, 1fr\)\); gap: 14px; \}/);
+  assert.match(css, /\.project-card \{[\s\S]*?grid-template-areas: "title" "source" "domain" "details" "actions";/);
+  assert.match(app, /const source = element\('div', 'project-source'\);/);
+  assert.match(app, /secondary\.append\(stateLabel, domains\);/);
+  assert.match(css, /\.deployment-log-output/);
   assert.match(app, /function runtimeLogo\(name\)/);
   assert.match(app, /function renderDeploymentLog\(events, failureLog, failure\)/);
   assert.match(repository, /\/ui\/runtime-logos\/nodejs\.svg/);
@@ -116,17 +125,21 @@ test('project list keeps technical settings behind details and protects deletion
   assert.match(app, /\$\('#project-source-edit'\)\.href = flowPath\('identity'\)/);
   assert.match(app, /\$\('#project-source-name'\)\.textContent = draft\.name/);
   assert.match(app, /\$\('#project-source-meta'\)\.textContent = sourceMeta\.join/);
-  assert.match(compat, /\.project-config-layout \{ display: grid; grid-template-columns: minmax\(300px, \.86fr\) minmax\(0, 1\.14fr\); \}/);
-  assert.match(compat, /@media \(max-width: 900px\) \{[\s\S]*\.project-config-layout \{ grid-template-columns: 1fr; \}/);
+  assert.match(css, /\.project-config-layout \{ display: grid; grid-template-columns: minmax\(300px, \.86fr\) minmax\(0, 1\.14fr\); \}/);
+  assert.match(css, /@media \(max-width: 900px\) \{[\s\S]*\.project-config-layout \{ grid-template-columns: 1fr; \}/);
   assert.doesNotMatch(repository, /name="protocol"/);
   assert.ok(repository.indexOf('id="https-credential"') < repository.indexOf('id="project-directory"'));
   assert.match(repository, /id="health-check-details"/);
   assert.match(repository, /สถานะ 2xx หรือ 3xx/);
   assert.match(app, /function repositoryProtocol\(repository/);
   assert.match(sidebar, /title="Projects"/);
-  assert.doesNotMatch(css, /Dark workspace/);
   assert.match(layout, /name="color-scheme" content="light dark"/);
-  assert.match(layout, /\/ui\/v2-source\.css/);
+  assert.match(layout, /prefers-color-scheme: light/);
+  assert.match(layout, /setAttribute\('data-theme', theme\)/);
+  assert.match(layout, /<link rel="stylesheet" href="\/ui\/app\.css">/);
+  assert.equal(layout.match(/<link rel="stylesheet"/g).length, 1, 'the layout loads exactly one stylesheet');
+  assert.doesNotMatch(layout, /admin\.css|v2-source|v2-compat|fonts\.googleapis/);
+  assert.doesNotMatch(css, /v2|compat|legacy|bridge/i);
   assert.match(app, /const PROJECT_ORG_KEY = 'hostmgr\.selectedOrganization'/);
   assert.match(app, /function selectedOrganization\(\)/);
   assert.match(app, /function setSelectedOrganization\(name\)/);
@@ -134,33 +147,35 @@ test('project list keeps technical settings behind details and protects deletion
   assert.match(app, /\$\('#org-switcher'\)/);
   assert.match(projects, /id="org-switcher"/);
   assert.match(projects, /id="org-switcher-options"/);
-  assert.match(compat, /\.org-switcher \{ position: relative;/);
-  assert.match(compat, /\.page-loader \{/);
-  assert.match(compat, /@keyframes page-spin/);
+  assert.match(css, /\.org-switcher \{ position: relative;/);
+  assert.match(css, /\.page-loader \{/);
+  assert.match(css, /@keyframes page-spin/);
   assert.match(layout, /id="page-loader"/);
   assert.match(app, /function setPageLoading\(loading\)/);
   assert.match(app, /function applyDetectedRuntimeCandidate\(runtime\)/);
   assert.match(app, /state\.runtimeDetection = detection/);
-  assert.match(compat, /\.card-meta \{ align-items: center; flex-wrap: wrap; row-gap: 7px; \}/);
-  assert.match(compat, /project-commit-link:hover, \.project-card \.project-repository-link:hover/);
+  assert.match(css, /\.card-meta \{ display: flex; align-items: center; gap: 4px 12px; flex-wrap: wrap;/);
+  assert.match(css, /\.project-commit-link:hover, \.project-repository-link:hover/);
 });
 
 test('standard modals stay within the viewport and keep dark inputs readable', async () => {
-  const [app, dialogs, compat] = await Promise.all([
+  const [app, dialogs, css] = await Promise.all([
     read('public/ui/app.js'),
     read('views/partials/dialogs.html'),
-    read('public/ui/v2-compat.css')
+    read('public/ui/app.css')
   ]);
 
-  assert.match(compat, /dialog\.modal:not\(\.deploy-drawer\) \{[\s\S]*max-height: calc\(100dvh - 32px\);[\s\S]*width: min\(680px, calc\(100vw - 32px\)\);/);
-  assert.match(compat, /html\[data-theme="dark"\] \{ color-scheme: dark; \}/);
-  assert.match(compat, /\.fieldset input\[type="text"\],[\s\S]*background: var\(--field-bg\);[\s\S]*border-color: var\(--field-border\);[\s\S]*color: var\(--text-primary\);/);
-  assert.match(compat, /option \{ background: var\(--field-bg\); color: var\(--text-primary\); \}/);
-  assert.match(compat, /\.modal-form:not\(\.deploy-drawer-form\) \{ display: grid; grid-template-rows: auto minmax\(0, 1fr\) auto;/);
-  assert.match(compat, /\.modal-body \{ min-height: 0; overflow: auto;/);
-  assert.match(compat, /\.modal-close \{[\s\S]*background: transparent !important;[\s\S]*height: 34px;/);
-  assert.match(compat, /html\[data-theme="dark"\] dialog\.modal input:not\(\[type="checkbox"\]\):not\(\[type="radio"\]\):not\(\[type="file"\]\),[\s\S]*color: #f8fafc;/);
-  assert.match(compat, /\.dialog-error \{[\s\S]*border: 1px solid rgba\(239, 68, 68, \.38\);/);
+  assert.match(css, /dialog\.modal \{[\s\S]*?width: min\(640px, calc\(100vw - 32px\)\);[\s\S]*?max-height: calc\(100dvh - 32px\);/);
+  assert.match(css, /:root \{\s*color-scheme: dark;/);
+  assert.match(css, /html\[data-theme="light"\] \{\s*color-scheme: light;/);
+  assert.match(css, /input:not\(\[type="checkbox"\]\):not\(\[type="radio"\]\):not\(\[type="file"\]\):not\(\[type="hidden"\]\),\s*select,\s*textarea \{[\s\S]*?background: var\(--bg\);[\s\S]*?color: var\(--text\);/);
+  assert.match(css, /option \{ background: var\(--surface\); color: var\(--text\); \}/);
+  assert.match(css, /\.modal-form:not\(\.deploy-drawer-form\) \{ display: grid; grid-template-rows: auto minmax\(0, 1fr\) auto;/);
+  assert.match(css, /\.modal-body \{[^}]*min-height: 0;[^}]*overflow: auto;/);
+  assert.match(css, /\.close-btn, \.btn-icon, \.modal-close \{[\s\S]*?background: transparent;/);
+  assert.match(css, /:root \{[\s\S]*?--surface: #111418;[\s\S]*?--text: #e6e8ec;/);
+  assert.match(css, /html\[data-theme="light"\] \{[\s\S]*?--surface: #ffffff;[\s\S]*?--text: #111318;/);
+  assert.match(css, /\.dialog-error \{[\s\S]*?border: 1px solid color-mix\(in srgb, var\(--danger\) 40%, transparent\);/);
   assert.match(app, /function showDialogError\(dialog, message\)/);
   assert.match(app, /\$\$\('dialog\[open\]'\)\.at\(-1\)/);
   assert.match(app, /function bindDialogDismissals\(\)/);
@@ -174,7 +189,7 @@ test('standard modals stay within the viewport and keep dark inputs readable', a
   assert.match(dialogs, /id="notification-hook-cancel"[^>]*data-dialog-close/);
 });
 
-test('project pages pick an organization and keep a page loader on every shell', async () => {
+test('forms guard against double submission and every shell keeps a page loader', async () => {
   const [app, identity, auth, mailLayout, layout] = await Promise.all([
     read('public/ui/app.js'),
     read('views/pages/projects-new.html'),
@@ -188,10 +203,18 @@ test('project pages pick an organization and keep a page loader on every shell',
   assert.match(app, /function setProjectOrganization\(name\)/);
   assert.match(app, /function renderOrganizationMenu\(\)/);
   assert.match(app, /selectedOrganization\(\) \|\| projectOrganizations\(\)\[0\] \|\| 'Personal'/);
+  assert.match(app, /function submitButton\(event\)/);
+  assert.match(app, /if \(button\.disabled\) return undefined;/);
+  for (const form of ['login-form', 'bootstrap-form', 'database-form', 'git-form', 'credential-form', 'password-change-form', 'monitor-token-form', 'project-notification-hook-form']) {
+    const handler = app.slice(app.indexOf(`$('#${form}')?.addEventListener('submit'`));
+    assert.match(handler.slice(0, 400), /withBusy\(submitButton\(event\)/, `${form} submit is wrapped in withBusy`);
+  }
   assert.match(auth, /auth-panel-loading/);
   assert.match(auth, /page-loader-spinner/);
   assert.match(layout, /id="page-loader"/);
   assert.match(mailLayout, /id="page-loader"/);
+  assert.match(mailLayout, /<link rel="stylesheet" href="\/ui\/app\.css">/);
+  assert.equal(mailLayout.match(/<link rel="stylesheet"/g).length, 1);
   assert.match(app, /setPageLoading\(true\)/);
   assert.match(app, /setPageLoading\(false\)/);
 });

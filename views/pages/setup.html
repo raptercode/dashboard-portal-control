@@ -2,37 +2,53 @@
   <header class="page-header">
     <div>
       <h1 class="page-title">Setup</h1>
-      <p class="page-subtitle">Host tools and Git identity</p>
+      <p class="page-subtitle">เตรียม host นี้ให้พร้อมสำหรับ deploy ทั้งเครื่องมือ mail server และชื่อผู้สร้าง commit</p>
     </div>
   </header>
-  <section class="panel">
-    <header class="panel-head">
-      <h2>เครื่องมือบน host</h2>
-      <p>ติดตั้งเฉพาะเครื่องมือที่ระบบต้องใช้ผ่าน allowlisted installer</p>
-    </header>
-    <section id="tools" class="tool-list" aria-live="polite"></section>
+  <div class="notice" role="note">
+    <svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg>
+    <div>
+      <strong>การติดตั้งทุกครั้งผ่าน helper ที่จำกัดสิทธิ์</strong>
+      <p>Portal สั่งติดตั้งได้เฉพาะเครื่องมือใน allowlist ผ่าน privileged helper และทุกคำสั่งถูกบันทึกไว้ในหน้า Activity</p>
+    </div>
+  </div>
+  <section class="block" aria-labelledby="tools-title">
+    <div class="block-head">
+      <div>
+        <h2 id="tools-title">เครื่องมือบน host</h2>
+        <p>เครื่องมือที่ Portal ใช้ build และ deploy โปรเจค รายการที่จำเป็นต้องติดตั้งครบก่อน deploy ครั้งแรก</p>
+      </div>
+    </div>
+    <section id="tools" class="tool-list" aria-live="polite">
+      <span class="skeleton" aria-hidden="true"></span><span class="skeleton" aria-hidden="true"></span><span class="skeleton" aria-hidden="true"></span>
+    </section>
   </section>
-  <section class="panel">
-    <header class="panel-head">
-      <h2>Mail server — ความพร้อมก่อนติดตั้ง</h2>
-      <p>ตรวจ outbound SMTP จริงและ policy firewall ขาเข้า เพื่อเปิดเฉพาะ mail service ที่พอร์ตได้รับอนุญาต</p>
-    </header>
+  <section class="block" aria-labelledby="mail-check-title">
+    <div class="block-head">
+      <div>
+        <h2 id="mail-check-title">ความพร้อมของ Mail server</h2>
+        <p>ทดสอบว่า host นี้ส่ง SMTP ขาออกได้จริงหรือไม่ และอ่าน policy firewall ขาเข้าเพื่อเลือกวิธีส่ง mail ที่เหมาะกับเครือข่ายนี้</p>
+      </div>
+    </div>
     <section id="mail-check-results" class="tool-list" aria-live="polite">
-      <p class="muted">ยังไม่เคยตรวจ — ทดสอบ outbound 25/587/2525 และอ่าน policy firewall ขาเข้า 25/587/993</p>
+      <p class="muted">ยังไม่เคยทดสอบ การทดสอบจะลองเชื่อมต่อขาออกที่พอร์ต 25, 587 และ 2525 แล้วอ่าน policy firewall ขาเข้าของพอร์ต 25, 587 และ 993</p>
     </section>
     <div class="form-actions">
-      <button id="mail-check-run" type="button">ตรวจสอบความพร้อม mail</button>
+      <button id="mail-check-run" class="secondary" type="button"><svg class="icon" aria-hidden="true"><use href="#icon-mail"></use></svg>ทดสอบความพร้อม mail</button>
+      <small class="field-hint">ใช้เวลาราว 10 วินาที ไม่มีการเปลี่ยนแปลงใดบน host</small>
     </div>
   </section>
-  <section class="panel narrow">
+  <section class="panel narrow" aria-labelledby="git-title">
     <header class="panel-head">
-      <h2>Git identity</h2>
-      <p>ใช้เป็นชื่อผู้สร้าง commit เท่านั้น ไม่ใช่ credential</p>
+      <h2 id="git-title">Git identity</h2>
+      <p>ใช้เป็นชื่อและอีเมลผู้สร้าง commit ที่ Portal ทำแทนคุณเท่านั้น ไม่ใช่ credential สำหรับเข้าถึง repository</p>
     </header>
     <form id="git-form" class="form-grid">
-      <label for="git-name">ชื่อที่แสดงใน Git<input id="git-name" name="name" maxlength="100" required></label>
-      <label for="git-email">อีเมล Git<input id="git-email" name="email" type="email" maxlength="254" required></label>
-      <div class="form-actions"><button type="submit">บันทึก Git identity</button></div>
+      <div class="two-fields">
+        <label for="git-name">ชื่อที่แสดงใน Git<input id="git-name" name="name" maxlength="100" autocomplete="name" required><small class="field-hint">แสดงเป็น author ใน commit history</small></label>
+        <label for="git-email">อีเมล Git<input id="git-email" name="email" type="email" maxlength="254" autocomplete="email" required><small class="field-hint">ไม่จำเป็นต้องตรงกับอีเมลบัญชี Git hosting</small></label>
+      </div>
+      <div class="form-actions"><button type="submit">บันทึก</button></div>
     </form>
   </section>
 </section>

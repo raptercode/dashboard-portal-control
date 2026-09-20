@@ -1,14 +1,22 @@
 <section class="page mail-setup-page" data-page="mail">
   <header class="page-header">
     <div class="mail-setup-title">
-      <span class="mail-setup-eyebrow">MAIL SERVICE</span>
       <h1 class="page-title">Mail Setup</h1>
-      <p class="page-subtitle">ติดตั้ง mail service ทีละขั้น — หยุดพักตรงไหนก็กลับมาทำต่อได้</p>
+      <p class="page-subtitle">ติดตั้ง Mail service ให้โฮสต์นี้ทีละขั้น ตั้งแต่ตรวจพอร์ต, hostname, DNS ไปจนถึง mailbox แรก ทุกขั้นที่ทำเสร็จจะบันทึกไว้ทันที ปิดหน้านี้แล้วกลับมาทำต่อจากขั้นเดิมได้</p>
     </div>
-    <a class="secondary button" href="/mail">กลับไป Mail</a>
+    <div class="page-header-actions">
+      <a class="secondary button" href="/mail"><svg class="icon" aria-hidden="true"><use href="#icon-arrow-left"></use></svg>กลับไป Mail</a>
+    </div>
   </header>
+  <div class="notice mail-setup-intro">
+    <svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg>
+    <div>
+      <strong>การติดตั้งจะเปลี่ยนแปลงโฮสต์นี้จริง</strong>
+      <p>ขั้นตอนติดตั้งจะลง package, เขียน config และเปิดพอร์ตของ mail service บนโฮสต์ ทุกการเปลี่ยนแปลงในตัวช่วยนี้ถูกบันทึกใน Activity และรหัสผ่านของ relay หรือ mailbox จะไม่ถูกเก็บเป็นข้อความธรรมดา</p>
+    </div>
+  </div>
   <nav id="wizard-steps" class="wizard-steps" aria-label="ขั้นตอนการติดตั้ง"></nav>
   <div id="wizard-body" aria-live="polite">
-    <p class="muted">กำลังโหลดสถานะการติดตั้ง…</p>
+    <p class="empty-state">กำลังโหลดสถานะการติดตั้ง…</p>
   </div>
 </section>
