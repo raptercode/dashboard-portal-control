@@ -190,6 +190,9 @@ async function configureMail() {
     }
   }
   await mkdir(MAIL_ROOT, { recursive: true, mode: 0o750 });
+  await chmod('/etc/hostmgr', 0o711);
+  await chown(MAIL_ROOT, 0, await lookupGroupId('dovecot'));
+  await chmod(MAIL_ROOT, 0o750);
   await mkdir(MAIL_POSTFIX_ROOT, { recursive: true, mode: 0o755 });
   await mkdir(MAIL_VMAIL_ROOT, { recursive: true, mode: 0o750 });
   await chown(MAIL_VMAIL_ROOT, vmail.uid, vmail.gid);
@@ -223,6 +226,8 @@ async function createMailbox(domain, localPart, password) {
   const hash = await run('/usr/bin/doveadm', ['pw', '-s', 'SHA512-CRYPT'], { input: `${password}\n`, failure: 'Mailbox password could not be secured.' });
   if (!/^\{SHA512-CRYPT\}/.test(hash)) throw new HelperError('Mailbox password could not be secured.');
   await writeFile(MAIL_USERS, `${users.replace(/\s*$/, '')}${users.trim() ? '\n' : ''}${address}:${hash}:${vmail.uid}:${vmail.gid}::${MAIL_VMAIL_ROOT}/${safeDomain}/${safeLocalPart}::\n`, { mode: 0o640 });
+  await chown(MAIL_USERS, 0, await lookupGroupId('dovecot'));
+  await chmod(MAIL_USERS, 0o640);
   await addMailboxMap(address);
   const home = join(MAIL_VMAIL_ROOT, safeDomain, safeLocalPart);
   await mkdir(join(home, 'Maildir'), { recursive: true, mode: 0o750 });
@@ -367,6 +372,8 @@ async function writeMailMaps(mail) {
   await writeFile(MAIL_DOMAINS, renderMap(mail.domains.map((item) => `${item.domain} OK`)), { mode: 0o644 });
   await writeFile(MAIL_MAILBOXES, renderMap(mail.mailboxes.map((item) => `${item.localPart}@${item.domain} ${item.localPart}@${item.domain}`)), { mode: 0o644 });
   await writeFile(MAIL_USERS, await preserveUsersFor(mail.mailboxes), { mode: 0o640 });
+  await chown(MAIL_USERS, 0, await lookupGroupId('dovecot'));
+  await chmod(MAIL_USERS, 0o640);
   await rebuildPostfixMap(MAIL_DOMAINS, 0o644);
   await rebuildPostfixMap(MAIL_MAILBOXES, 0o644);
 }
@@ -392,6 +399,8 @@ async function writeDkimMaterial(mail) {
   const opendkimGid = await lookupGroupId('opendkim');
   const tables = renderDkimTables(mail.domains);
   await mkdir(MAIL_DKIM_ROOT, { recursive: true, mode: 0o750 });
+  await chown(MAIL_DKIM_ROOT, 0, opendkimGid);
+  await chmod(MAIL_DKIM_ROOT, 0o750);
   for (const domain of mail.domains) {
     const selector = domain.dkim.selectors[0];
     const directory = join(MAIL_DKIM_ROOT, domain.domain);
@@ -399,9 +408,9 @@ async function writeDkimMaterial(mail) {
     await mkdir(directory, { recursive: true, mode: 0o750 });
     await chown(directory, 0, opendkimGid);
     await chmod(directory, 0o750);
-    await writeFile(keyPath, await decryptMailSecret(selector.encryptedPrivateKey), { mode: 0o600 });
+    await writeFile(keyPath, await decryptMailSecret(selector.encryptedPrivateKey), { mode: 0o640 });
     await chown(keyPath, 0, opendkimGid);
-    await chmod(keyPath, 0o600);
+    await chmod(keyPath, 0o640);
   }
   await writeFile('/etc/opendkim/KeyTable', tables.keyTable, { mode: 0o644 });
   await writeFile('/etc/opendkim/SigningTable', tables.signingTable, { mode: 0o644 });

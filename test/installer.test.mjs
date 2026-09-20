@@ -69,6 +69,15 @@ test('mail certificate issuance reloads the ACME catch-all before Certbot valida
   assert.match(issuance, /await ensureUnmatchedNginx\(\);[\s\S]*await mkdir\(ACME_ROOT,[\s\S]*await testAndReloadNginx\(\);[\s\S]*\/usr\/bin\/certbot/);
 });
 
+test('mail credential paths are traversable only by their service groups', async () => {
+  const helper = await readFile(new URL('../scripts/hostmgr-deploy-helper.mjs', import.meta.url), 'utf8');
+  assert.match(helper, /await chmod\('\/etc\/hostmgr', 0o711\);/);
+  assert.match(helper, /await chown\(MAIL_ROOT, 0, await lookupGroupId\('dovecot'\)\);/);
+  assert.match(helper, /await chown\(MAIL_USERS, 0, await lookupGroupId\('dovecot'\)\);/);
+  assert.match(helper, /await chown\(MAIL_DKIM_ROOT, 0, opendkimGid\);/);
+  assert.match(helper, /await chmod\(keyPath, 0o640\);/);
+});
+
 test('helper keeps Docker Compose project activation bounded to guarded policy checks', async () => {
   const helper = await readFile(new URL('../scripts/hostmgr-deploy-helper.mjs', import.meta.url), 'utf8');
   assert.match(helper, /ensureUnmatchedNginx/);
