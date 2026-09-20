@@ -6,7 +6,7 @@ import { bindDialogDismissals as bindModalDismissals } from './dialog-dismissals
 
 const DRAFT_KEY = 'hostmgr.projectDraft';
 const SIDEBAR_COLLAPSED_KEY = 'hostmgr.sidebarCollapsed';
-const PROJECT_GROUPING_KEY = 'hostmgr.projectGrouping';
+const PROJECT_ORG_KEY = 'hostmgr.selectedOrganization';
 const THEME_KEY = 'hostmgr.theme';
 const THEME_COLOR_LIGHT = '#f8fafc';
 const THEME_COLOR_DARK = '#0b1220';
@@ -35,6 +35,7 @@ const state = {
   repositoryAutoInspectKey: '',
   repositoryAutoInspectRunning: false,
   repositoryAutoInspectPending: false,
+  runtimeDetection: null,
   deployEnvironmentMode: 'file',
   deployEnvironmentRevision: 0,
   domainDraft: null,
@@ -98,26 +99,32 @@ const projectRuntimes = Object.freeze({
 });
 
 const projectFrameworks = Object.freeze({
-  next: { runtime: 'node', label: 'Next.js' },
-  nuxt: { runtime: 'node', label: 'Nuxt' },
-  express: { runtime: 'node', label: 'Express' },
-  nestjs: { runtime: 'node', label: 'NestJS' },
-  fastify: { runtime: 'node', label: 'Fastify' },
-  hono: { runtime: 'node', label: 'Hono' },
-  remix: { runtime: 'node', label: 'Remix' },
-  sveltekit: { runtime: 'node', label: 'SvelteKit' },
-  astro: { runtime: 'node', label: 'Astro' },
-  angular: { runtime: 'node', label: 'Angular' },
-  elysia: { runtime: 'bun', label: 'Elysia' },
-  django: { runtime: 'python', label: 'Django' },
-  flask: { runtime: 'python', label: 'Flask' },
-  fastapi: { runtime: 'python', label: 'FastAPI' },
-  laravel: { runtime: 'php', label: 'Laravel' },
-  codeigniter: { runtime: 'php', label: 'CodeIgniter' },
-  symfony: { runtime: 'php', label: 'Symfony' },
-  slim: { runtime: 'php', label: 'Slim' },
-  cakephp: { runtime: 'php', label: 'CakePHP' }
+  next: { runtime: 'node', runtimes: ['node', 'bun'], label: 'Next.js' },
+  nuxt: { runtime: 'node', runtimes: ['node', 'bun'], label: 'Nuxt' },
+  express: { runtime: 'node', runtimes: ['node', 'bun'], label: 'Express' },
+  nestjs: { runtime: 'node', runtimes: ['node', 'bun'], label: 'NestJS' },
+  fastify: { runtime: 'node', runtimes: ['node', 'bun'], label: 'Fastify' },
+  hono: { runtime: 'node', runtimes: ['node', 'bun'], label: 'Hono' },
+  remix: { runtime: 'node', runtimes: ['node', 'bun'], label: 'Remix' },
+  sveltekit: { runtime: 'node', runtimes: ['node', 'bun'], label: 'SvelteKit' },
+  astro: { runtime: 'node', runtimes: ['node', 'bun'], label: 'Astro' },
+  angular: { runtime: 'node', runtimes: ['node', 'bun'], label: 'Angular' },
+  elysia: { runtime: 'bun', runtimes: ['bun', 'node'], label: 'Elysia' },
+  django: { runtime: 'python', runtimes: ['python'], label: 'Django' },
+  flask: { runtime: 'python', runtimes: ['python'], label: 'Flask' },
+  fastapi: { runtime: 'python', runtimes: ['python'], label: 'FastAPI' },
+  laravel: { runtime: 'php', runtimes: ['php'], label: 'Laravel' },
+  codeigniter: { runtime: 'php', runtimes: ['php'], label: 'CodeIgniter' },
+  symfony: { runtime: 'php', runtimes: ['php'], label: 'Symfony' },
+  slim: { runtime: 'php', runtimes: ['php'], label: 'Slim' },
+  cakephp: { runtime: 'php', runtimes: ['php'], label: 'CakePHP' }
 });
+
+function frameworkAllowed(framework, runtime) {
+  const spec = projectFrameworks[framework];
+  if (!spec) return false;
+  return (spec.runtimes || [spec.runtime]).includes(runtime);
+}
 
 function runtimeLogo(name) {
   const icon = runtimeLogoPaths[name] ? name : 'node';
@@ -369,22 +376,105 @@ function currentProjectStatusFilter() {
   return PROJECT_STATUS[value] ? value : '';
 }
 
-function projectGrouping() {
-  try { return localStorage.getItem(PROJECT_GROUPING_KEY) === 'all' ? 'all' : 'grouped'; }
-  catch { return 'grouped'; }
+function orgInitials(name) {
+  const parts = String(name || '').trim().split(/[\s._-]+/).filter(Boolean);
+  if (!parts.length) return 'ALL';
+  if (parts.length === 1) return parts[0].slice(0, 3).toUpperCase();
+  return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
 }
 
-function setProjectGrouping(grouping) {
-  const next = grouping === 'all' ? 'all' : 'grouped';
-  try { localStorage.setItem(PROJECT_GROUPING_KEY, next); } catch {}
-  renderProjects();
+function projectOrganizations() {
+  return [...new Set((state.projects || []).map((project) => project.organization || 'Default'))].sort((left, right) => left.localeCompare(right, 'th-TH'));
 }
 
-function renderProjectGroupingControl(grouping) {
-  $$('[data-project-grouping]').forEach((button) => {
-    const selected = button.dataset.projectGrouping === grouping;
-    button.setAttribute('aria-pressed', String(selected));
+function selectedOrganization() {
+  try { return localStorage.getItem(PROJECT_ORG_KEY) || ''; }
+  catch { return ''; }
+}
+
+function setSelectedOrganization(name) {
+  const next = String(name || '');
+  try {
+    if (next) localStorage.setItem(PROJECT_ORG_KEY, next);
+    else localStorage.removeItem(PROJECT_ORG_KEY);
+  } catch {}
+  renderOrganizationSwitcher();
+  if ($('#projects')) renderProjects();
+}
+
+function renderOrganizationSwitcher() {
+  const root = $('#org-switcher-options');
+  const label = $('#org-switcher-label');
+  const avatar = $('#org-switcher-avatar');
+  if (!root || !label || !avatar) return;
+  const selected = selectedOrganization();
+  const organizations = projectOrganizations();
+  const current = selected && organizations.includes(selected) ? selected : '';
+  if (selected && !current) {
+    try { localStorage.removeItem(PROJECT_ORG_KEY); } catch {}
+  }
+  label.textContent = current || 'ทุกองค์กร';
+  avatar.textContent = current ? orgInitials(current) : 'ALL';
+  const option = (name, title) => {
+    const button = element('button', 'runtime-menu-option org-switcher-option');
+    button.type = 'button';
+    button.dataset.organization = name;
+    button.setAttribute('role', 'option');
+    button.setAttribute('aria-selected', String(name === current));
+    const mark = element('span', 'org-switcher-avatar', name ? orgInitials(name) : 'ALL');
+    const copy = element('span');
+    copy.append(element('b', '', title));
+    button.append(mark, copy);
+    button.addEventListener('click', () => {
+      setSelectedOrganization(name);
+      $('#org-switcher')?.removeAttribute('open');
+    });
+    return button;
+  };
+  root.replaceChildren(option('', 'ทุกองค์กร'), ...organizations.map((name) => option(name, name)));
+}
+
+function setProjectOrganization(name) {
+  const organization = String(name || '').trim().slice(0, 80);
+  const input = $('#project-organization');
+  if (input) input.value = organization;
+  const label = $('#org-selection-label');
+  const avatar = $('#org-selection-avatar');
+  if (label) label.textContent = organization || 'เลือกองค์กร';
+  if (avatar) avatar.textContent = orgInitials(organization || 'Personal');
+  $$('[data-organization-option]').forEach((option) => {
+    option.setAttribute('aria-selected', String(option.dataset.organizationOption === organization));
   });
+  $('#org-menu')?.removeAttribute('open');
+}
+
+function renderOrganizationMenu() {
+  const root = $('#org-menu-options');
+  if (!root) return;
+  const selected = $('#project-organization')?.value || '';
+  const names = [...new Set([...projectOrganizations(), selected].filter(Boolean))];
+  root.replaceChildren(...names.map((name) => {
+    const button = element('button', 'runtime-menu-option');
+    button.type = 'button';
+    button.dataset.organizationOption = name;
+    button.setAttribute('role', 'option');
+    button.setAttribute('aria-selected', String(name === selected));
+    const mark = element('span', 'org-switcher-avatar', orgInitials(name));
+    const copy = element('span');
+    copy.append(element('b', '', name), element('small', '', 'องค์กรที่มีอยู่'));
+    button.append(mark, copy);
+    return button;
+  }));
+}
+
+function setPageLoading(loading) {
+  const loader = $('#page-loader');
+  const pageEl = $('.main > .page');
+  if (loader) loader.hidden = !loading;
+  if (pageEl) {
+    pageEl.classList.toggle('is-loading', loading);
+    pageEl.setAttribute('aria-busy', String(Boolean(loading)));
+  }
 }
 
 function setShell(mode) {
@@ -417,10 +507,15 @@ async function showBootstrap(requireCurrent = false) {
 
 async function showDashboard() {
   setShell('dashboard');
+  setPageLoading(true);
   setSidebarCollapsed(localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === 'true');
   $$('.nav-link').forEach((link) => link.classList.toggle('active', link.dataset.nav === page));
-  await refresh();
-  await hydrateCurrentView();
+  try {
+    await refresh();
+    await hydrateCurrentView();
+  } finally {
+    setPageLoading(false);
+  }
 }
 
 function setSidebarCollapsed(collapsed) {
@@ -753,9 +848,10 @@ function renderProjects() {
     }
   }
   const query = ($('#project-search')?.value || '').trim().toLocaleLowerCase('th-TH');
-  const grouping = projectGrouping();
-  renderProjectGroupingControl(grouping);
+  const selectedOrg = selectedOrganization();
+  renderOrganizationSwitcher();
   const projects = state.projects.filter((project) => {
+    if (selectedOrg && (project.organization || 'Default') !== selectedOrg) return false;
     if (statusFilter && projectRuntimeStatus(project) !== statusFilter) return false;
     if (!query) return true;
     return [project.name, project.slug, project.organization, project.repository, project.branch].join(' ').toLocaleLowerCase('th-TH').includes(query);
@@ -774,9 +870,9 @@ function renderProjects() {
     const name = project.organization || 'ไม่ระบุองค์กร';
     groups.set(name, [...(groups.get(name) || []), project]);
   });
-  if (grouping === 'all') {
+  if (selectedOrg) {
     const list = element('section', 'project-list project-list-all');
-    list.setAttribute('aria-label', 'โปรเจคทั้งหมด');
+    list.setAttribute('aria-label', selectedOrg);
     list.append(...projects.map(projectRow));
     root.replaceChildren(list);
     return;
@@ -3077,7 +3173,9 @@ async function ensureEditDraft() {
 async function hydrateIdentityStep() {
   const draft = await ensureEditDraft();
   $('#flow-title').textContent = flowMode === 'edit' ? `แก้ไข ${draft.name || editSlug}` : 'สร้างโปรเจค';
-  $('#project-organization').value = draft.organization || '';
+  const organization = draft.organization || selectedOrganization() || projectOrganizations()[0] || 'Personal';
+  setProjectOrganization(organization);
+  renderOrganizationMenu();
   $('#project-name').value = draft.name || '';
   $('#project-slug').value = draft.slug || '';
   $('#project-slug').readOnly = flowMode === 'edit';
@@ -3235,9 +3333,18 @@ function applyFrameworkDefaults(selected) {
 function setDetectedFramework(value) {
   const spec = projectFrameworks[value] || null;
   const runtime = runtimeValue();
-  const framework = spec && spec.runtime === runtime ? value : '';
+  const framework = spec && (spec.runtimes || [spec.runtime]).includes(runtime) ? value : '';
   const input = $('#project-framework');
   if (input) input.value = framework;
+  const menu = $('#framework-menu');
+  const hideMenu = runtime === 'docker-compose' || runtime === 'go';
+  if (menu) menu.hidden = hideMenu;
+  const label = $('#framework-selection-label');
+  const detail = $('#framework-selection-detail');
+  const icon = $('#framework-selection-icon');
+  if (label) label.textContent = framework ? spec.label : 'ไม่มี framework';
+  if (detail) detail.textContent = framework ? 'ตรวจจาก repository · เปลี่ยนได้' : 'เลือกได้ถ้าแอปใช้ framework ที่รองรับ';
+  if (icon) icon.replaceChildren(runtimeLogo(framework || projectRuntimes[runtime]?.icon || 'node'));
   const row = $('#detected-framework');
   if (row) {
     row.hidden = !framework;
@@ -3246,6 +3353,7 @@ function setDetectedFramework(value) {
       $('#detected-framework-icon').replaceChildren(runtimeLogo(framework));
     }
   }
+  if (typeof renderFrameworkMenu === 'function') renderFrameworkMenu();
   if (framework) applyFrameworkDefaults(framework);
 }
 
@@ -3261,9 +3369,13 @@ function setProjectRuntime(value) {
   $('#runtime-selection-label').textContent = choice.label;
   $('#runtime-selection-detail').textContent = choice.detail;
   $('#runtime-selection-icon').replaceChildren(runtimeLogo(choice.icon));
-  const current = $('#project-framework')?.value || '';
-  if (current && projectFrameworks[current]?.runtime !== selected) setDetectedFramework('');
-  else setDetectedFramework(current);
+  if (typeof applyDetectedRuntimeCandidate === 'function') applyDetectedRuntimeCandidate(selected);
+  else {
+    const current = $('#project-framework')?.value || '';
+    const spec = projectFrameworks[current];
+    const allowed = spec && (spec.runtimes || [spec.runtime]).includes(selected);
+    setDetectedFramework(allowed ? current : '');
+  }
   $$('[data-runtime-option]').forEach((option) => {
     const optionRuntime = option.dataset.runtimeOption;
     const optionalTool = tools.find((item) => item.id === optionRuntime);
@@ -3350,6 +3462,63 @@ function toggleProjectPort() {
   const automatic = $('#auto-project-port').checked;
   $('#project-port').disabled = automatic;
   $('#project-port-row').classList.toggle('is-disabled', automatic);
+}
+
+function applyDetectedRuntimeCandidate(runtime) {
+  const detection = state.runtimeDetection;
+  const candidate = detection?.candidates?.find((item) => item.runtime === runtime);
+  if (candidate) {
+    if (candidate.pythonMode && $('#python-mode')) $('#python-mode').value = candidate.pythonMode;
+    if (candidate.pythonEntry && $('#python-entry')) $('#python-entry').value = candidate.pythonEntry;
+    if (candidate.pythonInstall && $('#python-install')) $('#python-install').value = candidate.pythonInstall;
+    if (candidate.pythonRequirements && $('#python-requirements')) $('#python-requirements').value = candidate.pythonRequirements;
+    if (candidate.phpMode && $('#php-mode')) $('#php-mode').value = candidate.phpMode;
+    if (candidate.phpDocroot && $('#php-docroot')) $('#php-docroot').value = candidate.phpDocroot;
+    if (candidate.phpRouter !== undefined && $('#php-router')) $('#php-router').value = candidate.phpRouter || '';
+    if (candidate.phpInstall && $('#php-install')) $('#php-install').value = candidate.phpInstall;
+    if (candidate.goPackage && $('#go-package')) $('#go-package').value = candidate.goPackage;
+    if (candidate.buildScript && $('#build-script')) $('#build-script').value = candidate.buildScript;
+    if (candidate.startScript && $('#start-script')) $('#start-script').value = candidate.startScript;
+    if (candidate.composeFile && $('#compose-file')) $('#compose-file').value = candidate.composeFile;
+    if (candidate.composeService && $('#compose-service')) $('#compose-service').value = candidate.composeService;
+    setDetectedFramework(candidate.framework || '');
+    return candidate;
+  }
+  const current = $('#project-framework')?.value || '';
+  setDetectedFramework(frameworkAllowed(current, runtime) ? current : '');
+  return null;
+}
+
+function renderFrameworkMenu() {
+  const root = $('#framework-menu-options');
+  if (!root) return;
+  const runtime = runtimeValue();
+  const selected = $('#project-framework')?.value || '';
+  const detected = (state.runtimeDetection?.candidates || [])
+    .filter((item) => item.runtime === runtime && item.framework)
+    .map((item) => item.framework);
+  const names = Object.keys(projectFrameworks).filter((name) => frameworkAllowed(name, runtime));
+  const option = (name, title, detail) => {
+    const button = element('button', 'runtime-menu-option');
+    button.type = 'button';
+    button.dataset.frameworkOption = name;
+    button.setAttribute('role', 'option');
+    button.setAttribute('aria-selected', String(name === selected));
+    const iconWrap = element('span', 'runtime-option-icon');
+    iconWrap.append(runtimeLogo(name || projectRuntimes[runtime]?.icon || 'node'));
+    const copy = element('span');
+    copy.append(element('b', '', title), element('small', '', detail));
+    button.append(iconWrap, copy);
+    return button;
+  };
+  root.replaceChildren(
+    option('', 'ไม่มี framework', 'ใช้ runtime อย่างเดียว'),
+    ...names.map((name) => option(
+      name,
+      projectFrameworks[name].label,
+      detected.includes(name) ? 'ตรวจจาก repository' : 'เลือกเอง'
+    ))
+  );
 }
 
 function repositoryProtocol(repository = $('#repository')?.value) {
@@ -3516,6 +3685,7 @@ async function detectProjectRuntimeFromRepository({ quiet = false, request = nul
     });
     if (quiet && request?.key && request.key !== repositoryInspectKey()) return false;
     const detection = result.detection;
+    state.runtimeDetection = detection || null;
     if (detection?.recommendedRuntime) setProjectRuntime(detection.recommendedRuntime);
     if (detection?.recommendedFramework) setDetectedFramework(detection.recommendedFramework);
     if (detection?.recommendedRuntime === 'python') {
@@ -3641,7 +3811,12 @@ function bindEvents() {
     state.csrfToken = null;
     await showLogin();
   });
-  $('#refresh')?.addEventListener('click', () => refresh().catch(showError));
+  $('#refresh')?.addEventListener('click', async () => {
+    setPageLoading(true);
+    try { await refresh(); }
+    catch (error) { showError(error); }
+    finally { setPageLoading(false); }
+  });
   $$('.range-button').forEach((button) => {
     button.addEventListener('click', () => loadMetrics(Number(button.dataset.range)).catch(showError));
   });
@@ -3751,14 +3926,19 @@ function bindEvents() {
     } catch { toast('คัดลอกคำสั่งไม่ได้ กรุณาเลือกข้อความด้านล่าง', true); }
   });
   $('#project-search')?.addEventListener('input', () => renderProjects());
-  $$('[data-project-grouping]').forEach((button) => {
-    button.addEventListener('click', () => setProjectGrouping(button.dataset.projectGrouping));
+  $('#create-project')?.addEventListener('click', () => {
+    const organization = selectedOrganization();
+    clearDraft();
+    if (organization) writeDraft({ organization });
   });
-  $('#create-project')?.addEventListener('click', () => clearDraft());
 
   $('#project-identity-form')?.addEventListener('submit', (event) => {
     event.preventDefault();
     const data = Object.fromEntries(new FormData(event.currentTarget));
+    if (!String(data.organization || '').trim()) {
+      showError(new Error('เลือกองค์กรก่อนดำเนินการต่อ'));
+      return;
+    }
     writeDraft(data);
     location.href = flowPath('repository');
   });
@@ -3807,6 +3987,28 @@ function bindEvents() {
   $('#php-mode')?.addEventListener('change', togglePhpFields);
   $('#skip-build')?.addEventListener('change', toggleBuildFields);
   $$('[data-runtime-option]').forEach((option) => option.addEventListener('click', () => setProjectRuntime(option.dataset.runtimeOption)));
+  $('#framework-menu-options')?.addEventListener('click', (event) => {
+    const option = event.target.closest('[data-framework-option]');
+    if (!option) return;
+    setDetectedFramework(option.dataset.frameworkOption);
+    $('#framework-menu')?.removeAttribute('open');
+  });
+  $('#org-menu-options')?.addEventListener('click', (event) => {
+    const option = event.target.closest('[data-organization-option]');
+    if (!option) return;
+    setProjectOrganization(option.dataset.organizationOption);
+  });
+  $('#org-create-confirm')?.addEventListener('click', () => {
+    const name = ($('#org-create-input')?.value || '').trim();
+    if (!name) {
+      showError(new Error('ใส่ชื่อองค์กรก่อน'));
+      return;
+    }
+    setProjectOrganization(name);
+    renderOrganizationMenu();
+    const input = $('#org-create-input');
+    if (input) input.value = '';
+  });
 
   $('#project-review-form')?.addEventListener('submit', async (event) => {
     event.preventDefault();

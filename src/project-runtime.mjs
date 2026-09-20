@@ -76,12 +76,16 @@ export async function scanProjectRuntimeDirectory(repositoryRoot, directory = '/
     ...(packageLock ? [{ kind: 'node-lock', path: 'package-lock.json', label: 'npm lockfile' }] : [])
   ];
 
+  const framework = packageFramework(packageJson);
+  const phpProject = Boolean(phpKind || artisan !== null || spark !== null);
+  const pythonProject = requirements !== null || pyproject !== null || pythonMain !== null || managePy !== null;
+  const candidates = [];
+
   if (composeFile) {
-    return {
-      available: true,
-      recommendedRuntime: 'docker-compose',
+    candidates.push({
+      runtime: 'docker-compose',
+      framework: null,
       confidence: composeServices.length ? 'high' : 'needs-review',
-      evidence,
       composeFile,
       composeService: composeServices[0] ?? null,
       composeServices,
@@ -90,54 +94,62 @@ export async function scanProjectRuntimeDirectory(repositoryRoot, directory = '/
       notice: composeServices.length
         ? `พบ ${composeFile} และ service ${composeServices[0]}`
         : `พบ ${composeFile}; เลือก web service ก่อน sync`
-    };
+    });
   }
-  if (phpKind || artisan !== null || spark !== null) {
-    const settings = phpPreset(phpKind);
-    return {
-      available: true,
-      recommendedRuntime: 'php',
-      recommendedFramework: phpKind,
+  if (phpProject) {
+    candidates.push({
+      runtime: 'php',
+      framework: phpKind,
       confidence: phpKind ? 'high' : 'needs-review',
-      evidence,
-      composeFile: null, composeService: null, composeServices: [],
-      buildScript: null, startScript: null,
-      ...settings,
+      composeFile: null,
+      composeService: null,
+      composeServices: [],
+      buildScript: null,
+      startScript: null,
+      ...phpPreset(phpKind),
       notice: phpKind
         ? `พบ ${frameworkLabel(phpKind)}; ตรวจ document root และวิธีรันก่อน deploy`
         : 'พบ PHP project; ตรวจ document root และ Composer ก่อน deploy'
-    };
+    });
   }
   if (goMod) {
-    return {
-      available: true, recommendedRuntime: 'go', confidence: 'needs-review', evidence,
-      composeFile: null, composeService: null, composeServices: [],
-      buildScript: null, startScript: null, goPackage: '.',
+    candidates.push({
+      runtime: 'go',
+      framework: null,
+      confidence: 'needs-review',
+      composeFile: null,
+      composeService: null,
+      composeServices: [],
+      buildScript: null,
+      startScript: null,
+      goPackage: '.',
       notice: 'พบ go.mod; เลือก main package เช่น . หรือ ./cmd/api และให้แอปอ่าน PORT จาก environment'
-    };
+    });
   }
-  if (requirements !== null || pyproject !== null || pythonMain !== null || managePy !== null) {
+  if (pythonProject) {
     const pythonKind = pythonFramework(requirements, pyproject, managePy);
-    const preset = pythonPreset(pythonKind);
-    return {
-      available: true, recommendedRuntime: 'python', recommendedFramework: pythonKind, confidence: 'needs-review', evidence,
-      composeFile: null, composeService: null, composeServices: [], buildScript: null, startScript: null,
-      ...preset,
+    candidates.push({
+      runtime: 'python',
+      framework: pythonKind,
+      confidence: 'needs-review',
+      composeFile: null,
+      composeService: null,
+      composeServices: [],
+      buildScript: null,
+      startScript: null,
+      ...pythonPreset(pythonKind),
       pythonInstall: requirements !== null ? 'requirements' : pyproject !== null ? 'project' : 'none',
       pythonRequirements: 'requirements.txt',
       notice: pythonKind
         ? `พบ ${frameworkLabel(pythonKind)}; ตรวจ entry point ก่อน deploy ระบบจะสร้าง .venv และติดตั้งด้วย user ของโปรเจกต์`
         : 'พบ Python project; ตรวจชนิดแอปและ entry point ก่อน deploy ระบบจะสร้าง .venv และติดตั้งด้วย user ของโปรเจกต์'
-    };
+    });
   }
-  const framework = packageFramework(packageJson);
   if (bun) {
-    return {
-      available: true,
-      recommendedRuntime: 'bun',
-      recommendedFramework: framework,
+    candidates.push({
+      runtime: 'bun',
+      framework,
       confidence: packageJson ? 'high' : 'needs-review',
-      evidence,
       composeFile: null,
       composeService: null,
       composeServices: [],
@@ -145,17 +157,15 @@ export async function scanProjectRuntimeDirectory(repositoryRoot, directory = '/
       notice: packageWarning ?? (framework
         ? `พบ ${frameworkLabel(framework)} บน Bun`
         : (dockerfile
-        ? 'พบ Dockerfile ด้วย แต่ไม่มี Compose file; เลือก Bun จากไฟล์ project'
-        : 'ตรวจพบ Bun จาก lockfile, config หรือ package manager'))
-    };
+          ? 'พบ Dockerfile ด้วย แต่ไม่มี Compose file; เลือก Bun จากไฟล์ project'
+          : 'ตรวจพบ Bun จาก lockfile, config หรือ package manager'))
+    });
   }
   if (node) {
-    return {
-      available: true,
-      recommendedRuntime: 'node',
-      recommendedFramework: framework,
+    candidates.push({
+      runtime: 'node',
+      framework,
       confidence: packageJson ? 'high' : 'needs-review',
-      evidence,
       composeFile: null,
       composeService: null,
       composeServices: [],
@@ -163,36 +173,66 @@ export async function scanProjectRuntimeDirectory(repositoryRoot, directory = '/
       notice: packageWarning ?? (framework
         ? `พบ ${frameworkLabel(framework)} จาก package metadata`
         : (dockerfile
-        ? 'พบ Dockerfile ด้วย แต่ไม่มี Compose file; เลือก Node จาก package metadata'
-        : 'ตรวจพบ Node.js project จาก package metadata'))
-    };
+          ? 'พบ Dockerfile ด้วย แต่ไม่มี Compose file; เลือก Node จาก package metadata'
+          : 'ตรวจพบ Node.js project จาก package metadata'))
+    });
   }
-  if (composerJson) {
-    return {
-      available: true,
-      recommendedRuntime: 'php',
-      recommendedFramework: null,
+  if (composerJson && !phpProject) {
+    candidates.push({
+      runtime: 'php',
+      framework: null,
       confidence: 'needs-review',
-      evidence,
-      composeFile: null, composeService: null, composeServices: [],
-      buildScript: null, startScript: null,
+      composeFile: null,
+      composeService: null,
+      composeServices: [],
+      buildScript: null,
+      startScript: null,
       ...phpPreset(null),
       notice: 'พบ composer.json; ตรวจ document root และวิธีรันก่อน deploy'
+    });
+  }
+
+  const recommended = candidates[0];
+  if (!recommended) {
+    return {
+      available: false,
+      recommendedRuntime: null,
+      recommendedFramework: null,
+      candidates: [],
+      confidence: 'unknown',
+      evidence,
+      composeFile: null,
+      composeService: null,
+      composeServices: [],
+      buildScript: null,
+      startScript: null,
+      notice: dockerfile
+        ? 'พบ Dockerfile แต่ยังไม่พบ Compose file ที่ Portal รองรับ; เพิ่ม compose.yaml แล้วตรวจอีกครั้ง'
+        : 'ไม่พบ Python metadata, PHP Composer, go.mod, package.json, Bun metadata หรือ Compose file ใน directory นี้; เลือก runtime เองได้'
     };
   }
   return {
-    available: false,
-    recommendedRuntime: null,
-    confidence: 'unknown',
+    available: true,
+    recommendedRuntime: recommended.runtime,
+    recommendedFramework: recommended.framework || null,
+    candidates,
+    confidence: recommended.confidence,
     evidence,
-    composeFile: null,
-    composeService: null,
-    composeServices: [],
-    buildScript: null,
-    startScript: null,
-    notice: dockerfile
-      ? 'พบ Dockerfile แต่ยังไม่พบ Compose file ที่ Portal รองรับ; เพิ่ม compose.yaml แล้วตรวจอีกครั้ง'
-      : 'ไม่พบ Python metadata, PHP Composer, go.mod, package.json, Bun metadata หรือ Compose file ใน directory นี้; เลือก runtime เองได้'
+    composeFile: composeFile || recommended.composeFile || null,
+    composeService: composeServices[0] ?? recommended.composeService ?? null,
+    composeServices,
+    buildScript: recommended.buildScript ?? null,
+    startScript: recommended.startScript ?? null,
+    goPackage: recommended.goPackage,
+    pythonMode: recommended.pythonMode,
+    pythonEntry: recommended.pythonEntry,
+    pythonInstall: recommended.pythonInstall,
+    pythonRequirements: recommended.pythonRequirements,
+    phpMode: recommended.phpMode,
+    phpDocroot: recommended.phpDocroot,
+    phpRouter: recommended.phpRouter,
+    phpInstall: recommended.phpInstall,
+    notice: recommended.notice
   };
 }
 

@@ -15,14 +15,18 @@
   </div>
   <div class="toolbar">
     <div class="project-toolbar-controls">
+      <details id="org-switcher" class="org-switcher">
+        <summary>
+          <span id="org-switcher-avatar" class="org-switcher-avatar">ALL</span>
+          <span><small>Organization</small><b id="org-switcher-label">ทุกองค์กร</b></span>
+          <svg class="icon runtime-chevron" aria-hidden="true"><use href="#icon-arrow-right"></use></svg>
+        </summary>
+        <div id="org-switcher-options" class="org-switcher-menu" role="listbox" aria-label="เลือกองค์กร"></div>
+      </details>
       <label class="search-field">
         <svg class="icon icon-sm" aria-hidden="true"><use href="#icon-search"></use></svg>
         <input id="project-search" type="search" placeholder="ค้นหาโปรเจคหรือ organization">
       </label>
-      <div class="project-view-toggle" role="group" aria-label="รูปแบบการแสดงโปรเจค">
-        <button class="btn btn-ghost btn-sm" type="button" data-project-grouping="grouped" aria-pressed="true">แยกตามองค์กร</button>
-        <button class="btn btn-ghost btn-sm" type="button" data-project-grouping="all" aria-pressed="false">รวมทั้งหมด</button>
-      </div>
     </div>
     <span id="project-count" class="count">0 โปรเจค</span>
   </div>

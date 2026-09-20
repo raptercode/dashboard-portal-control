@@ -75,6 +75,8 @@ test('runtime picker requires a Go package and restores Node/Bun script fields o
   assert.equal($('#php-mode').value, 'artisan');
   assert.equal($('#project-framework').value, 'laravel');
   assert.equal($('#detected-framework').hidden, false);
+  assert.equal($('#framework-menu').hidden, false);
+  assert.equal($('#framework-selection-label').textContent, 'Laravel');
   context.setProjectRuntime('node');
   assert.equal($('#python-entry').disabled, true);
   assert.equal($('#python-fields').hidden, true);

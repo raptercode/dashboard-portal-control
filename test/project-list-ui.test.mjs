@@ -98,7 +98,8 @@ test('project list keeps technical settings behind details and protects deletion
   assert.match(repository, /\/ui\/runtime-logos\/bun\.svg/);
   assert.match(repository, /\/ui\/runtime-logos\/php\.svg/);
   assert.match(repository, /\/ui\/runtime-logos\/docker\.svg/);
-  assert.match(repository, /id="detected-framework"/);
+  assert.match(repository, /id="framework-menu"/);
+  assert.match(repository, /id="framework-menu-options"/);
   assert.doesNotMatch(repository, /data-runtime-option="(next|nuxt|express|laravel|django)"/);
   assert.match(app, /function setDetectedFramework\(/);
   assert.match(app, /function projectFrameworkIcon\(project\)/);
@@ -126,14 +127,20 @@ test('project list keeps technical settings behind details and protects deletion
   assert.doesNotMatch(css, /Dark workspace/);
   assert.match(layout, /name="color-scheme" content="light dark"/);
   assert.match(layout, /\/ui\/v2-source\.css/);
-  assert.match(app, /const PROJECT_GROUPING_KEY = 'hostmgr\.projectGrouping'/);
-  assert.match(app, /function projectGrouping\(\)/);
-  assert.match(app, /function setProjectGrouping\(grouping\)/);
-  assert.match(app, /if \(grouping === 'all'\)/);
-  assert.match(app, /data-project-grouping/);
-  assert.match(projects, /data-project-grouping="grouped"/);
-  assert.match(projects, /data-project-grouping="all"/);
-  assert.match(compat, /\.project-view-toggle/);
+  assert.match(app, /const PROJECT_ORG_KEY = 'hostmgr\.selectedOrganization'/);
+  assert.match(app, /function selectedOrganization\(\)/);
+  assert.match(app, /function setSelectedOrganization\(name\)/);
+  assert.match(app, /if \(selectedOrg\)/);
+  assert.match(app, /\$\('#org-switcher'\)/);
+  assert.match(projects, /id="org-switcher"/);
+  assert.match(projects, /id="org-switcher-options"/);
+  assert.match(compat, /\.org-switcher \{ position: relative;/);
+  assert.match(compat, /\.page-loader \{/);
+  assert.match(compat, /@keyframes page-spin/);
+  assert.match(layout, /id="page-loader"/);
+  assert.match(app, /function setPageLoading\(loading\)/);
+  assert.match(app, /function applyDetectedRuntimeCandidate\(runtime\)/);
+  assert.match(app, /state\.runtimeDetection = detection/);
   assert.match(compat, /\.card-meta \{ align-items: center; flex-wrap: wrap; row-gap: 7px; \}/);
   assert.match(compat, /project-commit-link:hover, \.project-card \.project-repository-link:hover/);
 });
@@ -165,4 +172,26 @@ test('standard modals stay within the viewport and keep dark inputs readable', a
   assert.match(dialogs, /id="deployment-log-dismiss"[^>]*data-dialog-close/);
   assert.match(dialogs, /id="domain-cancel"[^>]*data-dialog-close/);
   assert.match(dialogs, /id="notification-hook-cancel"[^>]*data-dialog-close/);
+});
+
+test('project pages pick an organization and keep a page loader on every shell', async () => {
+  const [app, identity, auth, mailLayout, layout] = await Promise.all([
+    read('public/ui/app.js'),
+    read('views/pages/projects-new.html'),
+    read('views/partials/auth-views.html'),
+    read('views/mail-layout.html'),
+    read('views/layout.html')
+  ]);
+  assert.match(identity, /id="org-menu"/);
+  assert.match(identity, /id="org-create-input"/);
+  assert.match(identity, /id="project-organization"[^>]*type="hidden"/);
+  assert.match(app, /function setProjectOrganization\(name\)/);
+  assert.match(app, /function renderOrganizationMenu\(\)/);
+  assert.match(app, /selectedOrganization\(\) \|\| projectOrganizations\(\)\[0\] \|\| 'Personal'/);
+  assert.match(auth, /auth-panel-loading/);
+  assert.match(auth, /page-loader-spinner/);
+  assert.match(layout, /id="page-loader"/);
+  assert.match(mailLayout, /id="page-loader"/);
+  assert.match(app, /setPageLoading\(true\)/);
+  assert.match(app, /setPageLoading\(false\)/);
 });

@@ -91,6 +91,29 @@ test('repository metadata detection recognises Express Nest Elysia Laravel and C
   assert.equal(ci.phpMode, 'spark');
 });
 
+test('Compose remains recommended while package and PHP metadata stay available as alternatives', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'hostmgr-runtime-alts-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await writeFile(join(root, 'compose.yaml'), 'services:\n  web:\n    build: .\n');
+  await writeFile(join(root, 'package.json'), JSON.stringify({ dependencies: { elysia: '1.1.0' }, scripts: { start: 'bun src/index.ts' } }));
+  await writeFile(join(root, 'bun.lock'), 'lockfile');
+  await writeFile(join(root, 'composer.json'), JSON.stringify({ require: { 'laravel/framework': '^11.0' } }));
+  await writeFile(join(root, 'artisan'), '#!/usr/bin/env php\n');
+
+  const result = await scanProjectRuntimeDirectory(root, '/');
+
+  assert.equal(result.recommendedRuntime, 'docker-compose');
+  assert.equal(result.recommendedFramework, null);
+  assert.deepEqual(result.candidates.map((item) => [item.runtime, item.framework]), [
+    ['docker-compose', null],
+    ['php', 'laravel'],
+    ['bun', 'elysia'],
+    ['node', 'elysia']
+  ]);
+  assert.equal(result.candidates.find((item) => item.runtime === 'php').phpMode, 'artisan');
+  assert.equal(result.candidates.find((item) => item.runtime === 'bun').startScript, 'start');
+});
+
 test('a Dockerfile without Compose remains manual instead of producing an invalid Docker deployment', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'hostmgr-runtime-'));
   t.after(() => rm(root, { recursive: true, force: true }));

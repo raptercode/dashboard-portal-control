@@ -13,7 +13,22 @@
   </ol>
   <section class="panel narrow">
     <form id="project-identity-form" class="form-grid">
-      <label for="project-organization">องค์กร<input id="project-organization" name="organization" maxlength="80" placeholder="Personal" required></label>
+      <fieldset class="fieldset org-picker">
+        <legend>องค์กร</legend>
+        <input id="project-organization" name="organization" type="hidden" value="">
+        <details id="org-menu" class="runtime-menu org-menu">
+          <summary>
+            <span id="org-selection-avatar" class="org-switcher-avatar">P</span>
+            <span><b id="org-selection-label">Personal</b><small>เลือกองค์กรของโปรเจคนี้</small></span>
+            <svg class="icon runtime-chevron" aria-hidden="true"><use href="#icon-arrow-right"></use></svg>
+          </summary>
+          <div id="org-menu-options" class="runtime-menu-options" role="listbox" aria-label="เลือกองค์กร"></div>
+          <div class="org-menu-create">
+            <label for="org-create-input">องค์กรใหม่<input id="org-create-input" maxlength="80" placeholder="ชื่อองค์กร" autocomplete="off"></label>
+            <button id="org-create-confirm" class="secondary" type="button">ใช้ชื่อนี้</button>
+          </div>
+        </details>
+      </fieldset>
       <label for="project-name">ชื่อโปรเจค<input id="project-name" name="name" maxlength="80" placeholder="Marketing site" required></label>
       <label for="project-slug">Slug<small class="field-hint">สร้างอัตโนมัติจากชื่อโปรเจค แก้ได้</small><input id="project-slug" name="slug" pattern="[a-z][a-z0-9\-]{0,62}" maxlength="63" placeholder="marketing-site" required></label>
       <div class="form-actions">

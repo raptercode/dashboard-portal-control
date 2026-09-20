@@ -66,10 +66,10 @@
             <button type="button" class="runtime-menu-option" data-runtime-option="docker-compose" role="option" aria-selected="false"><span class="runtime-option-icon"><img class="runtime-logo runtime-logo-docker" src="/ui/runtime-logos/docker.svg" alt="" aria-hidden="true"></span><span><b>Docker Compose</b><small>Compose ที่ผ่าน policy check</small></span></button>
           </div>
         </details>
-        <p id="detected-framework" class="detected-framework" hidden>
-          <span id="detected-framework-icon" class="runtime-option-icon"></span>
-          <span><b id="detected-framework-label">—</b><small>ตรวจจาก repository · ไม่เปลี่ยนวิธี deploy</small></span>
-        </p>
+        <details id="framework-menu" class="runtime-menu framework-menu" hidden>
+          <summary><span id="framework-selection-icon" class="runtime-option-icon"></span><span><b id="framework-selection-label">Framework</b><small id="framework-selection-detail">ตรวจจาก repository · เปลี่ยนได้</small></span><svg class="icon runtime-chevron" aria-hidden="true"><use href="#icon-arrow-right"></use></svg></summary>
+          <div id="framework-menu-options" class="runtime-menu-options" role="listbox" aria-label="เลือก Framework"></div>
+        </details>
       </fieldset>
       <label id="skip-build-row" class="check-row"><input id="skip-build" name="skipBuild" type="checkbox"><span><b>Skip Build</b><small>ใช้เมื่อโปรเจคพร้อม run ได้ทันที เช่น Bun start</small></span></label>
       <div class="two-fields">
