@@ -63,6 +63,12 @@ test('helper reports a safe and actionable TLS validation failure', async () => 
   assert.match(helper, /child\.stderr\.resume\(\)/);
 });
 
+test('mail certificate issuance reloads the ACME catch-all before Certbot validates it', async () => {
+  const helper = await readFile(new URL('../scripts/hostmgr-deploy-helper.mjs', import.meta.url), 'utf8');
+  const issuance = helper.match(/async function issueMailCertificate\(hostname\) \{[\s\S]*?\n\}/)?.[0] ?? '';
+  assert.match(issuance, /await ensureUnmatchedNginx\(\);[\s\S]*await mkdir\(ACME_ROOT,[\s\S]*await testAndReloadNginx\(\);[\s\S]*\/usr\/bin\/certbot/);
+});
+
 test('helper keeps Docker Compose project activation bounded to guarded policy checks', async () => {
   const helper = await readFile(new URL('../scripts/hostmgr-deploy-helper.mjs', import.meta.url), 'utf8');
   assert.match(helper, /ensureUnmatchedNginx/);

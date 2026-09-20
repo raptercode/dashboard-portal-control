@@ -435,6 +435,8 @@ async function decryptMailSecret(payload) {
 
 async function issueMailCertificate(hostname) {
   await ensureUnmatchedNginx();
+  await mkdir(ACME_ROOT, { recursive: true, mode: 0o755 });
+  await testAndReloadNginx();
   const email = await acmeEmail();
   await run('/usr/bin/certbot', ['certonly', '--webroot', '--webroot-path', ACME_ROOT, '--non-interactive', '--agree-tos', '--email', email, '--keep-until-expiring', '--expand', '--cert-name', 'hostmgr-mail', '-d', hostname], {
     timeout: 180_000,
