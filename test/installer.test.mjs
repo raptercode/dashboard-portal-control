@@ -198,6 +198,8 @@ test('Python remains optional while project execution drops privileges before an
   assert.match(helper, /SELECT payload FROM tools WHERE id = \?/);
   assert.match(helper, /Certified by Dashboard Portal after manual SSH installation/);
   assert.match(helper, /\['restart', 'opendkim', 'dovecot', 'postfix'\]/);
+  assert.match(helper, /run\('\/usr\/sbin\/dovecot', \['--version'\]\)/);
+  assert.doesNotMatch(helper, /run\('\/usr\/bin\/doveadm', \['--version'\]\)/);
   assert.match(client, /operation === 'activate-project'[\s\S]*\? 900_000/);
   assert.match(client, /operation === 'install-tool'[\s\S]*\? 540_000/);
   assert.match(client, /operation === 'configure-mail'[\s\S]*\? 240_000/);

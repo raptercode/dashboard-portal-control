@@ -62,7 +62,7 @@ const HOST_TOOL_COMMANDS = {
   go: [['/usr/local/bin/go', ['version']]],
   python: [['/usr/bin/python3', ['--version']], ['/usr/bin/python3', ['-c', 'import venv']]],
   php: [['/usr/bin/php', ['-v']]],
-  mail: [['/usr/sbin/postconf', ['mail_version']], ['/usr/bin/doveadm', ['--version']], ['/usr/sbin/opendkim', ['-V']]]
+  mail: [['/usr/sbin/postconf', ['mail_version']], ['/usr/sbin/dovecot', ['--version']], ['/usr/sbin/opendkim', ['-V']]]
 };
 
 export async function createApplication(options = {}) {

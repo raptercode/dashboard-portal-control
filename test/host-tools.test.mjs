@@ -17,5 +17,7 @@ test('host tool inventory probes executables instead of trusting persisted state
   assert.equal(tools.find((tool) => tool.id === 'certbot').status, 'Missing');
   assert.equal(tools.every((tool) => tool.simulated === false), true);
   assert.deepEqual(calls.find(([command]) => command === '/usr/sbin/nginx'), ['/usr/sbin/nginx', '-v']);
+  assert.deepEqual(calls.find(([command]) => command === '/usr/sbin/dovecot'), ['/usr/sbin/dovecot', '--version']);
+  assert.equal(calls.some(([command]) => command === '/usr/bin/doveadm'), false);
   assert.equal(calls.filter(([command]) => command === '/usr/bin/docker').length, 2);
 });

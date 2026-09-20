@@ -291,7 +291,7 @@ async function hasManualMailToolCertification() {
 
 async function mailPackagesAvailable() {
   const postfix = await run('/usr/sbin/postconf', ['mail_version']).then(() => true).catch(() => false);
-  const dovecot = await run('/usr/bin/doveadm', ['--version']).then(() => true).catch(() => false);
+  const dovecot = await run('/usr/sbin/dovecot', ['--version']).then(() => true).catch(() => false);
   const opendkim = await exists('/usr/sbin/opendkim');
   return postfix && dovecot && opendkim;
 }
