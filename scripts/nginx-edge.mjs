@@ -3,8 +3,8 @@ import https from 'node:https';
 
 export const NGINX_DEFAULT_RE = /welcome to nginx!?/i;
 
-export function renderUnmatchedNginx() {
-  return `# Managed by Dashboard Portal. Do not edit.\nserver {\n    listen 80 default_server;\n    listen [::]:80 default_server;\n    server_name _;\n    return 404;\n}\n\nserver {\n    listen 443 ssl default_server;\n    listen [::]:443 ssl default_server;\n    server_name _;\n    ssl_reject_handshake on;\n}\n`;
+export function renderUnmatchedNginx(acmeRoot = '/var/lib/hostmgr/acme') {
+  return `# Managed by Dashboard Portal. Do not edit.\nserver {\n    listen 80 default_server;\n    listen [::]:80 default_server;\n    server_name _;\n\n    location ^~ /.well-known/acme-challenge/ {\n        root ${acmeRoot};\n    }\n\n    location / {\n        return 404;\n    }\n}\n\nserver {\n    listen 443 ssl default_server;\n    listen [::]:443 ssl default_server;\n    server_name _;\n    ssl_reject_handshake on;\n}\n`;
 }
 
 export function classifyHttpBody(body) {

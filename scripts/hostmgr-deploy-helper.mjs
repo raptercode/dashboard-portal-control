@@ -796,7 +796,7 @@ async function applyDomains(project) {
 async function ensureUnmatchedNginx() {
   const site = join(NGINX_AVAILABLE, 'hostmgr-unmatched.conf');
   const enabled = join(NGINX_ENABLED, 'hostmgr-unmatched.conf');
-  await writeNginx(site, enabled, renderUnmatchedNginx());
+  await writeNginx(site, enabled, renderUnmatchedNginx(ACME_ROOT));
 }
 
 async function inspectProjectEdge(slug) {

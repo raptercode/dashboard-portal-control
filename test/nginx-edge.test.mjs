@@ -30,11 +30,14 @@ server {
 `;
 
 test('unmatched Nginx catch-all rejects unknown hosts instead of serving the Portal', () => {
-  const unmatched = renderUnmatchedNginx();
+  const unmatched = renderUnmatchedNginx('/srv/acme');
   assert.match(unmatched, /listen 80 default_server;/);
   assert.match(unmatched, /listen 443 ssl default_server;/);
   assert.match(unmatched, /ssl_reject_handshake on;/);
   assert.match(unmatched, /server_name _;/);
+  assert.match(unmatched, /location \^~ \/\.well-known\/acme-challenge\//);
+  assert.match(unmatched, /root \/srv\/acme;/);
+  assert.match(unmatched, /location \/ \{\n        return 404;/);
 });
 
 test('classifyHttpBody detects the Ubuntu welcome page', () => {
