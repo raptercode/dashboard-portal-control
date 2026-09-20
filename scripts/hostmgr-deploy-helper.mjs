@@ -194,10 +194,10 @@ async function configureMail() {
   await mkdir(MAIL_VMAIL_ROOT, { recursive: true, mode: 0o750 });
   await chown(MAIL_VMAIL_ROOT, vmail.uid, vmail.gid);
   await chmod(MAIL_VMAIL_ROOT, 0o750);
+  await writeFile('/etc/mailname', `${mail.hostname}\n`, { mode: 0o644 });
   await writeMailMaps(mail);
   await writeDkimMaterial(mail);
   await writeRelayCredentials(mail);
-  await writeFile('/etc/mailname', `${mail.hostname}\n`, { mode: 0o644 });
   await writeFile('/etc/postfix/main.cf', renderPostfixMain({ hostname: mail.hostname, domains: mail.domains.map((item) => item.domain), outboundMode: mail.outboundMode, relay: mail.relay, plan, certificate, vmail }), { mode: 0o644 });
   await writeFile('/etc/postfix/master.cf', renderPostfixMaster(plan), { mode: 0o644 });
   await writeFile('/etc/dovecot/conf.d/99-hostmgr-mail.conf', renderDovecotConfiguration({ plan, certificate, vmail }), { mode: 0o640 });
