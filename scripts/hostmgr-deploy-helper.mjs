@@ -398,6 +398,7 @@ async function rebuildPostfixMap(path, mode = 0o644) {
 async function writeDkimMaterial(mail) {
   const opendkimGid = await lookupGroupId('opendkim');
   const tables = renderDkimTables(mail.domains);
+  await chmod('/etc/opendkim', 0o711);
   await mkdir(MAIL_DKIM_ROOT, { recursive: true, mode: 0o750 });
   await chown(MAIL_DKIM_ROOT, 0, opendkimGid);
   await chmod(MAIL_DKIM_ROOT, 0o750);

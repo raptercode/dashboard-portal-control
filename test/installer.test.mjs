@@ -74,6 +74,7 @@ test('mail credential paths are traversable only by their service groups', async
   assert.match(helper, /await chmod\('\/etc\/hostmgr', 0o711\);/);
   assert.match(helper, /await chown\(MAIL_ROOT, 0, await lookupGroupId\('dovecot'\)\);/);
   assert.match(helper, /await chown\(MAIL_USERS, 0, await lookupGroupId\('dovecot'\)\);/);
+  assert.match(helper, /await chmod\('\/etc\/opendkim', 0o711\);/);
   assert.match(helper, /await chown\(MAIL_DKIM_ROOT, 0, opendkimGid\);/);
   assert.match(helper, /await chmod\(keyPath, 0o640\);/);
 });
