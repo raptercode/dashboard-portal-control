@@ -27,7 +27,10 @@ test('project list keeps technical settings behind details and protects deletion
   assert.match(app, /function startProjectDeploy\(project, button\)/);
   assert.match(app, /function confirmChoice\(/);
   assert.match(app, /confirmAction\('สร้าง release ใหม่'/);
-  assert.match(app, /element\('button', 'secondary', 'แก้ไข ENV และ deploy'\)/);
+  assert.match(app, /can\('env\.write', project\) \? 'จัดการ ENV และ deploy' : 'ตรวจแผนและ deploy'/);
+  assert.match(app, /can\('deploy\.start', project\) \|\| can\('env\.read', project\) \|\| can\('env\.write', project\)/);
+  assert.match(app, /\$\('#deploy-submit'\)\.hidden = !mayDeploy/);
+  assert.match(app, /sshKeyId: project\.sshKeyId \|\| ''/);
   assert.doesNotMatch(app, /rejectLabel: 'ไม่ต้อง'/);
   assert.match(app, /details\.project-actions-menu\[open\]/);
   assert.match(app, /event\.target\.closest\('\.project-actions-menu'\)/);
@@ -203,7 +206,8 @@ test('forms guard against double submission and every shell keeps a page loader'
   assert.match(identity, /id="project-organization"[^>]*type="hidden"/);
   assert.match(app, /function setProjectOrganization\(name\)/);
   assert.match(app, /function renderOrganizationMenu\(\)/);
-  assert.match(app, /selectedOrganization\(\) \|\| projectOrganizations\(\)\[0\] \|\| 'Personal'/);
+  assert.match(app, /permittedNames\.includes\(selectedOrganization\(\)\)/);
+  assert.match(identity, /id="project-organization-id"/);
   assert.match(app, /function submitButton\(event\)/);
   assert.match(app, /if \(button\.disabled\) return undefined;/);
   for (const form of ['login-form', 'bootstrap-form', 'database-form', 'git-form', 'credential-form', 'password-change-form', 'monitor-token-form', 'project-notification-hook-form']) {

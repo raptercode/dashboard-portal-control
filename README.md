@@ -14,6 +14,14 @@ This file covers installing and using Dashboard Portal. For feature scope,
 architecture, and roadmap, see the [documentation map](#documentation-map) at
 the bottom.
 
+## Members and organizations
+
+One account can belong to multiple organizations with separate permissions. Masters
+manage invitations, members, and organizations from **Members**; Users see only
+their assigned projects. Viewer, Operator, and Maintainer templates can be adjusted
+permission by permission. See [access control](docs/access-control.md) and the
+[test modules and role matrix](docs/testing.md).
+
 ## Requirements
 
 - **Try it locally:** Docker + Docker Compose, or Node.js 24.x if you'd rather run it directly (no other dependency — the app only uses Node.js built-ins, so there is no `npm install` step)

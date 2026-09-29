@@ -18,7 +18,7 @@
         <div class="form-actions"><button type="submit">เปลี่ยนรหัสผ่าน</button></div>
       </form>
     </article>
-    <article class="setting-row">
+    <article class="setting-row master-only" hidden>
       <div id="software-update">
         <h2>อัปเดตซอฟต์แวร์</h2>
         <p>กำลังตรวจสอบ release channel</p>
@@ -29,14 +29,14 @@
         <button id="copy-update-command" class="secondary btn-sm" type="button">คัดลอกคำสั่ง</button>
       </div>
     </article>
-    <article class="setting-row">
+    <article class="setting-row master-only" hidden>
       <div>
         <h2>โหมดการทำงาน</h2>
         <p id="mode-description">…</p>
       </div>
       <span id="settings-mode" class="mode-badge">…</span>
     </article>
-    <article class="setting-row">
+    <article class="setting-row master-only" hidden>
       <div>
         <h2>Monitor Logs Token</h2>
         <p>Token แบบอ่านอย่างเดียวสำหรับให้ระบบภายนอกดูสถานะ deploy ของโปรเจคเดียว ไม่เปิดเผย runtime log, secrets หรือ URL ของ repository ยกเลิกได้ทุกเมื่อด้วยปุ่ม Revoke</p>

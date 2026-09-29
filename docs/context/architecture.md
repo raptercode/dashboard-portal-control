@@ -102,6 +102,11 @@ to the normal installer and its rollback path.
 
 ## v0.1 foundation (historical)
 
+As of v0.8.1, authentication supports Master/User accounts with organization
+memberships and explicit permissions. The former owner migrates to Master.
+See [ADR 0027](../adr/0027-members-and-organization-permissions.md) for the
+current authorization, session revocation, and shared-host boundaries.
+
 This was the feature set at the end of the first phase; it predates native
 project activation, domain/TLS sync, and the SQLite store described above,
 which are now implemented on top of it. For the current, maintained feature

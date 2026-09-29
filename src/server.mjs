@@ -19,7 +19,7 @@ import { publicEdgeResult } from '../scripts/nginx-edge.mjs';
 import { createRenderer } from './render.mjs';
 import { matchUiRoute } from './ui-routes.mjs';
 import { METRIC_INTERVAL_MS, METRIC_RANGE_DAYS, METRIC_RETENTION_DAYS, collectHostMetrics, publicCurrentMetrics, publicMetricSample, validateMetricRangeDays } from './metrics.mjs';
-import { hashPassword, publicOwner, validateEmail, validateOwnerBootstrap, validateOwnerLogin, validateStrongPassword, verifyPassword } from './auth.mjs';
+import { hashPassword, validateEmail, validateOwnerBootstrap, validateOwnerLogin, validateStrongPassword, verifyPassword } from './auth.mjs';
 import { checkSmtpOutbound } from './mail-check.mjs';
 import { driverAvailability, runDatabaseQuery } from './db-query.mjs';
 import { checkDkimRecord, checkDmarcRecord, checkMailHostnameDns, checkMailMx, checkPtrRecord, checkSpfRecord } from './dns-check.mjs';
@@ -27,6 +27,10 @@ import { MAIL_MAX_DOMAINS, dkimSelector, generateDkimKeyPair, mailDnsRecords, sm
 import { DATABASE_PROVIDERS, probeDatabaseConnection, publicDatabaseConnection, validateDatabaseConnectionInput } from './db-connectors.mjs';
 import { scanProjectRuntimeDirectory } from './project-runtime.mjs';
 import { buildMailPortPlan, demoInboundMailReadiness } from '../scripts/mail-host-config.mjs';
+import { migrateAccessState, publicUser, visibleOrganizations, canAccess, permissionsFor, resolveProjectOrganization } from './access.mjs';
+import { AccessError, handleAccessApi } from './access-api.mjs';
+import { authorizeRequest } from './authorization.mjs';
+import { requestContext } from './request-context.mjs';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const publicDir = join(here, '..', 'public');
@@ -44,6 +48,8 @@ const pageTitles = {
   databases: 'Databases',
   activity: 'กิจกรรม',
   settings: 'การตั้งค่าระบบ',
+  members: 'สมาชิกและองค์กร',
+  invite: 'รับคำเชิญ',
   'projects-new': 'สร้างโปรเจค',
   'projects-new-repository': 'สร้างโปรเจค',
   'projects-new-review': 'สร้างโปรเจค',
@@ -106,6 +112,7 @@ export async function createApplication(options = {}) {
   const store = new StateStore(options.dataPath ?? process.env.HOSTMGR_DATABASE_PATH ?? process.env.HOSTMGR_DATA_PATH ?? join(here, '..', 'data', 'state.sqlite'));
   if (!['demo', 'host'].includes(mode)) throw new Error('HOSTMGR_MODE must be demo or host.');
   await store.load();
+  store.beforeMutation = (state) => assertRequestAuthorization(state);
   if (!store.snapshot().owner && explicitPassword) {
     const seeded = hashPassword(explicitPassword);
     await store.update((state) => {
@@ -114,12 +121,14 @@ export async function createApplication(options = {}) {
         password: seeded,
         createdAt: new Date().toISOString()
       };
+      migrateAccessState(state);
     });
   }
   const sessions = new Map((store.snapshot().sessions ?? [])
     .filter((session) => validStoredSession(session))
-    .map((session) => [session.idHash, { csrf: session.csrf, expiresAt: session.expiresAt }]));
+    .map((session) => [session.idHash, session]));
   const loginAttempts = new Map();
+  const invitationAttempts = new Map();
   let deploymentQueueDraining = false;
   const autoSyncRunning = new Set();
   const autoSyncPending = new Map();
@@ -148,16 +157,17 @@ export async function createApplication(options = {}) {
     if (typeof autoSyncTimer.unref === 'function') autoSyncTimer.unref();
   }
 
-  async function newSession() {
+  async function newSession(user) {
     const id = randomBytes(32).toString('base64url');
     const csrf = randomBytes(32).toString('base64url');
     const idHash = sessionIdHash(id);
     const expiresAt = Date.now() + SESSION_TTL_SECONDS * 1000;
-    sessions.set(idHash, { csrf, expiresAt });
+    const record = { idHash, csrf, expiresAt, userId: user.id, authVersion: user.authVersion };
     await store.update((state) => {
       state.sessions = (state.sessions ?? []).filter((session) => validStoredSession(session));
-      state.sessions.push({ idHash, csrf, expiresAt });
+      state.sessions.push(record);
     });
+    sessions.set(idHash, record);
     return { id, csrf };
   }
 
@@ -166,11 +176,13 @@ export async function createApplication(options = {}) {
     const id = cookie.split(';').map((entry) => entry.trim()).find((entry) => entry.startsWith('hostmgr_session='))?.slice('hostmgr_session='.length);
     const idHash = id && sessionIdHash(id);
     const session = idHash && sessions.get(idHash);
-    if (!session || session.expiresAt < Date.now()) {
+    const state = store.snapshot();
+    const user = session && state.users.find((item) => item.id === session.userId);
+    if (!session || session.expiresAt < Date.now() || !user || user.status !== 'active' || user.authVersion !== session.authVersion || !state.sessions.some((item) => item.idHash === idHash)) {
       if (idHash) sessions.delete(idHash);
       return null;
     }
-    return { id, idHash, ...session };
+    return { id, idHash, ...session, user };
   }
 
   function requireSession(request, response, csrf = false) {
@@ -186,7 +198,7 @@ export async function createApplication(options = {}) {
     return session;
   }
 
-  const server = createServer(async (request, response) => {
+  const server = createServer((request, response) => requestContext.run({ store }, async () => {
     try {
       const url = new URL(request.url, 'http://hostmgr.local');
       if (request.method === 'GET' && !url.pathname.startsWith('/api/') && url.searchParams.has('password')) {
@@ -210,11 +222,40 @@ export async function createApplication(options = {}) {
           mode,
           bootstrapRequired: !owner,
           bootstrapRequiresInstallerPassword: !owner && Boolean(legacyPassword),
-          owner: publicOwner(owner)
+          owner: publicUser(session?.user),
+          user: publicUser(session?.user),
+          organizations: visibleOrganizations(store.snapshot(), session?.user)
         });
       }
       if (request.method === 'POST' && url.pathname === '/api/bootstrap') return await handleBootstrap(request, response);
       if (request.method === 'POST' && url.pathname === '/api/login') return await handleLogin(request, response);
+      const invitationAccept = request.method === 'POST' && url.pathname === '/api/invitations/accept';
+      if (invitationAccept) {
+        const ip = request.socket.remoteAddress ?? 'unknown';
+        const now = Date.now();
+        for (const [key, value] of invitationAttempts) if (value.resetAt <= now) invitationAttempts.delete(key);
+        const attempt = invitationAttempts.get(ip) ?? { count: 0, resetAt: now + 15 * 60 * 1000 };
+        if (attempt.count >= 20) return sendJson(response, 429, { error: 'Too many invitation attempts. Try again later.' });
+        attempt.count += 1;
+        invitationAttempts.set(ip, attempt);
+      }
+      if (url.pathname.startsWith('/api/') && !invitationAccept) {
+        const session = requireSession(request, response, !['GET', 'HEAD'].includes(request.method));
+        if (!session) return;
+        const context = requestContext.getStore();
+        context.user = session.user;
+        const bodyRoutes = ['/api/projects/sync', '/api/git/branches', '/api/projects/runtime-detect', '/api/monitor-tokens', '/api/notification-hooks'];
+        const body = request.method === 'POST' && bodyRoutes.includes(url.pathname) ? await readJson(request) : {};
+        if (!getSession(request)) return sendJson(response, 401, { error: 'Session permissions changed. Sign in again.' });
+        const access = authorizeRequest({ state: store.snapshot(), user: session.user, path: url.pathname, method: request.method, body });
+        context.authorization = { path: url.pathname, method: request.method, body };
+        context.organizationId = access?.organizationId ?? access?.organization?.id;
+        if (url.pathname === '/api/projects/sync' && access?.organization) {
+          body.organizationId = access.organization.id;
+          body.organization = access.organization.name;
+        }
+      }
+      if (await handleAccessApi({ request, response, path: url.pathname, store, user: requestContext.getStore().user, readJson, sendJson })) return;
       if (request.method === 'POST' && url.pathname === '/api/settings/password') return await handlePasswordChange(request, response);
       if (request.method === 'POST' && url.pathname === '/api/logout') {
         const session = requireSession(request, response, true);
@@ -234,7 +275,13 @@ export async function createApplication(options = {}) {
       }
       if (request.method === 'GET' && url.pathname === '/api/audit') {
         if (!requireSession(request, response)) return;
-        return sendJson(response, 200, { events: store.snapshot().audit });
+        const state = store.snapshot();
+        const user = requestContext.getStore().user;
+        return sendJson(response, 200, { events: state.audit.filter((event) => {
+          if (user.role === 'master') return true;
+          const organizationId = event.organizationId ?? resolveProjectOrganization(state, state.projects.find((project) => project.slug === event.target))?.id;
+          return canAccess(state, user, organizationId, 'audit.read') && canAccess(state, user, organizationId, 'project.view');
+        }) });
       }
       if (request.method === 'GET' && url.pathname === '/api/software-update') {
         if (!requireSession(request, response)) return;
@@ -287,7 +334,7 @@ export async function createApplication(options = {}) {
       }
       if (request.method === 'GET' && url.pathname === '/api/monitor-tokens') {
         if (!requireSession(request, response)) return;
-        return sendJson(response, 200, { tokens: (store.snapshot().monitorTokens ?? []).map(publicMonitorToken) });
+        return sendJson(response, 200, { tokens: (store.snapshot().monitorTokens ?? []).filter(visibleIntegration).map(publicMonitorToken) });
       }
       if (request.method === 'POST' && url.pathname === '/api/monitor-tokens') return await handleMonitorTokenCreate(request, response);
       const monitorTokenMatch = url.pathname.match(/^\/api\/monitor-tokens\/([a-f0-9-]{36})$/i);
@@ -298,7 +345,7 @@ export async function createApplication(options = {}) {
       if (request.method === 'DELETE' && credentialMatch) return await handleCredentialDelete(request, response, credentialMatch[1]);
       if (request.method === 'GET' && url.pathname === '/api/notification-hooks') {
         if (!requireSession(request, response)) return;
-        return sendJson(response, 200, { hooks: (store.snapshot().notificationHooks ?? []).map(publicNotificationHook), vaultReady: Boolean(vault) });
+        return sendJson(response, 200, { hooks: (store.snapshot().notificationHooks ?? []).filter(visibleIntegration).map(publicNotificationHook), vaultReady: Boolean(vault) });
       }
       if (request.method === 'POST' && url.pathname === '/api/notification-hooks') return await handleNotificationHookCreate(request, response);
       const notificationHookMatch = url.pathname.match(/^\/api\/notification-hooks\/([a-f0-9-]{36})$/i);
@@ -352,7 +399,14 @@ export async function createApplication(options = {}) {
     } catch (error) {
       return sendCaughtError(response, error);
     }
-  });
+  }));
+
+  function visibleIntegration(integration) {
+    const state = store.snapshot();
+    const user = requestContext.getStore()?.user;
+    const organizationId = resolveProjectOrganization(state, state.projects.find((project) => project.slug === integration.projectSlug))?.id;
+    return user?.role === 'master' || (canAccess(state, user, organizationId, 'webhooks.manage') && canAccess(state, user, organizationId, 'project.view'));
+  }
 
   async function handleMetrics(request, response, url) {
     const rangeDays = validateMetricRangeDays(url.searchParams.get('range') ?? '1');
@@ -384,6 +438,8 @@ export async function createApplication(options = {}) {
     const password = hashPassword(bootstrap.password);
     await store.update((state) => {
       state.owner = { email: bootstrap.email, password, createdAt: new Date().toISOString() };
+      migrateAccessState(state);
+      requestContext.getStore().user = state.users.find((item) => item.id === state.legacyOwnerId);
       appendAudit(state, { action: 'auth.bootstrap', outcome: 'success', actor: 'owner', target: bootstrap.email, detail: 'Owner account created' });
     });
     legacyPassword = bootstrap.password;
@@ -394,52 +450,58 @@ export async function createApplication(options = {}) {
         if (!result.ok) throw new InputError('Owner was created, but the host password file could not be updated.');
       }
     }
-    const session = await newSession();
+    const user = store.snapshot().users.find((item) => item.id === store.snapshot().legacyOwnerId);
+    const session = await newSession(user);
     response.setHeader('Set-Cookie', sessionCookie(session.id, secureCookie));
-    return sendJson(response, 200, { ok: true, csrfToken: session.csrf, mode, owner: publicOwner(store.snapshot().owner) });
+    return sendJson(response, 200, { ok: true, csrfToken: session.csrf, mode, owner: publicUser(user), user: publicUser(user), organizations: visibleOrganizations(store.snapshot(), user) });
   }
 
   async function handleLogin(request, response) {
     const ip = request.socket.remoteAddress ?? 'unknown';
-    const attempt = loginAttempts.get(ip) ?? { count: 0, resetAt: Date.now() + 15 * 60 * 1000 };
-    if (attempt.resetAt < Date.now()) loginAttempts.delete(ip);
+    const now = Date.now();
+    for (const [key, value] of loginAttempts) if (value.resetAt <= now) loginAttempts.delete(key);
+    const attempt = loginAttempts.get(ip) ?? { count: 0, resetAt: now + 15 * 60 * 1000 };
     if (attempt.count >= 5 && attempt.resetAt >= Date.now()) return sendJson(response, 429, { error: 'Too many login attempts. Try again later.' });
     if (!store.snapshot().owner) return sendJson(response, 409, { error: 'Owner bootstrap is required.', bootstrapRequired: true });
     const body = validateOwnerLogin(await readJson(request));
-    const owner = store.snapshot().owner;
-    if (body.email !== owner.email || !verifyPassword(body.password, owner.password)) {
+    const owner = store.snapshot().users.find((item) => item.email.toLowerCase() === body.email && item.status === 'active');
+    if (!owner || !verifyPassword(body.password, owner.password)) {
       loginAttempts.set(ip, { count: attempt.count + 1, resetAt: attempt.resetAt });
       await store.update((state) => appendAudit(state, { action: 'auth.login_failed', outcome: 'denied', actor: 'anonymous', detail: 'Invalid credentials' }));
       return sendJson(response, 401, { error: 'Invalid credentials.' });
     }
     loginAttempts.delete(ip);
-    const session = await newSession();
+    requestContext.getStore().user = owner;
+    const session = await newSession(owner);
     response.setHeader('Set-Cookie', sessionCookie(session.id, secureCookie));
     await store.update((state) => appendAudit(state, { action: 'auth.login', outcome: 'success', actor: 'owner', target: owner.email, detail: 'Owner session created' }));
-    return sendJson(response, 200, { ok: true, csrfToken: session.csrf, mode, owner: publicOwner(owner) });
+    return sendJson(response, 200, { ok: true, csrfToken: session.csrf, mode, owner: publicUser(owner), user: publicUser(owner), organizations: visibleOrganizations(store.snapshot(), owner) });
   }
 
   async function handlePasswordChange(request, response) {
     if (!requireSession(request, response, true)) return;
-    const owner = store.snapshot().owner;
+    const owner = requestContext.getStore().user;
     if (!owner) throw new InputError('Owner account is not configured.');
     const change = validatePasswordChange(await readJson(request));
     if (!verifyPassword(change.currentPassword, owner.password)) throw new InputError('Current password is incorrect.');
-    if (mode === 'host') {
+    if (mode === 'host' && owner.id === store.snapshot().legacyOwnerId) {
       const socketPath = process.env.HOSTMGR_DEPLOY_HELPER_SOCKET;
       if (!socketPath) throw new InputError('Password management is not configured. Re-run the Dashboard Portal installer.');
       const result = await callHostHelper(socketPath, { operation: 'set-admin-password', password: change.newPassword });
       if (!result.ok) throw new InputError('Password could not be updated.');
     }
     const password = hashPassword(change.newPassword);
-    legacyPassword = change.newPassword;
-    sessions.clear();
+    if (owner.id === store.snapshot().legacyOwnerId) legacyPassword = change.newPassword;
     await store.update((state) => {
-      state.owner = { ...state.owner, password, updatedAt: new Date().toISOString() };
-      state.sessions = [];
+      const user = state.users.find((item) => item.id === owner.id);
+      user.password = password;
+      user.authVersion += 1;
+      if (owner.id === state.legacyOwnerId) state.owner = { ...state.owner, password, updatedAt: new Date().toISOString() };
+      state.sessions = state.sessions.filter((item) => item.userId !== owner.id);
       appendAudit(state, { action: 'auth.password_changed', outcome: 'success', actor: 'owner', detail: 'Owner password changed; existing sessions were invalidated' });
     });
-    const renewed = await newSession();
+    requestContext.getStore().user = store.snapshot().users.find((item) => item.id === owner.id);
+    const renewed = await newSession(requestContext.getStore().user);
     response.setHeader('Set-Cookie', sessionCookie(renewed.id, secureCookie));
     return sendJson(response, 200, { ok: true, csrfToken: renewed.csrf });
   }
@@ -901,6 +963,10 @@ export async function createApplication(options = {}) {
     let project = validateProjectSync(body);
     const state = store.snapshot();
     const storedProject = state.projects.find((item) => item.slug === project.slug) ?? null;
+    const selectedOrganization = body.organizationId ? state.organizations.find((item) => item.id === body.organizationId) : state.organizations.find((item) => item.name === project.organization);
+    if (body.organizationId && !selectedOrganization) throw new InputError('Organization was not found.');
+    project.organizationId = selectedOrganization?.id ?? null;
+    if (selectedOrganization) project.organization = selectedOrganization.name;
     project = { ...project, port: await resolveProjectPort(project, storedProject, state.projects, portAvailability, portRandom) };
     const gitTool = mode === 'host' ? (await toolProbe([state.tools.git]))[0] : state.tools.git;
     if (gitTool.status !== 'Installed') throw new InputError('Install Git before syncing a project.');
@@ -916,6 +982,12 @@ export async function createApplication(options = {}) {
       : { status: uiDemo ? 'synced' : 'queued', at: new Date().toISOString(), revision: uiDemo ? `demo-${randomBytes(6).toString('hex')}` : null, detail: uiDemo ? 'Simulated repository sync for local UI demo.' : 'Project sync queued for the host deployment service.' };
     const syncFailed = sync.status === 'failed';
     await store.update((next) => {
+      authorizeRequest({ state: next, user: requestContext.getStore().user, path: '/api/projects/sync', method: 'POST', body });
+      if (!project.organizationId) {
+        let organization = next.organizations.find((item) => item.name === project.organization);
+        if (!organization) { organization = { id: randomUUID(), name: project.organization, createdAt: new Date().toISOString() }; next.organizations.push(organization); }
+        project.organizationId = organization.id;
+      }
       const index = next.projects.findIndex((item) => item.slug === project.slug);
       const stored = index >= 0 ? next.projects[index] : null;
       // Sync configuration changes must not erase a release history or the
@@ -928,7 +1000,7 @@ export async function createApplication(options = {}) {
       appendAudit(next, { action: 'project.sync_configure', outcome: syncFailed ? 'failure' : 'success', actor: 'owner', target: project.slug, detail: syncFailed ? 'Repository sync failed without changing an active release' : `${project.protocol.toUpperCase()} project sync configured` });
     });
     let autoDeploy = null;
-    if (!syncFailed && storedProject?.autoSync?.mode !== 'actions') {
+    if (!syncFailed && storedProject?.autoSync?.mode !== 'actions' && canAccess(store.snapshot(), requestContext.getStore().user, project.organizationId, 'deploy.start')) {
       const currentRevision = store.snapshot().projects.find((item) => item.slug === project.slug)?.sync?.revision ?? null;
       if (currentRevision && currentRevision !== previousRevision) autoDeploy = await queueAutoDeployIfEnabled(project.slug, currentRevision);
     }
@@ -1210,7 +1282,9 @@ export async function createApplication(options = {}) {
   }
 
   async function publicProjectsWithRuntimeStatus() {
-    return Promise.all(store.snapshot().projects.map(async (project) => ({
+    const state = store.snapshot();
+    const user = requestContext.getStore().user;
+    return Promise.all(state.projects.filter((project) => user.role === 'master' || canAccess(state, user, resolveProjectOrganization(state, project)?.id, 'project.view')).map(async (project) => ({
       ...publicProject(project),
       runtimeStatus: await projectRuntimeStatus(project)
     })));
@@ -1248,6 +1322,8 @@ export async function createApplication(options = {}) {
     }
     const release = createRelease(deployProject, await projectRevision(project, projectRoot));
     const job = { id: randomUUID(), kind: 'deploy', projectSlug: slug, releaseId: release.id, status: 'queued', createdAt: new Date().toISOString(), startedAt: null, finishedAt: null, events: [{ at: new Date().toISOString(), status: 'queued', message: 'Deployment is queued.' }], failure: null, failureLog: null };
+    job.initiatedByUserId = requestContext.getStore().user.id;
+    job.organizationId = resolveProjectOrganization(store.snapshot(), project)?.id;
     await store.update((state) => {
       const target = findProject(state, slug);
       if (state.jobs.some((item) => item.projectSlug === slug && ['queued', 'running'].includes(item.status))) throw new InputError('This project already has a queued or running deployment.');
@@ -1264,6 +1340,14 @@ export async function createApplication(options = {}) {
     if (!job || job.status !== 'queued') return;
     const project = store.snapshot().projects.find((item) => item.slug === job.projectSlug);
     if (!project) return markJobFailed(jobId, 'Project was removed before deployment started.');
+    const initiator = job.initiatedByUserId && store.snapshot().users.find((item) => item.id === job.initiatedByUserId);
+    const permissionStillValid = () => {
+      if (!job.initiatedByUserId) return true;
+      const current = store.snapshot();
+      const currentProject = current.projects.find((item) => item.slug === job.projectSlug);
+      return job.organizationId === resolveProjectOrganization(current, currentProject)?.id && canAccess(current, initiator, job.organizationId, 'deploy.start') && canAccess(current, initiator, job.organizationId, 'project.view');
+    };
+    if (!permissionStillValid()) return markJobFailed(jobId, 'Deployment permission was revoked before execution.');
     const release = project.deployment?.releases?.find((item) => item.id === job.releaseId);
     if (!release) return markJobFailed(jobId, 'Candidate release was not found.');
     const deployProject = validateDeployProject(project);
@@ -1306,6 +1390,7 @@ export async function createApplication(options = {}) {
         target.deployment = appendReleaseEvent(target.deployment, release.id, deployProject.runtime === 'python' ? 'python_preflight' : deployProject.runtime === 'php' ? 'php_preflight' : 'candidate_health', deployProject.healthCheckEnabled ? 'passed' : 'skipped', healthMessage);
       });
       const helperSocket = process.env.HOSTMGR_DEPLOY_HELPER_SOCKET;
+      if (!permissionStillValid()) throw new AccessError('Deployment permission was revoked before activation.');
       if (!helperSocket) {
         await store.update((state) => {
           const target = findProject(state, job.projectSlug);
@@ -1358,7 +1443,7 @@ export async function createApplication(options = {}) {
   function scheduleDeploymentQueue() {
     if (deploymentQueueDraining) return;
     deploymentQueueDraining = true;
-    void drainDeploymentQueue().finally(() => {
+    void requestContext.run({ store }, () => drainDeploymentQueue()).finally(() => {
       deploymentQueueDraining = false;
       if (store.snapshot().jobs.some((item) => item.status === 'queued')) scheduleDeploymentQueue();
       else for (const [slug, trigger] of autoSyncPending) {
@@ -1372,7 +1457,8 @@ export async function createApplication(options = {}) {
     while (true) {
       const next = store.snapshot().jobs.find((item) => item.status === 'queued');
       if (!next) return;
-      await runDeploymentJob(next.id);
+      const user = next.initiatedByUserId && store.snapshot().users.find((item) => item.id === next.initiatedByUserId);
+      await requestContext.run({ store, user, organizationId: next.organizationId }, () => runDeploymentJob(next.id));
     }
   }
 
@@ -1390,7 +1476,14 @@ export async function createApplication(options = {}) {
   }
 
   async function markJobFailed(jobId, message, failureLog = null) {
-    await updateJob(jobId, (job) => {
+    await store.update((state) => {
+      const job = findJob(state, jobId);
+      const project = state.projects.find((item) => item.slug === job.projectSlug);
+      const release = project?.deployment?.releases?.find((item) => item.id === job.releaseId);
+      if (release && ['candidate', 'healthy'].includes(release.status)) {
+        project.deployment = failRelease(project.deployment, release.id, message);
+        appendAudit(state, { actor: 'owner', action: 'project.deploy', outcome: 'failure', target: project.slug, detail: message });
+      }
       job.status = 'failed';
       job.finishedAt = new Date().toISOString();
       job.failure = message.slice(0, 240);
@@ -2484,6 +2577,7 @@ function sendCaughtError(response, error) {
     console.error(error);
     return;
   }
+  if (error instanceof AccessError) return sendJson(response, error.status, { error: error.message });
   if (error instanceof InputError) return sendJson(response, 400, { error: error.message });
   if (error instanceof NotFoundError) return sendJson(response, 404, { error: error.message });
   if (error instanceof DeploymentFailure) return sendJson(response, 422, { error: error.message });
@@ -2580,6 +2674,21 @@ function publicMonitorProject(project) {
 function publicProject(project) {
   if (!project) return project;
   const safe = structuredClone(project);
+  const context = requestContext.getStore();
+  if (context?.user) {
+    const state = context.store.snapshot();
+    const org = resolveProjectOrganization(state, project);
+    safe.organizationId = org?.id ?? null;
+    safe.permissions = permissionsFor(state, context.user, org?.id);
+    if (context.user.role !== 'master' && !safe.permissions.includes('logs.read')) {
+      if (safe.sync) delete safe.sync.detail;
+      for (const release of safe.deployment?.releases ?? []) {
+        delete release.failureLog;
+        delete release.events;
+        delete release.failure;
+      }
+    }
+  }
   if (safe.environment) delete safe.environment.encryptedContent;
   if (safe.autoSync) {
     delete safe.autoSync.encryptedSecret;
@@ -2755,9 +2864,24 @@ function appendCommandOutput(existing, chunk) {
   return (merged.length > MAX_COMMAND_OUTPUT_BYTES ? merged.subarray(-MAX_COMMAND_OUTPUT_BYTES) : merged).toString('utf8');
 }
 
+function assertRequestAuthorization(state) {
+  const context = requestContext.getStore();
+  if (!context?.authorization) return;
+  const current = state.users.find((item) => item.id === context.user?.id);
+  if (!current || current.status !== 'active' || current.authVersion !== context.user.authVersion) throw new AccessError('Session permissions changed. Sign in again.', 401);
+  authorizeRequest({ state, user: current, ...context.authorization });
+}
+
 async function readJson(request, maxBytes = 64 * 1024) {
+  if (request.parsedJsonBody !== undefined) return request.parsedJsonBody;
   const body = (await readRawBody(request, maxBytes)).toString('utf8');
-  try { return body ? JSON.parse(body) : {}; } catch { throw new InputError('Invalid JSON body.'); }
+  let parsed;
+  try { parsed = body ? JSON.parse(body) : {}; } catch { throw new InputError('Invalid JSON body.'); }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new InputError('JSON body must be an object.');
+  const context = requestContext.getStore();
+  if (context?.authorization) assertRequestAuthorization(context.store.snapshot());
+  request.parsedJsonBody = parsed;
+  return parsed;
 }
 
 async function readRawBody(request, maxBytes = 64 * 1024) {

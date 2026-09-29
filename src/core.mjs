@@ -5,6 +5,8 @@ import { dirname } from 'node:path';
 import { createCipheriv, createDecipheriv, randomBytes, randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { parseEnvironmentDocument } from '../public/ui/environment-editor.js';
+import { migrateAccessState } from './access.mjs';
+import { requestContext } from './request-context.mjs';
 
 export const SUPPORTED_NODE_MAJOR = 24;
 export const TOOLS = {
@@ -67,7 +69,7 @@ export function initialMailState() {
 
 export function createInitialState() {
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     createdAt: new Date().toISOString(),
     tools: Object.fromEntries(Object.entries(TOOLS).map(([id, tool]) => [id, initialToolState(id, tool)])),
     git: { identity: null },
@@ -78,6 +80,11 @@ export function createInitialState() {
     jobs: [],
     monitorTokens: [],
     owner: null,
+    users: [],
+    organizations: [],
+    memberships: [],
+    invitations: [],
+    legacyOwnerId: null,
     databaseConnections: [],
     notificationHooks: [],
     mail: initialMailState()
@@ -124,8 +131,9 @@ export class StateStore {
       CREATE TABLE IF NOT EXISTS database_connections (id TEXT PRIMARY KEY, payload TEXT NOT NULL) STRICT;
     `);
     const initialized = this.#database.prepare('SELECT value FROM portal_meta WHERE key = ?').get('initialized');
-    if (!initialized) this.#persist(createInitialState());
+    if (!initialized) await this.#persist(createInitialState());
     this.#state = migrateState(this.#readState());
+    await this.#persist(this.#state);
     return this.snapshot();
   }
 
@@ -136,9 +144,12 @@ export class StateStore {
   async update(mutator) {
     const work = async () => {
       const next = structuredClone(this.#state);
+      // Evaluate against the latest serialized state, including while an HTTP
+      // request was waiting for its body or another mutation to finish.
+      await this.beforeMutation?.(next);
       const result = await mutator(next);
-      this.#state = next;
       await this.#persist(next);
+      this.#state = next;
       return result;
     };
     this.#queue = this.#queue.then(work, work);
@@ -216,6 +227,11 @@ export class StateStore {
       notificationHooks: JSON.parse(meta('notification_hooks', '[]')),
       mail: JSON.parse(meta('mail', 'null')),
       owner: JSON.parse(meta('owner', 'null')),
+      users: JSON.parse(meta('users', '[]')),
+      organizations: JSON.parse(meta('organizations', '[]')),
+      memberships: JSON.parse(meta('memberships', '[]')),
+      invitations: JSON.parse(meta('invitations', '[]')),
+      legacyOwnerId: JSON.parse(meta('legacy_owner_id', 'null')),
       databaseConnections: readPayloads('SELECT payload FROM database_connections')
     };
   }
@@ -243,6 +259,11 @@ function persistedSections(state) {
       metaRow('created_at', state.createdAt ?? new Date().toISOString()),
       metaRow('git', JSON.stringify(state.git ?? { identity: null })),
       metaRow('owner', JSON.stringify(state.owner ?? null)),
+      metaRow('users', JSON.stringify(state.users ?? [])),
+      metaRow('organizations', JSON.stringify(state.organizations ?? [])),
+      metaRow('memberships', JSON.stringify(state.memberships ?? [])),
+      metaRow('invitations', JSON.stringify(state.invitations ?? [])),
+      metaRow('legacy_owner_id', JSON.stringify(state.legacyOwnerId ?? null)),
       metaRow('monitor_tokens', JSON.stringify(state.monitorTokens ?? [])),
       metaRow('notification_hooks', JSON.stringify(state.notificationHooks ?? [])),
       metaRow('mail', JSON.stringify(state.mail ?? initialMailState()))
@@ -507,12 +528,16 @@ function repositoryHost(repository) {
 export class InputError extends Error {}
 
 export function appendAudit(state, event) {
-  state.audit.unshift({ id: randomUUID(), at: new Date().toISOString(), ...event });
+  const context = requestContext.getStore();
+  const project = state.projects?.find((item) => item.slug === event.target);
+  const attribution = event.actor === 'owner' ? (context?.user ? { actor: context.user.id, actorUserId: context.user.id } : { actor: 'system' }) : {};
+  const organizationId = event.organizationId ?? context?.organizationId ?? project?.organizationId;
+  state.audit.unshift({ id: randomUUID(), at: new Date().toISOString(), ...event, ...attribution, ...(organizationId ? { organizationId } : {}), ...(project ? { projectSlug: project.slug } : {}) });
   state.audit = state.audit.slice(0, 500);
 }
 
 function migrateState(state) {
-  state.schemaVersion = 3;
+  state.schemaVersion = Math.max(state.schemaVersion || 0, 4);
   state.git ??= { identity: null };
   state.git.defaultCredentialId ??= null;
   state.sessions ??= [];
@@ -536,5 +561,5 @@ function migrateState(state) {
   state.tools ??= {};
   // Older Portal states lack tools that were added after their first install.
   for (const [id, tool] of Object.entries(TOOLS)) state.tools[id] ??= initialToolState(id, tool);
-  return state;
+  return migrateAccessState(state);
 }

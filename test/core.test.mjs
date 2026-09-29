@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { migrateAccessState } from '../src/access.mjs';
 import { InputError, StateStore, validateDomain, validateNotificationHook, validatePasswordChange, validateProject, validateProjectDomains, validateProjectSync, validateTool } from '../src/core.mjs';
 
 test('validators accept a safe project and DNS hostname', () => {
@@ -99,6 +100,7 @@ test('diffed persistence keeps reloads identical across row edits, removals, and
     state.projects.push(project('demo-app', 'Demo'), project('second-app', 'Second'));
     state.audit.unshift({ id: '33333333-3333-3333-3333-333333333333', at: '2026-01-02T00:00:00.000Z', action: 'test.event' });
     state.owner = { email: 'owner@example.test', createdAt: '2026-01-01T00:00:00.000Z' };
+    migrateAccessState(state);
   });
   await store.update((state) => {
     state.sessions = state.sessions.slice(0, 1);

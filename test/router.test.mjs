@@ -30,3 +30,9 @@ test('Mail and its setup wizard keep explicit reloadable routes', () => {
   assert.deepEqual(matchUiRoute('/mail'), { page: 'mail', view: 'mail', params: {} });
   assert.deepEqual(matchUiRoute('/mail/setup'), { page: 'mail', view: 'mail-setup', params: {} });
 });
+
+test('member management and invitation acceptance have explicit routes', () => {
+  assert.deepEqual(matchUiRoute('/members'), { page: 'members', view: 'members', params: {} });
+  assert.deepEqual(matchUiRoute('/invite'), { page: 'invite', view: 'invite', params: {} });
+  assert.equal(pathnameForPage('members'), '/members');
+});

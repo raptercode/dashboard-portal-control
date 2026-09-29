@@ -3,6 +3,7 @@ import { ENVIRONMENT_MAX_BYTES, parseEnvironmentDocument, updateEnvironmentDocum
 import { projectActionMenuPlacement } from './project-action-menu-positioning.js';
 import { hasNewerSyncedRevision } from './project-manual-sync-action.js';
 import { bindDialogDismissals as bindModalDismissals } from './dialog-dismissals.js';
+import { renderMembersPage, bindInvitationAcceptance } from './members.js';
 
 const DRAFT_KEY = 'hostmgr.projectDraft';
 const SIDEBAR_COLLAPSED_KEY = 'hostmgr.sidebarCollapsed';
@@ -30,6 +31,8 @@ const state = {
   databaseProviders: [],
   bootstrapRequired: false,
   owner: null,
+  organizations: [],
+  access: null,
   activeProject: null,
   repositoryAutoInspectTimer: null,
   repositoryAutoInspectKey: '',
@@ -50,6 +53,17 @@ const page = document.body.dataset.page || pageForPathname(location.pathname);
 const view = document.body.dataset.view || page;
 const flowMode = document.body.dataset.flowMode || 'create';
 const editSlug = document.body.dataset.editSlug || '';
+
+function isMaster() { return state.owner?.role === 'master'; }
+function can(permission, project = null) {
+  if (isMaster()) return true;
+  const organization = state.organizations.find((item) => item.id === project?.organizationId);
+  return Boolean(organization?.permissions?.includes(permission));
+}
+function canInAnyOrganization(permission) { return isMaster() || state.organizations.some((organization) => organization.permissions?.includes(permission)); }
+function organizationIdForName(name) { return state.organizations.find((item) => item.name === name)?.id || ''; }
+function currentFlowOrganizationId() { const draft = readDraft(); return draft.organizationId || organizationIdForName(draft.organization); }
+function boundSourceLocked() { const project = state.projects.find((item) => item.slug === editSlug); return !isMaster() && flowMode === 'edit' && Boolean(project?.credentialId || project?.sshKeyId); }
 
 function icon(name) {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -389,7 +403,7 @@ function orgInitials(name) {
 }
 
 function projectOrganizations() {
-  return [...new Set((state.projects || []).map((project) => project.organization || 'Default'))].sort((left, right) => left.localeCompare(right, 'th-TH'));
+  return state.organizations.map((item) => item.name).sort((left, right) => left.localeCompare(right, 'th-TH'));
 }
 
 function selectedOrganization() {
@@ -443,6 +457,8 @@ function setProjectOrganization(name) {
   const organization = String(name || '').trim().slice(0, 80);
   const input = $('#project-organization');
   if (input) input.value = organization;
+  const organizationId = $('#project-organization-id');
+  if (organizationId) organizationId.value = organizationIdForName(organization);
   const label = $('#org-selection-label');
   const avatar = $('#org-selection-avatar');
   if (label) label.textContent = organization || 'เลือกองค์กร';
@@ -457,7 +473,8 @@ function renderOrganizationMenu() {
   const root = $('#org-menu-options');
   if (!root) return;
   const selected = $('#project-organization')?.value || '';
-  const names = [...new Set([...projectOrganizations(), selected].filter(Boolean))];
+  const names = [...new Set([...projectOrganizations(), selected].filter(Boolean))]
+    .filter((name) => isMaster() || (flowMode === 'edit' ? name === selected : can('project.create', { organizationId: organizationIdForName(name) })));
   root.replaceChildren(...names.map((name) => {
     const button = element('button', 'runtime-menu-option');
     button.type = 'button';
@@ -511,6 +528,10 @@ async function showBootstrap(requireCurrent = false) {
 }
 
 async function showDashboard() {
+  if (!isMaster() && ['setup', 'credentials', 'databases', 'mail', 'members', 'overview'].includes(page)) {
+    location.replace('/projects');
+    return;
+  }
   setShell('dashboard');
   setPageLoading(true);
   setSidebarCollapsed(localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === 'true');
@@ -549,9 +570,17 @@ function applyTheme(theme) {
 }
 
 async function refresh() {
-  const [doctor, audit, git, projects, credentials, softwareUpdate] = await Promise.all([
-    api('/api/doctor'), api('/api/audit'), api('/api/git-config'), api('/api/projects'), api('/api/credentials'), api('/api/software-update')
-  ]);
+  const access = await api('/api/access');
+  state.access = access;
+  state.owner = access.user || state.owner;
+  state.organizations = access.organizations || [];
+  const master = isMaster();
+  $$('.master-only').forEach((node) => { node.hidden = !master; });
+  const [doctor, audit, git, projects, credentials, softwareUpdate] = master
+    ? await Promise.all([api('/api/doctor'), api('/api/audit'), api('/api/git-config'), api('/api/projects'), api('/api/credentials'), api('/api/software-update')])
+    : [null, canInAnyOrganization('audit.read') ? await api('/api/audit') : { events: [] }, { identity: null }, await api('/api/projects'), { credentials: [] }, null];
+  const activityLink = $('[data-nav="activity"]');
+  if (activityLink) activityLink.hidden = !canInAnyOrganization('audit.read');
   state.doctor = doctor;
   state.audit = audit.events || [];
   state.git = git;
@@ -561,15 +590,15 @@ async function refresh() {
   state.git.defaultCredentialId = state.defaultCredentialId;
   state.vaultReady = credentials.vaultReady;
   state.softwareUpdate = softwareUpdate;
-  state.mode = doctor.mode;
+  state.mode = doctor?.mode || state.mode;
   const modeBadge = $('#mode-badge');
-  if (modeBadge) modeBadge.textContent = doctor.mode === 'host' ? 'host' : 'sandbox';
+  if (modeBadge) modeBadge.textContent = master ? (doctor?.mode === 'host' ? 'host' : 'sandbox') : 'User';
   const ownerLabel = state.owner?.email || 'owner';
   const initials = ownerLabel.split('@')[0].split(/[._-]/).map((part) => part[0]).join('').slice(0, 2).toUpperCase() || 'OW';
   const hostBreadcrumb = $('#host-breadcrumb');
-  if (hostBreadcrumb) hostBreadcrumb.textContent = doctor.host?.hostname || '…';
+  if (hostBreadcrumb) hostBreadcrumb.textContent = doctor?.host?.hostname || 'Portal';
   const tlsBadge = $('#tls-badge');
-  if (tlsBadge?.lastChild) tlsBadge.lastChild.textContent = doctor.mode === 'host' ? ' Host' : ' Sandbox';
+  if (tlsBadge?.lastChild) tlsBadge.lastChild.textContent = master ? (doctor?.mode === 'host' ? ' Host' : ' Sandbox') : ' User';
   const ownerAvatar = $('#owner-avatar');
   if (ownerAvatar) ownerAvatar.textContent = initials;
   const sidebarAvatar = $('#sidebar-avatar');
@@ -582,7 +611,7 @@ async function refresh() {
     projectCount.textContent = String(state.projects.length);
   }
   const notice = $('#sandbox-notice');
-  if (notice) notice.hidden = doctor.mode !== 'demo';
+  if (notice) notice.hidden = !master || doctor?.mode !== 'demo';
   if (page === 'overview') {
     renderOverview();
     await loadMetrics(state.metricsRange);
@@ -596,6 +625,7 @@ async function refresh() {
   if (view === 'mail-setup') await renderMailSetup();
   if (page === 'activity') renderAudit();
   if (page === 'settings') renderSettings();
+  if (page === 'members') await renderMembersPage({ api, toast, showError });
 }
 
 function renderOverview() {
@@ -841,6 +871,8 @@ function renderMailOutboundReport(report) {
 function renderProjects() {
   const root = $('#projects');
   if (!root) return;
+  const createLink = $('#create-project');
+  if (createLink) createLink.hidden = !isMaster() && !state.organizations.some((organization) => organization.permissions?.includes('project.create'));
   renderProjectsHealth();
   const statusFilter = currentProjectStatusFilter();
   const filterBanner = $('#project-status-filter');
@@ -895,6 +927,7 @@ function renderProjects() {
 function renderProjectsHealth() {
   const root = $('#project-health-strip');
   if (!root) return;
+  if (!isMaster()) { root.hidden = true; return; }
   const tool = (id) => state.doctor?.tools?.find((item) => item.id === id);
   const installed = (id) => tool(id)?.status === 'Installed';
   const host = state.doctor?.host || {};
@@ -1013,15 +1046,15 @@ function projectRow(project) {
   primaryAction.disabled = displayStatus.key === 'deploying' || sync.status !== 'synced';
   if (displayStatus.key === 'attention' && deployment.previousReleaseId) primaryAction.addEventListener('click', () => rollbackProject(project, primaryAction));
   else primaryAction.addEventListener('click', () => startProjectDeploy(project, primaryAction).catch(showError));
-  actions.append(primaryAction);
+  if (can(displayStatus.key === 'attention' && deployment.previousReleaseId ? 'deploy.rollback' : 'deploy.start', project)) actions.append(primaryAction);
   const manualSync = element('button', 'btn btn-ghost btn-sm project-manual-sync', 'Sync latest');
   manualSync.type = 'button';
   manualSync.disabled = displayStatus.key === 'deploying';
   manualSync.addEventListener('click', () => syncExistingProject(project, manualSync).catch(showError));
-  actions.append(manualSync);
+  if (can('source.sync', project)) actions.append(manualSync);
   const logsPageLink = element('a', 'btn btn-ghost btn-sm', 'Logs');
   logsPageLink.href = `/projects/${encodeURIComponent(project.slug)}/logs`;
-  actions.append(logsPageLink);
+  if (can('logs.read', project)) actions.append(logsPageLink);
   const menu = element('details', 'project-actions-menu');
   const menuSummary = element('summary');
   menuSummary.append(icon('more'));
@@ -1045,11 +1078,13 @@ function projectRow(project) {
       if (menu.open) positionProjectActionMenu(menu, actionList);
     });
   });
-  const deploy = element('button', 'secondary', 'แก้ไข ENV และ deploy');
+  const deploy = element('button', 'secondary', can('deploy.start', project)
+    ? (can('env.write', project) ? 'จัดการ ENV และ deploy' : 'ตรวจแผนและ deploy')
+    : (can('env.write', project) ? 'จัดการ ENV' : 'ดู ENV'));
   deploy.type = 'button';
   deploy.addEventListener('click', closeMenu(() => openDeployDialog(project).catch(showError)));
-  actionList.append(deploy);
-  if (latestRelease) {
+  if (can('deploy.start', project) || can('env.read', project) || can('env.write', project)) actionList.append(deploy);
+  if (latestRelease && can('logs.read', project)) {
     const logs = element('button', 'secondary', 'ดู release ล่าสุด');
     logs.type = 'button';
     logs.addEventListener('click', closeMenu(() => openDeploymentLog(project, latestRelease)));
@@ -1058,16 +1093,16 @@ function projectRow(project) {
   const domain = element('button', 'secondary', 'จัดการ domain');
   domain.type = 'button';
   domain.addEventListener('click', closeMenu(() => openDomainDialog(project)));
-  actionList.append(domain);
+  if (can('domains.manage', project)) actionList.append(domain);
   const hooks = element('button', 'secondary', 'แจ้งเตือน');
   hooks.type = 'button';
   hooks.addEventListener('click', closeMenu(() => openNotificationHookDialog(project).catch(showError)));
-  actionList.append(hooks);
+  if (can('webhooks.manage', project)) actionList.append(hooks);
   const autoSync = element('button', 'secondary', project.autoSync?.enabled && project.autoSync.mode !== 'actions' ? 'ปิด Auto deploy' : 'ใช้ Auto deploy แบบตรวจ Git ทุก 5 นาที');
   autoSync.type = 'button';
   autoSync.addEventListener('click', closeMenu(() => configureAutoSync(project, autoSync).catch(showError)));
-  actionList.append(autoSync);
-  if (/^(?:https:\/\/github\.com\/|git@github\.com:)/i.test(project.repository)) {
+  if (can('webhooks.manage', project) && can('deploy.start', project)) actionList.append(autoSync);
+  if (can('webhooks.manage', project) && can('deploy.start', project) && /^(?:https:\/\/github\.com\/|git@github\.com:)/i.test(project.repository)) {
     const githubWebhook = element('button', 'secondary', 'ตั้งค่า GitHub webhook');
     githubWebhook.type = 'button';
     githubWebhook.addEventListener('click', closeMenu(() => openGithubWebhookDialog(project)));
@@ -1076,11 +1111,11 @@ function projectRow(project) {
   const actionsHook = element('button', 'secondary', 'ตั้งค่า Actions hook (ทางเลือก)');
   actionsHook.type = 'button';
   actionsHook.addEventListener('click', closeMenu(() => openActionsHookDialog(project)));
-  actionList.append(actionsHook);
+  if (can('webhooks.manage', project) && can('deploy.start', project)) actionList.append(actionsHook);
   const edit = element('a', 'secondary button', 'แก้ไขโปรเจค');
   edit.href = `/projects/${encodeURIComponent(project.slug)}/edit`;
-  actionList.append(edit);
-  if (deployment.previousReleaseId) {
+  if (can('project.configure', project) && can('source.sync', project)) actionList.append(edit);
+  if (deployment.previousReleaseId && can('deploy.rollback', project)) {
     const rollback = element('button', 'secondary', 'ย้อนกลับ');
     rollback.type = 'button';
     rollback.addEventListener('click', closeMenu(() => rollbackProject(project, rollback)));
@@ -1091,9 +1126,8 @@ function projectRow(project) {
   const remove = element('button', 'project-action-danger', 'ลบโปรเจกต์');
   remove.type = 'button';
   remove.addEventListener('click', closeMenu(() => deleteProject(project, remove)));
-  actionList.append(divider, remove);
-  menu.append(menuSummary, actionList);
-  actions.append(menu);
+  if (isMaster()) actionList.append(divider, remove);
+  if (actionList.children.length) { menu.append(menuSummary, actionList); actions.append(menu); }
   const side = element('div', 'project-side');
   side.append(actions);
   row.append(copy, side);
@@ -1103,6 +1137,7 @@ function projectRow(project) {
 async function syncExistingProject(project, button) {
   const payload = {
     organization: project.organization,
+    organizationId: project.organizationId,
     name: project.name,
     slug: project.slug,
     repository: project.repository,
@@ -1114,7 +1149,8 @@ async function syncExistingProject(project, button) {
     healthCheckEnabled: project.healthCheckEnabled !== false,
     healthCheckPath: project.healthCheckPath || '/',
     protocol: project.protocol || 'https',
-    credentialId: project.credentialId || ''
+    credentialId: project.credentialId || '',
+    sshKeyId: project.sshKeyId || ''
   };
   if (payload.runtime === 'docker-compose') {
     payload.composeFile = project.composeFile || 'compose.yaml';
@@ -1135,7 +1171,7 @@ async function syncExistingProject(project, button) {
     toast(result.project?.sync?.status === 'synced' ? `Synced latest ${payload.branch}${revision ? ` · ${revision.slice(0, 12)}` : ''}` : (result.project?.sync?.detail || 'Project sync queued.'));
     if (result.job?.id) {
       toast(result.activation === 'queued' ? 'จัดคิว auto deploy แล้ว' : 'Auto deploy สำเร็จ');
-      showDeploymentProgress(project, result.job);
+      if (can('logs.read', project)) showDeploymentProgress(project, result.job);
       return;
     }
     if (result.activation === 'complete') toast('Auto deploy สำเร็จ');
@@ -2406,6 +2442,7 @@ function renderAudit() {
 }
 
 function renderSettings() {
+  if (!isMaster()) return;
   renderSoftwareUpdate();
   renderMonitorTokens().catch(showError);
   $('#settings-mode').textContent = state.mode === 'host' ? 'host' : 'sandbox';
@@ -2592,7 +2629,7 @@ async function rollbackProject(project, button) {
   try {
     const result = await api(`/api/projects/${encodeURIComponent(project.slug)}/rollback`, { method: 'POST', body: {} });
     toast(result.activation === 'queued' || result.activation === 'pending' ? 'จัดคิว rollback แล้ว' : 'rollback สำเร็จ');
-    if (result.job?.id) showDeploymentProgress(project, result.job);
+    if (result.job?.id && can('logs.read', project)) showDeploymentProgress(project, result.job);
     else await refresh();
   } catch (error) { showError(error); }
   finally { button.disabled = false; }
@@ -2612,19 +2649,20 @@ async function startProjectDeploy(project, button) {
 async function deployExistingProject(project) {
   const result = await api(`/api/projects/${encodeURIComponent(project.slug)}/deploy`, { method: 'POST', body: {} });
   toast(result.activation === 'queued' ? 'จัดคิว deploy แล้ว' : 'สร้าง release แล้ว');
-  if (result.job?.id) showDeploymentProgress(project, result.job);
+  if (result.job?.id && can('logs.read', project)) showDeploymentProgress(project, result.job);
   else await refresh();
 }
 
 async function openDeployDialog(project) {
   state.activeProject = project;
+  const mayDeploy = can('deploy.start', project);
   const latestRelease = project.deployment?.releases?.[0];
-  $('#deploy-dialog-title').textContent = `Deploy ${project.name}`;
+  $('#deploy-dialog-title').textContent = `${mayDeploy ? 'Deploy' : 'ENV'} ${project.name}`;
   $('#deploy-project-label').textContent = `Release candidate · ${latestRelease?.revision || project.branch || 'latest source'}`;
   $('#deploy-release-project').textContent = project.name;
   $('#deploy-release-source').textContent = `${project.branch || 'main'} · ${latestRelease?.revision || 'latest sync'}`;
   const [payload, configurationPayload] = await Promise.all([
-    api(`/api/projects/${encodeURIComponent(project.slug)}/environment`),
+    can('env.read', project) ? api(`/api/projects/${encodeURIComponent(project.slug)}/environment`) : Promise.resolve({ environment: null }),
     api(`/api/projects/${encodeURIComponent(project.slug)}/deploy-configuration`)
   ]);
   const configuration = configurationPayload.configuration;
@@ -2646,6 +2684,16 @@ async function openDeployDialog(project) {
       ? 'Build step is skipped by this project configuration; dependencies and health checks still run.'
       : 'The build plan uses the configuration shown in the Environment step.';
   $('#deploy-env-editor').value = payload.environment?.content || '';
+  const envRead = can('env.read', project);
+  const envWrite = can('env.write', project);
+  $('#deploy-env-editor').readOnly = !envWrite;
+  $('#deploy-env-save').hidden = !envWrite;
+  $('#deploy-env-upload').hidden = !envWrite || !envRead;
+  $('#deploy-env-rows-mode').hidden = !envRead || !envWrite;
+  $('#deploy-env-file-mode').hidden = !envRead || !envWrite;
+  $('#deploy-saved-env-message').textContent = !envRead && envWrite
+    ? 'คุณอ่านค่า ENV เดิมไม่ได้ การบันทึกจะเขียนทับทั้งไฟล์ กรุณาใส่ค่า .env ครบทุกบรรทัดก่อนบันทึก'
+    : !envRead ? 'คุณไม่มีสิทธิ์อ่านหรือแก้ไข ENV เดิม Deploy จะใช้ค่าที่บันทึกไว้บนระบบ' : !envWrite ? 'คุณอ่านค่า ENV ได้ แต่แก้ไขไม่ได้' : 'ค่าที่บันทึกที่นี่จะถูกเขียนเป็นไฟล์ .env ให้ release ถัดไป release ที่กำลังทำงานอยู่ไม่เปลี่ยน';
   state.deployEnvironmentMode = 'file';
   setDeployEnvironmentMode('file');
   $('#deploy-environment-rows').replaceChildren();
@@ -2653,8 +2701,12 @@ async function openDeployDialog(project) {
   $('#deploy-env-status').textContent = 'ยังไม่มีการเปลี่ยนแปลง';
   state.deployEnvironmentRevision += 1;
   const keyCount = payload.environment?.variables?.length || 0;
-  $('#deploy-release-environment').textContent = keyCount ? `${keyCount} configured keys` : 'New .env required';
+  $('#deploy-release-environment').textContent = envRead ? (keyCount ? `${keyCount} configured keys` : 'ยังไม่มีค่า ENV') : 'ใช้ ENV ที่บันทึกไว้';
   setDeployStep(1);
+  $('#deploy-dialog .stepper').hidden = !mayDeploy;
+  $('#deploy-submit').hidden = !mayDeploy;
+  $('#deploy-back').hidden = !mayDeploy;
+  $('#deploy-cancel').textContent = mayDeploy ? 'ยกเลิก' : 'ปิด';
   const dialog = showDialog($('#deploy-dialog'));
   requestAnimationFrame(() => dialog.classList.add('open'));
 }
@@ -2815,11 +2867,12 @@ function bindDialogDismissals() {
 async function submitDeploy(event) {
   event.preventDefault();
   const project = state.activeProject;
+  if (!can('deploy.start', project)) throw new Error('ไม่มีสิทธิ์ deploy โปรเจคนี้');
   const content = collectDeployEnvironmentContent();
   const variables = parseEnvironmentDocument(content).variables;
-  if (!variables.length) throw new Error('ต้องมีอย่างน้อยหนึ่ง environment variable ก่อน deploy');
+  if (can('env.write', project) && !variables.length && can('env.read', project)) throw new Error('ต้องมีอย่างน้อยหนึ่ง environment variable ก่อน deploy');
   if (state.deployStep === 1) {
-    $('#deploy-release-environment').textContent = `${variables.length} configured keys`;
+    if (can('env.read', project)) $('#deploy-release-environment').textContent = `${variables.length} configured keys`;
     setDeployStep(2);
     return;
   }
@@ -2830,11 +2883,11 @@ async function submitDeploy(event) {
   const submit = $('#deploy-submit');
   submit.disabled = true;
   try {
-    await api(`/api/projects/${encodeURIComponent(project.slug)}/environment`, { method: 'POST', body: { mode: 'replace', content } });
+    if (can('env.write', project) && (can('env.read', project) || content.trim())) await api(`/api/projects/${encodeURIComponent(project.slug)}/environment`, { method: 'POST', body: { mode: 'replace', content } });
     const result = await api(`/api/projects/${encodeURIComponent(project.slug)}/deploy`, { method: 'POST', body: {} });
     await closeDeployDialog();
     toast(result.activation === 'queued' ? 'จัดคิว deploy แล้ว' : 'สร้าง release แล้ว');
-    if (result.job?.id) showDeploymentProgress(project, result.job);
+    if (result.job?.id && can('logs.read', project)) showDeploymentProgress(project, result.job);
     else await refresh();
   } catch (error) { showError(error); }
   finally { submit.disabled = false; }
@@ -3220,6 +3273,7 @@ async function ensureEditDraft() {
   if (!project) throw new Error('ไม่พบโปรเจคที่ต้องการแก้ไข');
   return writeDraft({
     organization: project.organization || '',
+    organizationId: project.organizationId || '',
     name: project.name || '',
     slug: project.slug,
     repository: project.repository || '',
@@ -3240,15 +3294,21 @@ async function ensureEditDraft() {
     healthCheckEnabled: project.healthCheckEnabled !== false,
     healthCheckPath: project.healthCheckPath || '/',
     protocol: project.protocol || 'https',
-    credentialId: project.credentialId || ''
+    credentialId: project.credentialId || '',
+    sshKeyId: project.sshKeyId || ''
   });
 }
 
 async function hydrateIdentityStep() {
   const draft = await ensureEditDraft();
   $('#flow-title').textContent = flowMode === 'edit' ? `แก้ไข ${draft.name || editSlug}` : 'สร้างโปรเจค';
-  const organization = draft.organization || selectedOrganization() || projectOrganizations()[0] || 'Personal';
+  const permittedNames = state.organizations.filter((item) => isMaster() || can('project.create', { organizationId: item.id })).map((item) => item.name);
+  const organization = draft.organization || (permittedNames.includes(selectedOrganization()) ? selectedOrganization() : '') || permittedNames[0] || '';
+  if (!isMaster() && flowMode === 'edit' && (!can('project.configure', { organizationId: draft.organizationId }) || !can('source.sync', { organizationId: draft.organizationId }))) { location.replace('/projects'); return; }
+  const createControls = $('#org-create-input')?.closest('label')?.parentElement;
+  if (createControls) createControls.hidden = !isMaster();
   setProjectOrganization(organization);
+  if (draft.organizationId) $('#project-organization-id').value = draft.organizationId;
   renderOrganizationMenu();
   $('#project-name').value = draft.name || '';
   $('#project-slug').value = draft.slug || '';
@@ -3272,6 +3332,11 @@ async function hydrateRepositoryStep() {
   $('#project-source-meta').textContent = sourceMeta.join(' · ') || '…';
   fillCredentialSelect(draft.credentialId || '', { useDefault: flowMode !== 'edit' && !draft.repository });
   $('#repository').value = draft.repository || '';
+  if (!isMaster()) {
+    $('#https-credential').hidden = true;
+    $('#credential-id').disabled = true;
+    if (flowMode === 'edit' && (draft.credentialId || draft.sshKeyId)) $('#repository').readOnly = true;
+  }
   $('#project-directory').value = draft.directory || '/';
   setBranchOptions([draft.branch || 'main'], draft.branch || 'main');
   $('#project-port').value = draft.port || '';
@@ -3295,6 +3360,11 @@ async function hydrateRepositoryStep() {
   $('#health-check-enabled').checked = draft.healthCheckEnabled !== false;
   $('#health-check-path').value = draft.healthCheckPath || '/';
   updateRepositoryConnection();
+  if (boundSourceLocked()) {
+    $('#fetch-branches').hidden = true;
+    $('#detect-project-runtime').hidden = true;
+    $('#runtime-detection-note').textContent = 'Repository นี้ผูก Credential หรือ SSH key ไว้ ผู้ใช้แก้ไขการตั้งค่าอื่นได้ แต่ Master เป็นผู้ตรวจ source และเปลี่ยน repository';
+  }
   toggleHealthCheckFields();
   toggleRuntimeFields();
   toggleProjectPort();
@@ -3631,8 +3701,8 @@ function updateRepositoryConnection() {
   const protocol = repositoryProtocol(repository);
   const credential = $('#credential-id');
   const credentialRow = $('#https-credential');
-  credentialRow.hidden = protocol !== 'https';
-  credential.disabled = protocol !== 'https';
+  credentialRow.hidden = !isMaster() || protocol !== 'https';
+  credential.disabled = !isMaster() || protocol !== 'https';
   if (protocol === 'ssh') {
     credential.value = '';
     credential.dataset.protocolCleared = 'true';
@@ -3656,11 +3726,12 @@ async function fetchBranches({ quiet = false, request = null } = {}) {
   const button = $('#fetch-branches');
   const requestRepository = request?.repository ?? repository.value;
   const protocol = request?.protocol ?? repositoryProtocol(requestRepository);
-  const credentialId = request?.credentialId ?? ($('#credential-id').value || '');
+  const credentialId = isMaster() ? (request?.credentialId ?? ($('#credential-id').value || '')) : '';
+  const organizationId = currentFlowOrganizationId();
   const requestKey = request?.key ?? repositoryInspectKey();
   button.disabled = true;
   try {
-    const result = await api('/api/git/branches', { method: 'POST', body: { repository: requestRepository, protocol, credentialId } });
+    const result = await api('/api/git/branches', { method: 'POST', body: { organizationId, repository: requestRepository, protocol, credentialId } });
     if (quiet && requestKey !== repositoryInspectKey()) return false;
     if (!result.branches.length) throw new Error('ไม่พบ branch ที่เลือกได้ใน repository นี้');
     const previous = $('#branch').value;
@@ -3690,11 +3761,12 @@ async function fetchBranches({ quiet = false, request = null } = {}) {
 function repositoryInspectKey() {
   const repository = $('#repository')?.value.trim() || '';
   const protocol = repositoryProtocol(repository);
-  const credentialId = protocol === 'https' ? ($('#credential-id')?.value || '') : '';
+  const credentialId = isMaster() && protocol === 'https' ? ($('#credential-id')?.value || '') : '';
   return [repository, protocol, credentialId].join('\n');
 }
 
 function scheduleRepositoryAutoInspect(delayMs = 300) {
+  if (boundSourceLocked()) return;
   const repository = $('#repository');
   if (!repository) return;
   clearTimeout(state.repositoryAutoInspectTimer);
@@ -3710,7 +3782,7 @@ async function autoInspectRepository() {
   const value = repository.value.trim();
   if (!value || !repository.checkValidity() || !looksLikeRepositoryUrl(value)) return;
   const protocol = repositoryProtocol(value);
-  const credentialId = protocol === 'https' ? ($('#credential-id')?.value || '') : '';
+  const credentialId = isMaster() && protocol === 'https' ? ($('#credential-id')?.value || '') : '';
   const key = repositoryInspectKey();
   if (state.repositoryAutoInspectRunning) {
     state.repositoryAutoInspectPending = true;
@@ -3740,7 +3812,8 @@ async function detectProjectRuntimeFromRepository({ quiet = false, request = nul
   const note = $('#runtime-detection-note');
   const requestRepository = request?.repository ?? repository.value;
   const protocol = request?.protocol ?? repositoryProtocol(requestRepository);
-  const credentialId = request?.credentialId ?? ($('#credential-id').value || '');
+  const credentialId = isMaster() ? (request?.credentialId ?? ($('#credential-id').value || '')) : '';
+  const organizationId = currentFlowOrganizationId();
   const branch = request?.branch ?? ($('#branch').value || 'main');
   const directory = request?.directory ?? ($('#project-directory').value || '/');
   const original = button?.textContent;
@@ -3750,6 +3823,7 @@ async function detectProjectRuntimeFromRepository({ quiet = false, request = nul
     const result = await api('/api/projects/runtime-detect', {
       method: 'POST',
       body: {
+        organizationId,
         repository: requestRepository,
         branch,
         directory,
@@ -3803,6 +3877,7 @@ async function syncProjectDraft() {
   const draft = readDraft();
   const payload = {
     organization: draft.organization,
+    organizationId: draft.organizationId || organizationIdForName(draft.organization),
     name: draft.name,
     slug: draft.slug,
     repository: draft.repository,
@@ -3821,7 +3896,8 @@ async function syncProjectDraft() {
     healthCheckEnabled: draft.healthCheckEnabled !== false,
     healthCheckPath: draft.healthCheckPath || '/',
     protocol: draft.protocol || 'https',
-    credentialId: draft.credentialId || ''
+    credentialId: draft.credentialId || '',
+    sshKeyId: draft.sshKeyId || ''
   };
   const result = await api('/api/projects/sync', { method: 'POST', body: payload });
   clearDraft();
@@ -4045,6 +4121,8 @@ function bindEvents() {
       showError(new Error('เลือกองค์กรก่อนดำเนินการต่อ'));
       return;
     }
+    if (!data.organizationId) { showError(new Error('เลือกองค์กรที่มีอยู่ก่อนดำเนินการต่อ')); return; }
+    if (flowMode !== 'edit' && !can('project.create', { organizationId: data.organizationId })) { showError(new Error('ไม่มีสิทธิ์สร้างโปรเจคในองค์กรนี้')); return; }
     writeDraft(data);
     location.href = flowPath('repository');
   });
@@ -4057,6 +4135,12 @@ function bindEvents() {
   $('#project-repository-form')?.addEventListener('submit', (event) => {
     event.preventDefault();
     const data = Object.fromEntries(new FormData(event.currentTarget));
+    if (!isMaster() && flowMode === 'edit') {
+      const existing = state.projects.find((project) => project.slug === editSlug);
+      if ((existing?.credentialId || existing?.sshKeyId) && data.repository !== existing.repository) { showError(new Error('Repository นี้ผูก Credential หรือ SSH key อยู่ เฉพาะ Master ที่เปลี่ยนได้')); return; }
+      data.credentialId = existing?.credentialId || '';
+      data.sshKeyId = existing?.sshKeyId || '';
+    }
     data.protocol = repositoryProtocol(data.repository);
     if (data.protocol === 'ssh') data.credentialId = '';
     data.runtime = runtimeValue();
@@ -4104,16 +4188,22 @@ function bindEvents() {
     if (!option) return;
     setProjectOrganization(option.dataset.organizationOption);
   });
-  $('#org-create-confirm')?.addEventListener('click', () => {
+  $('#org-create-confirm')?.addEventListener('click', async () => {
     const name = ($('#org-create-input')?.value || '').trim();
     if (!name) {
       showError(new Error('ใส่ชื่อองค์กรก่อน'));
       return;
     }
-    setProjectOrganization(name);
-    renderOrganizationMenu();
-    const input = $('#org-create-input');
-    if (input) input.value = '';
+    try {
+      if (!isMaster()) throw new Error('เฉพาะ Master ที่สร้างองค์กรได้');
+      const result = await api('/api/organizations', { method: 'POST', body: { name } });
+      state.organizations.push(result.organization || { id: result.id, name, permissions: [] });
+      setProjectOrganization(name);
+      renderOrganizationMenu();
+      const input = $('#org-create-input');
+      if (input) input.value = '';
+      toast('สร้างองค์กรแล้ว');
+    } catch (error) { showError(error); }
   });
 
   $('#project-review-form')?.addEventListener('submit', async (event) => {
@@ -4160,6 +4250,12 @@ async function bootstrap() {
     history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
   }
   bindEvents();
+  if (page === 'invite') {
+    setShell('dashboard');
+    $('#invite-view').hidden = false;
+    bindInvitationAcceptance({ api });
+    return;
+  }
   try {
     const session = await api('/api/session');
     state.csrfToken = session.csrfToken;

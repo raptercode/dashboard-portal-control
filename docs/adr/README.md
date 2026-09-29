@@ -10,3 +10,5 @@ Documents in this folder record architecture decisions that affect code, operati
 Current operational decisions include [ADR 0020](0020-host-helper-keeps-shadow-utils-and-acme-visible.md) for the Hostinger helper compatibility fix, [ADR 0021](0021-trusted-docker-compose-project-runtime.md) for trusted Docker Compose projects, [ADR 0022](0022-bun-native-project-runtime.md) for Bun-native projects, [ADR 0023](0023-project-ports-are-auto-assigned.md) for auto-assigned project ports, [ADR 0024](0024-bun-sandbox-path-and-release-dependency-cleanup.md) for Bun's runtime path and dependency cleanup, and [ADR 0025](0025-port-aware-mail-host-provisioning.md) for guarded mail provisioning.
 
 [ADR 0026](0026-owner-can-read-and-edit-project-environment.md) replaces the earlier environment read restrictions with complete owner editing, file imports and visible values while retaining encrypted storage.
+
+[ADR 0027](0027-members-and-organization-permissions.md) adds Master/User accounts, organization permissions, invitations, and revocable sessions, extending environment access through explicit grants.

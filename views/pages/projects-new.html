@@ -16,12 +16,13 @@
   <section class="panel narrow">
     <header class="panel-head">
       <h2>ชื่อและองค์กร</h2>
-      <p>ชื่อกับ slug ใช้ระบุโปรเจคทั้งใน Dashboard และบน host ส่วนองค์กรใช้จัดกลุ่มในหน้า Projects เท่านั้น</p>
+      <p>ชื่อกับ slug ใช้ระบุโปรเจคทั้งใน Dashboard และบน host องค์กรกำหนดขอบเขตการเข้าถึงโปรเจคนี้</p>
     </header>
     <form id="project-identity-form" class="form-grid">
       <fieldset class="fieldset org-picker">
         <legend>องค์กร</legend>
         <input id="project-organization" name="organization" type="hidden" value="">
+        <input id="project-organization-id" name="organizationId" type="hidden" value="">
         <details id="org-menu" class="runtime-menu org-menu">
           <summary>
             <span id="org-selection-avatar" class="org-switcher-avatar">P</span>

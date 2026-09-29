@@ -1,0 +1,14 @@
+<section id="invite-view" class="auth-screen" hidden>
+  <div class="auth-panel invite-panel">
+    <span class="brand-mark" aria-hidden="true">DP</span>
+    <h1>รับคำเชิญเข้า Portal</h1>
+    <p class="lede">ตั้งรหัสผ่านเพื่อเปิดใช้งานบัญชีที่ได้รับคำเชิญ</p>
+    <form id="invite-accept-form">
+      <label for="invite-password">รหัสผ่านใหม่<small class="field-hint">อย่างน้อย 12 ตัว มีตัวพิมพ์ใหญ่ ตัวพิมพ์เล็ก ตัวเลข และสัญลักษณ์</small><input id="invite-password" name="password" type="password" autocomplete="new-password" minlength="12" maxlength="128" required></label>
+      <label for="invite-password-confirm">ยืนยันรหัสผ่าน<input id="invite-password-confirm" name="passwordConfirmation" type="password" autocomplete="new-password" minlength="12" maxlength="128" required></label>
+      <button type="submit">เปิดใช้งานบัญชี</button>
+    </form>
+    <p id="invite-message" class="form-error" role="status"></p>
+    <a href="/">กลับไปหน้าเข้าสู่ระบบ</a>
+  </div>
+</section>

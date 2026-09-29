@@ -6,6 +6,8 @@ export const pageRoutes = Object.freeze({
   credentials: '/credentials',
   databases: '/databases',
   activity: '/activity',
+  members: '/members',
+  invite: '/invite',
   settings: '/settings'
 });
 

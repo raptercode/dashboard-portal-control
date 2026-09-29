@@ -18,6 +18,18 @@ export function resetDemoOwnerPassword({ databasePath = defaultDatabasePath, pas
     if (!owner?.email) throw new Error('No demo owner exists yet. Start npm run demo and complete bootstrap first.');
 
     const updatedOwner = { ...owner, password: hashPassword(password), updatedAt: new Date().toISOString() };
+    const usersRow = database.prepare('SELECT value FROM portal_meta WHERE key = ?').get('users');
+    if (usersRow) {
+      const users = JSON.parse(usersRow.value);
+      const legacyIdRow = database.prepare('SELECT value FROM portal_meta WHERE key = ?').get('legacy_owner_id');
+      const legacyId = legacyIdRow ? JSON.parse(legacyIdRow.value) : null;
+      const user = users.find((item) => legacyId ? item.id === legacyId : item.email.toLowerCase() === owner.email.toLowerCase());
+      if (!user) throw new Error('The migrated demo owner no longer exists.');
+      user.password = updatedOwner.password;
+      user.authVersion = (user.authVersion || 1) + 1;
+      user.updatedAt = updatedOwner.updatedAt;
+      database.prepare('INSERT OR REPLACE INTO portal_meta (key, value) VALUES (?, ?)').run('users', JSON.stringify(users));
+    }
     database.prepare('INSERT OR REPLACE INTO portal_meta (key, value) VALUES (?, ?)').run('owner', JSON.stringify(updatedOwner));
     database.prepare('DELETE FROM sessions').run();
     const event = {
