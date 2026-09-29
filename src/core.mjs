@@ -3,7 +3,8 @@ import { phpSettings } from '../scripts/php-project.mjs';
 import { mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { createCipheriv, createDecipheriv, randomBytes, randomUUID } from 'node:crypto';
-import { DatabaseSync } from 'node:sqlite';
+import { DatabaseSync } from '../scripts/sqlite.mjs';
+import { nodeMajorForProject } from '../scripts/node-versions.mjs';
 import { parseEnvironmentDocument } from '../public/ui/environment-editor.js';
 import { migrateAccessState } from './access.mjs';
 import { requestContext } from './request-context.mjs';
@@ -314,6 +315,11 @@ export function validateProjectSync(input) {
   if (protocol === 'https' && credentialId && !/^[a-f0-9-]{36}$/i.test(credentialId)) throw new InputError('Credential selection is invalid.');
   const runtime = input.runtime === undefined ? 'node' : input.runtime;
   if (!['node', 'bun', 'go', 'python', 'php', 'docker-compose'].includes(runtime)) throw new InputError('Project runtime is invalid.');
+  let nodeMajor;
+  if (runtime === 'node') {
+    try { nodeMajor = nodeMajorForProject(input.nodeMajor); }
+    catch (error) { throw new InputError(error.message); }
+  }
   const framework = optionalText(input.framework, 16);
   if (framework && !PROJECT_FRAMEWORKS[framework]) throw new InputError('Project framework is invalid.');
   if (framework && !PROJECT_FRAMEWORKS[framework].runtimes.includes(runtime)) throw new InputError('Project framework does not match the selected runtime.');
@@ -329,6 +335,7 @@ export function validateProjectSync(input) {
     credentialId: protocol === 'https' ? credentialId || null : null,
     sshKeyId: protocol === 'ssh' ? `deploy-key-${project.slug}` : null,
     runtime,
+    ...(runtime === 'node' ? { nodeMajor } : {}),
     framework: framework || null,
     ...(runtime === 'go' ? { goPackage: validateGoPackage(input.goPackage) } : {}),
     ...(runtime === 'python' ? validatePythonProjectSettings(input) : {}),

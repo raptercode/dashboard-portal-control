@@ -1,11 +1,12 @@
 {
   "name": "modern-host-manager",
-  "version": "0.8.2",
+  "version": "0.8.3",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "description": "A constrained control plane for one self-managed Linux host.",
   "engines": {
-    "node": ">=24 <25"
+    "node": ">=20.20.2 <21 || >=22.13 <23 || >=24 <25 || >=26 <27"
   },
   "scripts": {
     "start": "node --env-file=.env src/server.mjs",
@@ -17,5 +18,8 @@
     "test:watch": "node --test --watch",
     "release:prepare": "node scripts/prepare-release.mjs",
     "release:keygen": "node scripts/generate-update-key.mjs"
+  },
+  "optionalDependencies": {
+    "better-sqlite3": "11.10.0"
   }
 }

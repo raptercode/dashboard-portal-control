@@ -2,7 +2,7 @@ import { access } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
+import { DatabaseSync } from './sqlite.mjs';
 import { hashPassword } from '../src/auth.mjs';
 import { generateResetPassword } from './password-config.mjs';
 

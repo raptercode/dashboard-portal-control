@@ -10,6 +10,7 @@ import { spawn } from 'node:child_process';
 import { assertPythonSource, pythonSettings, pythonStartArgs } from '../scripts/python-project.mjs';
 import { assertPhpSource, phpSettings, phpStartArgs } from '../scripts/php-project.mjs';
 import { StateStore, TOOLS, SUPPORTED_NODE_MAJOR, SecretVault, appendAudit, initialMailState, validateDomain, validateEnvironmentContent, validateEnvironmentVariables, validateGitBranchRequest, validateGitIdentity, validateNotificationHook, validatePasswordChange, validateProjectDomains, validateProjectRuntimeDetection, validateProjectSync, validateTool, InputError } from './core.mjs';
+import { NODE_VERSIONS, nodeBin, nodeRuntimeEnvironment } from '../scripts/node-versions.mjs';
 import { checkDomainDns } from './dns-check.mjs';
 import { activateRelease, appendReleaseEvent, beginDeployment, beginRollback, createRelease, defaultCandidatePort, failRelease, initialDeployment, markReleaseHealthy, markReleasePendingActivation, projectIdentity, pruneInactiveReleases, validateDockerComposeProject, validateNativeProject, validatePackageScripts } from './native-project.mjs';
 import { callHostHelper } from './helper-client.mjs';
@@ -1754,7 +1755,7 @@ export async function createApplication(options = {}) {
         runtime: bun ? 'Bun' : 'Node.js',
         packageManager: lockfile ? (bun ? 'bun install --frozen-lockfile' : 'npm ci') : 'npm install',
         lockfile: { name: bun ? 'bun.lock' : 'package-lock.json', valid: lockfile },
-        nodeVersion: bun ? `Bun runtime` : process.version.replace(/^v/, ''),
+        nodeVersion: bun ? 'Bun runtime' : NODE_VERSIONS[project.nodeMajor || 24],
         buildScript: project.buildScript ? `${command} ${project.buildScript}` : 'Skip build step',
         startScript: `${command} ${project.startScript || 'start'}`,
         skipBuild: !project.buildScript
@@ -2210,17 +2211,17 @@ async function prepareNativeRelease(project, release, storedProject, vault, proj
       if (!vault) throw new InputError('Credential vault is not configured.');
       await writeFile(join(destination, '.env'), environmentContent, { mode: 0o600 });
     }
-    await runCandidateRuntime(project.runtime, ['--version'], {}, `The host ${runtimeLabel(project.runtime)} runtime is missing. Re-run the Dashboard Portal installer.`);
+    await runCandidateRuntime(project, ['--version'], {}, `The host ${runtimeLabel(project.runtime)} runtime is missing. Re-run the Dashboard Portal installer.`);
     await installCandidateDependencies({
       hasLockfile,
       runtime: project.runtime,
-      runNpm: (args, options) => run(runtimeExecutable(project.runtime), args, options),
-      options: { cwd: destination, timeout: 300_000 },
+      runNpm: (args, options) => run(runtimeExecutable(project), args, options),
+      options: { cwd: destination, timeout: 300_000, ...(project.runtime === 'node' ? { env: nodeRuntimeEnvironment(project.nodeMajor || 24) } : {}) },
       reportPhase
     });
     if (project.buildScript) {
       await reportPhase('build', 'started', `Running ${runtimeLabel(project.runtime)} script "${project.buildScript}".`);
-      await runCandidateRuntime(project.runtime, ['run', project.buildScript], { cwd: destination, timeout: 300_000 }, `Candidate build script "${project.buildScript}" failed.`, environmentContent);
+      await runCandidateRuntime(project, ['run', project.buildScript], { cwd: destination, timeout: 300_000 }, `Candidate build script "${project.buildScript}" failed.`, environmentContent);
       await reportPhase('build', 'passed', `Build script "${project.buildScript}" passed.`);
     } else {
       await reportPhase('build', 'skipped', 'No build script is configured for this project.');
@@ -2278,12 +2279,13 @@ export async function healthCheckCandidate(cwd, project, storedProject, vault, r
   }
   await reportPhase('candidate_health', 'started', `Starting the candidate and checking ${project.healthCheckPath}.`);
   const environmentContent = storedProject.environment?.encryptedContent ? vault?.decrypt(storedProject.environment.encryptedContent) ?? '' : '';
-  const environment = candidateRuntimeEnvironment({
+  let environment = candidateRuntimeEnvironment({
     environmentContent,
     ...(project.runtime === 'go' ? { baseEnvironment: goBaseEnvironment() } : {}),
     candidatePort: project.candidatePort
   });
-  const command = project.runtime === 'go' ? join(cwd, goBinaryName()) : runtimeExecutable(project.runtime);
+  if (project.runtime === 'node') environment = nodeRuntimeEnvironment(project.nodeMajor || 24, environment);
+  const command = project.runtime === 'go' ? join(cwd, goBinaryName()) : runtimeExecutable(project);
   const args = project.runtime === 'go' ? [] : ['run', project.startScript];
   const candidate = spawn(command, args, { cwd, env: environment, shell: false, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] });
   let candidateOutput = '';
@@ -2319,9 +2321,10 @@ function stopCandidate(candidate, signal) {
   } catch {}
 }
 
-async function runCandidateRuntime(runtime, args, options, failure, environmentContent = '') {
+async function runCandidateRuntime(runtimeInput, args, options, failure, environmentContent = '') {
   try {
-    return await run(runtimeExecutable(runtime), args, options);
+    const runtime = typeof runtimeInput === 'string' ? runtimeInput : runtimeInput.runtime;
+    return await run(runtimeExecutable(runtimeInput), args, runtime === 'node' ? { ...options, env: nodeRuntimeEnvironment(runtimeInput.nodeMajor || 24, options.env) } : options);
   } catch (error) {
     throw new DeploymentFailure(failure, redactBuildOutput(error?.commandOutput, environmentContent));
   }
@@ -2377,9 +2380,12 @@ async function hasRuntimeLockfile(source, runtime) {
   return (await Promise.all(names.map((name) => stat(join(source, name)).then((item) => item.isFile()).catch(() => false)))).some(Boolean);
 }
 
-function runtimeExecutable(runtime) {
+function runtimeExecutable(runtimeInput) {
+  const runtime = typeof runtimeInput === 'string' ? runtimeInput : runtimeInput.runtime;
   if (runtime === 'go') return process.env.HOSTMGR_GO_PATH || '/usr/local/bin/go';
-  return runtime === 'bun' ? (process.env.HOSTMGR_BUN_PATH || '/usr/local/bin/bun') : (process.env.HOSTMGR_NPM_PATH || '/usr/local/bin/npm');
+  if (runtime === 'bun') return process.env.HOSTMGR_BUN_PATH || '/usr/local/bin/bun';
+  const major = typeof runtimeInput === 'string' ? 24 : (runtimeInput.nodeMajor || 24);
+  return major === 24 ? (process.env.HOSTMGR_NPM_PATH || '/usr/local/bin/npm') : `${nodeBin(major)}/npm`;
 }
 
 function runtimeLabel(runtime) {
@@ -2642,6 +2648,8 @@ async function doctorReport(state, mode, toolProbe = probeHostTools) {
     generatedAt: new Date().toISOString(),
     mode,
     supportedNodeMajor: SUPPORTED_NODE_MAJOR,
+    supportedNodeMajors: Object.keys(NODE_VERSIONS).map(Number),
+    portalNodeVersion: process.version,
     host: {
       hostname: os.hostname(),
       platform: os.platform(),

@@ -1,229 +1,144 @@
-# Git, release, and AI handoff playbook
+# Git, signed releases, and handoff
 
-This is the operating guide for changing and publishing **Dashboard Portal itself**. It is separate from syncing or deploying a project managed inside the Portal.
+This guide publishes **Dashboard Portal itself**. Project deployments inside
+the Portal and production-host updates are separate operations.
 
-## Source of truth
+## Contract
 
-- Repository: `https://github.com/raptercode/dashboard-portal-control`
-- Stable update manifest: `https://github.com/raptercode/dashboard-portal-control/releases/latest/download/stable.json`
-- Release archive format: `https://github.com/raptercode/dashboard-portal-control/releases/download/v<VERSION>/dashboard-portal-<VERSION>.tar.gz`
-- The installation/update target is Ubuntu 24.04+ with Node.js 24. Docker is only a sandbox test environment.
+- Repository: [raptercode/dashboard-portal-control](https://github.com/raptercode/dashboard-portal-control).
+- Stable feed: [latest/download/stable.json](https://github.com/raptercode/dashboard-portal-control/releases/latest/download/stable.json).
+- Every release contains exactly three assets: `dashboard-portal-<VERSION>.tar.gz`,
+  its `.sha256`, and signed `stable.json`.
+- Publish a new increasing version; never replace assets under an existing tag.
+- Build from a clean, committed, tagged checkout. Preserve unrelated work by
+  using a separate checkout of the release commit when necessary.
+- Keep tokens and private signing keys out of Git, archives, logs and process
+  arguments. Hosts receive only the public key.
+- `package.json` is private: publish GitHub assets, not an npm package.
+- Release authorization does not authorize updating an installed production host.
 
-The installed Portal only reads the public `stable.json` manifest. Every GitHub release must therefore include exactly these assets:
+Host support and runtime pins are documented in
+[production installation](production-install.md) and [Node versions](node-versions.md).
 
-1. `dashboard-portal-<VERSION>.tar.gz`
-2. `dashboard-portal-<VERSION>.tar.gz.sha256`
-3. `stable.json` (signed)
-
-Do not replace files under an existing tag. Publish a new, increasing SemVer version instead. The `releases/latest/download/...` URL automatically moves to the newest non-draft release.
-
-## Safety rules for a future AI or developer
-
-- Start by checking the repository state. Preserve other people's uncommitted work; do not use `git reset --hard`, force-push, or delete tags/releases.
-- Never put a Git token in a repository URL, command arguments recorded in notes, API responses, screenshots, commits, or documentation.
-- Never commit, upload, print, or paste the update **private** signing key. The server receives only the public key.
-- Release artifacts are built from a clean, committed, tagged worktree. Do not release a local working-tree-only change.
-- `package.json` is private; releases are GitHub release assets, not `npm publish` packages.
-- A public release repository is intentional: the installed Portal downloads updates without a GitHub credential. If the repository becomes private, the server will receive a not-found/authorization response.
-- The web UI may report that an update is available, but updates are deliberately applied over SSH with `sudo dashboard-portal update`. Do not add an in-browser self-update path without a security review and an ADR.
-
-## 1. Inspect before changing anything
-
-From the repository root:
+## 1. Inspect and prepare
 
 ```powershell
 git status --short
 git remote -v
 git branch --show-current
 git log -1 --oneline
-git tag --points-at HEAD
+git fetch origin
+gh release list --repo raptercode/dashboard-portal-control --limit 5
+```
+
+Confirm the actual integration branch (historically `master`), current remote
+HEAD, file ownership and latest published version. Stage only requested work.
+
+Use a patch increment for compatible fixes and ordinary features. Discuss
+compatibility impact before a minor/major bump. Update package.json,
+package-lock.json and release documentation together. Add an ADR for a
+consequential architecture/security decision and keep current context accurate.
+
+Preserve the unprivileged Portal/root-helper boundary, managed Nginx ownership
+and encrypted secrets. Repository credentials are never returned to browsers;
+project environment values require explicit access grants.
+
+## 2. Validate the candidate
+
+```powershell
+npm ci
+npm test
+bash -n dashboard-portal.sh
 git diff --check
 ```
 
-At the time this guide was written, the integration branch was `master`; do not assume that remains true. Capture the current branch once and use it in commands below:
+Use Git Bash on Windows for shell syntax. Exercise supported Node drivers when
+changing database/runtime behavior. Inspect installer/updater/helper changes
+and run relevant behavioral tests. Record what actually ran and distinguish
+local tests from Ubuntu systemd/Nginx/TLS/reboot acceptance.
+
+Check documentation links, package/lock versions, staged diff and absence of
+secrets before committing. Never include an unrelated file just to clean status.
+
+## 3. Commit, tag and push
+
+Set `$version` from the final package version and `$branch` from the inspected
+integration branch. Stage the exact intended paths, then:
 
 ```powershell
+$version = node -p "require('./package.json').version"
 $branch = git branch --show-current
-```
-
-If `git status --short` is not empty, identify which files belong to the requested change. Do not bundle unrelated edits into a release. If ownership is unclear, stop before committing and hand off the exact status output.
-
-Before a code change, also run the relevant checks. A safe default is:
-
-```powershell
-npm test
-bash -n dashboard-portal.sh
-```
-
-For changes to installer, update, privilege, Nginx, token, or deployment behavior, run both checks and manually inspect the affected command path. Docker results are useful evidence, but do not describe them as production-host acceptance.
-
-## 2. Make the code change and update documentation
-
-Keep scope narrow and add or update tests for behavior changes. When a decision changes a durable boundary, update the corresponding records in the same change:
-
-- `docs/adr/` for a consequential architecture/security decision;
-- `docs/context/` for the current operating context;
-- `docs/glossary.md` if a new domain term needs a precise shared meaning;
-- this guide or `docs/production-install.md` for operational steps.
-
-The control-plane invariants must remain true: the dashboard service is unprivileged, host-changing operations pass through the root-owned allowlisted helper, Nginx configuration is managed-files-only, and stored credentials are encrypted and never returned to the browser.
-
-## 3. Choose and set the next version
-
-Use SemVer and increment the patch version for a compatible fix or ordinary feature. Use a minor or major version only when the user has agreed to the compatibility impact.
-
-Check the current version:
-
-```powershell
-node -p "require('./package.json').version"
-```
-
-Edit the `version` in `package.json` before committing. For example, change `0.2.4` to `0.2.5`. Do not create a tag until the version, tests, and documentation are final.
-
-Run the release gate again:
-
-```powershell
-npm test
-bash -n dashboard-portal.sh
-git diff --check
-git status --short
-```
-
-## 4. Commit, tag, and push the exact release source
-
-Stage only the intended files, then create one release commit and an annotated tag. Replace `0.2.5` with the chosen version.
-
-```powershell
-git add package.json README.md docs scripts src test
-git status --short
-git commit -m "release: v0.2.5"
-git tag -a v0.2.5 -m "Dashboard Portal v0.2.5"
+git diff --cached --stat
+git commit -m "release: v$version"
+git tag -a "v$version" -m "Dashboard Portal v$version"
 git push origin $branch
-git push origin v0.2.5
+git push origin "v$version"
+git show --no-patch --decorate "v$version"
 ```
 
-Do not literally add paths that do not exist; `git add` must be scoped to the actual changed files. Confirm that the tag points at the release commit:
+Use a clean checkout of this tag for the following build. Confirm package and
+lock versions equal the tag and that `git status --short` is empty.
+
+## 4. Sign outside the repository
+
+The release workstation keeps its existing Ed25519 private key outside Git,
+normally under `$HOME\.dashboard-portal\release-signing`. Verify its derived
+public key matches `scripts/dashboard-portal-update-public.pem` without printing
+private material. Do not regenerate the key for an ordinary release; a rotation
+requires distributing a new trusted public key to installed hosts.
+
+From the clean release checkout:
 
 ```powershell
-git show --no-patch --decorate v0.2.5
-git status --short
+$version = node -p "require('./package.json').version"
+$releaseDir = Join-Path $HOME ".dashboard-portal\releases\v$version"
+$env:DASHBOARD_PORTAL_UPDATE_PRIVATE_KEY_PATH = Join-Path $HOME '.dashboard-portal\release-signing\dashboard-portal-update-private.pem'
+try {
+  npm run release:prepare -- "--out=$releaseDir" "--archive-url=https://github.com/raptercode/dashboard-portal-control/releases/download/v$version/dashboard-portal-$version.tar.gz" --notes="Describe the user-visible change"
+} finally {
+  Remove-Item Env:DASHBOARD_PORTAL_UPDATE_PRIVATE_KEY_PATH
+}
 ```
 
-The final status must be clean before building assets. If it is not clean, do not publish the artifact because it cannot be reproduced from the tag.
+The script archives committed `HEAD` with Git, preserving shell-script LF bytes.
+Verify all of these before uploading:
 
-## 5. Keep the signing key outside Git
+- Signature parses with `parseSignedManifest` from `scripts/software-update.mjs`
+  and the tracked public key.
+- Manifest metadata is inside `payload`: version, channel, archiveUrl and archiveSha256.
+- Actual archive SHA-256 matches both `payload.archiveSha256` and the checksum file.
+- Archive source matches the tag; required source, lockfile, LICENSE and docs
+  exist; no private key, .env, state, node_modules or output archives are included.
 
-The update private key is normally stored only on the release workstation:
+Do not hand-edit the signed manifest.
 
-```text
-C:\\Users\\boyas\\.dashboard-portal\\release-signing\\dashboard-portal-update-private.pem
-```
+## 5. Publish and verify downloaded assets
 
-Generate a key pair only for first-time setup or an intentional key rotation:
+Write human-readable release notes to a file outside the checkout, then:
 
 ```powershell
-npm run release:keygen -- --out=C:\\Users\\boyas\\.dashboard-portal\\release-signing
+gh release create "v$version" "$releaseDir\dashboard-portal-$version.tar.gz" "$releaseDir\dashboard-portal-$version.tar.gz.sha256" "$releaseDir\stable.json" --repo raptercode/dashboard-portal-control --title "Dashboard Portal v$version" --notes-file "$releaseDir\release-notes.md" --verify-tag
+gh release view "v$version" --repo raptercode/dashboard-portal-control
 ```
 
-Back up the private key in an approved secret store. Losing it prevents future signed updates; replacing it requires distributing and configuring a new public key on every installed host. The public key belongs at `/etc/dashboard-portal/update-public-key.pem` on a host; the private key must never be copied there.
+Download the published assets into a fresh directory and repeat signature/hash
+verification. Fetch the permanent stable feed and confirm it reports this
+version and the immutable tag archive URL. Confirm remote tag/branch SHAs and
+that the release is neither draft nor prerelease.
 
-## 6. Create the signed release artifacts
+## 6. Host verification only when authorized
 
-Build assets into a directory outside the repository to avoid accidental commits. The archive URL must refer to the tag being prepared, not `latest`.
+Use the [installation guide](production-install.md#อัปเดตผ่าน-ssh) for backup,
+`update --check`, update, service/API/static checks and recovery. Never report a
+host update or acceptance test that was not run. A published release can be
+complete with an explicitly recorded host-validation limitation.
 
-```powershell
-$env:DASHBOARD_PORTAL_UPDATE_PRIVATE_KEY_PATH = 'C:\\Users\\boyas\\.dashboard-portal\\release-signing\\dashboard-portal-update-private.pem'
-npm run release:prepare -- --out=C:\\Users\\boyas\\.dashboard-portal\\releases\\v0.2.5 --archive-url=https://github.com/raptercode/dashboard-portal-control/releases/download/v0.2.5/dashboard-portal-0.2.5.tar.gz --notes="Describe the user-visible change"
-Remove-Item Env:DASHBOARD_PORTAL_UPDATE_PRIVATE_KEY_PATH
-```
+## Completion record
 
-This creates the archive, its SHA-256 checksum, and a signed `stable.json`.
-The archive is built with `git archive HEAD`, so it contains the intended
-tagged source (excluding prior release-output folders) and keeps LF shell-script
-bytes intact even when prepared on Windows. Check the output and checksum before
-upload:
+Leave a concise handoff with branch, commit, tag, release URL, exact test results,
+signature/hash verification, changed ADR/context documents and remaining
+limitations. Include the installed version only if checked on the host. Confirm
+no credentials or private key material were included in source/artifacts.
 
-```powershell
-Get-ChildItem C:\\Users\\boyas\\.dashboard-portal\\releases\\v0.2.5
-Get-FileHash C:\\Users\\boyas\\.dashboard-portal\\releases\\v0.2.5\\dashboard-portal-0.2.5.tar.gz -Algorithm SHA256
-tar -tzf C:\\Users\\boyas\\.dashboard-portal\\releases\\v0.2.5\\dashboard-portal-0.2.5.tar.gz
-```
-
-The SHA-256 printed by `Get-FileHash` must match the contents of the generated `.sha256` file. Do not hand-edit `stable.json`: its signature would no longer validate.
-
-## 7. Publish the GitHub release
-
-With GitHub CLI authenticated to the correct account, publish the three generated assets to the already-pushed tag:
-
-```powershell
-gh release create v0.2.5 C:\\Users\\boyas\\.dashboard-portal\\releases\\v0.2.5\\dashboard-portal-0.2.5.tar.gz C:\\Users\\boyas\\.dashboard-portal\\releases\\v0.2.5\\dashboard-portal-0.2.5.tar.gz.sha256 C:\\Users\\boyas\\.dashboard-portal\\releases\\v0.2.5\\stable.json --repo raptercode/dashboard-portal-control --title "Dashboard Portal v0.2.5" --notes "Describe the user-visible change" --verify-tag
-```
-
-Verify the release and the permanent manifest redirect:
-
-```powershell
-gh release view v0.2.5 --repo raptercode/dashboard-portal-control
-curl.exe -I -L https://github.com/raptercode/dashboard-portal-control/releases/latest/download/stable.json
-curl.exe -L https://github.com/raptercode/dashboard-portal-control/releases/latest/download/stable.json
-```
-
-The manifest must report the version just released, an HTTPS archive URL for that same tag, a SHA-256 value, and a signature. Never configure hosts with a pinned `releases/download/vX.Y.Z/stable.json` URL; configure the permanent `releases/latest/download/stable.json` URL once.
-
-## 8. Verify from an installed host
-
-For an existing configured installation, no manifest reconfiguration is necessary for subsequent releases:
-
-```bash
-sudo dashboard-portal update --check
-sudo dashboard-portal update
-sudo dashboard-portal update --check
-sudo systemctl is-active dashboard-portal hostmgr-deploy-helper nginx
-curl -fsS https://YOUR-DOMAIN/api/health
-```
-
-The first check should report the new version as available; after the update, it should report `available: false`. If the update fails, do not retry blindly. Preserve the error, inspect the service logs, and verify the GitHub assets, checksum, manifest signature, and systemd state:
-
-```bash
-sudo journalctl -u dashboard-portal -u hostmgr-deploy-helper --since "30 minutes ago" --no-pager
-```
-
-Verify a static page too, not only `/api/health` — a permission regression on
-the application root can leave the API healthy while static file serving
-returns `500`:
-
-```bash
-curl -fsSI https://YOUR-DOMAIN/
-```
-
-Fresh hosts are enrolled in the signed `stable` feed by the installer. Verify
-that default after installation with:
-
-```bash
-sudo dashboard-portal update --check
-```
-
-Use `configure-update` only for an intentional custom feed.
-
-## Project repositories are a separate workflow
-
-Portal software releases above update the Dashboard Portal. They do not upload or deploy a customer project. For a project managed in the Portal:
-
-- public GitHub repository: use HTTPS, repository URL without tokens, and the correct branch (often `main`);
-- private repository: store a credential securely in the Portal and use it by its selected credential ID;
-- configure Git identity for commits, then sync the project;
-- set each project's environment independently. If no values are supplied, the Portal defaults to `NODE_ENV=production`;
-- deploy only after sync succeeds and read the release failure detail before changing configuration.
-
-## Required handoff note for the next AI
-
-At the end of a change, leave a concise factual handoff in the task or commit/PR description containing:
-
-1. repository, working branch, commit SHA, and release tag (if published);
-2. exact commands run and their result, especially `npm test` and installer syntax checks;
-3. published release URL and the version reported by `dashboard-portal update --check`;
-4. whether production-host validation was performed or only Docker/local validation;
-5. every remaining known limitation, failed check, and the next safe action;
-6. changed ADR/context/glossary documents; and
-7. confirmation that no credential, password, token, or private signing key was exposed.
-
-This record lets the next AI continue from evidence rather than assumptions.
+Project source sync, project environment changes and project deployment remain
+their own workflow; publishing Portal software does not activate customer apps.

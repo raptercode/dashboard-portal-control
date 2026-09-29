@@ -70,7 +70,7 @@ async function update(values) {
     await run('/bin/tar', ['--extract', '--gzip', '--file', archive, '--directory', extracted, '--no-same-owner', '--no-same-permissions']);
     const releaseRoot = await releaseDirectory(extracted);
     console.log('Checksum and signature verified. Installing staged release...');
-    await run('/usr/bin/bash', [join(releaseRoot, 'dashboard-portal.sh'), `--domain=${config.HOSTMGR_PORTAL_DOMAIN ?? ''}`, `--email=${config.HOSTMGR_ACME_EMAIL ?? ''}`], { cwd: releaseRoot, inherit: true });
+    await run('/usr/bin/bash', [join(releaseRoot, 'dashboard-portal.sh'), `--domain=${config.HOSTMGR_PORTAL_DOMAIN ?? ''}`, `--email=${config.HOSTMGR_ACME_EMAIL ?? ''}`, `--node-major=${config.HOSTMGR_NODE_MAJOR ?? '24'}`], { cwd: releaseRoot, inherit: true });
     console.log(`Dashboard Portal updated to ${manifest.version}.`);
   } finally {
     await rm(stage, { recursive: true, force: true });

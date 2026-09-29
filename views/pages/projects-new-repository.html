@@ -80,6 +80,10 @@
           </section>
           <section class="block project-settings-group" aria-labelledby="project-run-group">
             <div class="block-head"><div><h2 id="project-run-group">การรัน</h2><p>คำสั่งที่ระบบเรียกในโฟลเดอร์ release ใหม่ทุกครั้งที่ deploy แอปต้องอ่าน PORT จาก environment</p></div></div>
+            <label id="node-major-row" for="node-major">Node.js สำหรับแอป
+              <small class="field-hint">เลือกแยกต่อโปรเจค ค่าเดิมใช้ Node 24; Node 20 สิ้นสุดการสนับสนุนแล้ว</small>
+              <select id="node-major" name="nodeMajor"><option value="20">20 (legacy)</option><option value="22">22 LTS</option><option value="24" selected>24 LTS</option><option value="26">26</option></select>
+            </label>
             <label id="skip-build-row" class="check-row"><input id="skip-build" name="skipBuild" type="checkbox"><span><b>ข้ามขั้น build</b><small>ใช้เมื่อโปรเจครันได้ทันทีโดยไม่ต้อง build เช่น Bun start ระบบยังติดตั้ง dependencies และตรวจ health check ตามปกติ</small></span></label>
             <div class="two-fields">
               <label id="build-script-row" for="build-script">Build script<small class="field-hint">ชื่อ script ใน package.json เว้นว่างได้ถ้าไม่มีขั้น build</small><input id="build-script" name="buildScript" value="build" maxlength="64" pattern="[A-Za-z0-9:_-]*" placeholder="build" autocomplete="off" spellcheck="false"></label>

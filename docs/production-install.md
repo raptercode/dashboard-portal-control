@@ -1,108 +1,114 @@
-# Production installation on Ubuntu 24.04 or 25.04
+# ติดตั้ง Dashboard Portal บน Ubuntu
 
-This is the direct, production installation path. The Portal's own Docker Compose file is for development and integration tests; separately, v0.5 can deploy a trusted project's Docker Compose runtime through the privileged helper. The installer refuses an HTTP-only installation because Dashboard Portal has an owner login.
+คู่มือนี้ใช้กับ **Ubuntu Server 24.04 หรือ 25.04, amd64** ที่ผ่านเงื่อนไข installer การติดตั้งจริงใช้ systemd และ Nginx; Docker Compose ใน repository ใช้ทดลองบนเครื่องพัฒนา
 
-## Before installing
+## เตรียมเครื่อง
 
-- Use an Ubuntu Server **24.04 or 25.04 amd64** host for the first acceptance run. Do not make a first run on the only production server when a disposable host is available.
-- Create an A or AAAA record for the chosen fully qualified domain name and wait until `getent ahosts portal.example.com` resolves from the target host.
-- Permit inbound TCP 80 and 443 to the target host. Certbot uses the HTTP-01 challenge; a DNS record alone is insufficient.
-- If the domain uses a CDN such as Cloudflare, temporarily use **DNS only** and disable forced HTTPS while issuing the first certificate. Re-enable the proxy only after HTTPS works from the origin, using Full (strict) TLS.
-- Start from an extracted release archive, not a Git working copy. Download the latest signed release from GitHub, verify it, and extract it into its own directory — the archive has no top-level folder of its own, so extracting without one scatters files into the current directory:
+- มีสิทธิ์ sudo และโดเมน เช่น `portal.example.com`
+- ตั้ง A/AAAA ให้ถูกต้อง แล้วตรวจจาก host ด้วย `getent ahosts portal.example.com`
+- เปิด TCP 80 และ 443; Let's Encrypt ใช้ HTTP-01 challenge
+- หากใช้ CDN ให้ใช้ DNS only ระหว่างออก certificate ครั้งแรก ตรวจ origin HTTPS ให้ผ่านก่อนเปิด proxy แบบ Full (strict)
+- พอร์ต loopback 3100 ต้องว่าง และมีพื้นที่สำหรับ Node ทั้งสี่เวอร์ชัน, Bun, source และ backup
+- สำรอง Nginx และบริการเดิมก่อนเริ่ม ใช้ staging host สำหรับทดสอบการติดตั้งครั้งแรก
+
+Installer จัดการไฟล์ Nginx ของ Portal และ managed projects รวมถึงแทนที่ symlink ของ Ubuntu default site เมื่อยังชี้ default เดิม เพื่อใช้ reject catch-all ไม่แก้ virtual host อื่น
+
+## ดาวน์โหลด release
+
+ตัวอย่างนี้เลือก v0.8.3 ชัดเจน ตรวจ release ที่ต้องการจาก [GitHub Releases](https://github.com/raptercode/dashboard-portal-control/releases) ก่อนใช้งาน:
 
 ```bash
 REPO=raptercode/dashboard-portal-control
-TAG=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" | grep -m1 '"tag_name"' | cut -d '"' -f4)
+TAG=v0.8.3
 VERSION=${TAG#v}
-curl -fsSLO "https://github.com/${REPO}/releases/download/${TAG}/dashboard-portal-${VERSION}.tar.gz"
-curl -fsSLO "https://github.com/${REPO}/releases/download/${TAG}/dashboard-portal-${VERSION}.tar.gz.sha256"
-sha256sum --check "dashboard-portal-${VERSION}.tar.gz.sha256"
-mkdir "dashboard-portal-${VERSION}" && tar -C "dashboard-portal-${VERSION}" --extract --gzip --file "dashboard-portal-${VERSION}.tar.gz"
+mkdir "dashboard-portal-${VERSION}"
 cd "dashboard-portal-${VERSION}"
+curl -fSLO "https://github.com/${REPO}/releases/download/${TAG}/dashboard-portal-${VERSION}.tar.gz"
+curl -fSLO "https://github.com/${REPO}/releases/download/${TAG}/dashboard-portal-${VERSION}.tar.gz.sha256"
+sha256sum --check "dashboard-portal-${VERSION}.tar.gz.sha256"
+tar --extract --gzip --file "dashboard-portal-${VERSION}.tar.gz"
 ```
 
-To install a specific past version instead of the latest, replace the `TAG=$(curl ...)` line with `TAG=v0.3.1` (or whichever tag you need).
+หยุดหากดาวน์โหลดหรือ checksum ไม่ผ่าน Archive ไม่มีโฟลเดอร์ครอบ จึงต้องแตกใน directory เฉพาะ Checksum ตรวจความสมบูรณ์ของไฟล์ที่ดาวน์โหลดจาก release ที่เชื่อถือ ส่วนการอัปเดตผ่าน CLI จะตรวจลายเซ็นด้วย public key ที่ติดตั้งไว้ด้วย
 
-- Ensure port 3100 is free. The service binds it to loopback only. Nginx is the sole public listener.
-- Back up any existing Nginx/site configuration independently. The installer owns only `/etc/nginx/sites-available/dashboard-portal` and its matching `sites-enabled` symlink; it does not remove the default site or edit other virtual hosts.
-
-## Install
+## ติดตั้ง
 
 ```bash
-sudo ./dashboard-portal.sh --domain=dpt.domain.com --email=admin@example.com
+sudo bash ./dashboard-portal.sh \
+  --domain=portal.example.com \
+  --email=admin@example.com \
+  --node-major=24
 ```
 
-Both flags are mandatory. `--email` is required for the Let's Encrypt account and the HTTPS certificate. The installer verifies DNS resolution, installs pinned Node.js 24.18.0 and Bun 1.3.13 after SHA-256 verification, starts Dashboard Portal on `127.0.0.1:3100`, obtains a certificate, forces HTTPS with HSTS, and verifies `/api/health` through HTTPS.
+`--domain` และ `--email` จำเป็น ส่วน `--node-major` เลือก 20/22/24/26 และ default เป็น 24 Installer ติดตั้ง Node ทั้งสี่ major โดยตรวจ SHA-256 รวมถึง Bun, Nginx, Certbot และ Git หากเลือก Portal บน Node 20 จะเตรียม native SQLite dependency ใน staging ก่อนสลับแอป อ่าน [Node versions](node-versions.md) สำหรับเวอร์ชันที่ pin และวิธีใช้ nvm
 
-It prompts for the owner password only on the initial install. Use at least 12 characters and do not put that password on a command line, in a shell history, or in a deployment log.
+การติดตั้งแรกจะถามรหัสผ่าน ใช้อย่างน้อย 12 ตัวอักษร เก็บใน password manager และอย่าใส่รหัสผ่านใน command line จากนั้น installer จะตั้ง Portal ที่ `127.0.0.1:3100`, ออก certificate, บังคับ HTTPS/HSTS และตรวจ HTTPS health ก่อนรายงานสำเร็จ เปิดโดเมนเพื่อทำขั้นตอนสร้างบัญชีแรก
 
-## What the installer changes
+## ไฟล์และบริการที่ดูแล
 
-- Installs: Nginx, Certbot, Git, curl, CA certificates, and xz-utils through apt.
-- Adds the unprivileged `dashboardportal` service account.
-- Writes a root-owned systemd unit with filesystem and privilege restrictions.
-- Provisions a separate root-owned Unix-socket helper for allowlisted tool installs, project activation, managed Nginx files, and Certbot. The dashboard itself remains unprivileged.
-- Writes `/etc/dashboard-portal/dashboard-portal.env` as `root:dashboardportal`, mode `0640`. It includes the persistent encryption key and `HOSTMGR_SECURE_COOKIE=true`.
-- Stores encrypted state and checked-out projects under `/var/lib/dashboard-portal`, accessible only to the service account.
-- Creates timestamped pre-change snapshots under `/var/backups/dashboard-portal`, mode `0700`. Snapshots include managed service/config/application files and the small SQLite control-plane state files, but not project workspaces, release directories, dependency trees, or package-manager caches under `/var/lib/dashboard-portal`.
+| ตำแหน่ง/บริการ | หน้าที่ |
+| --- | --- |
+| `/opt/dashboard-portal` | Source ของ Portal, root เป็นเจ้าของ |
+| `/opt/node-v<version>` | Node runtimes ที่ตรวจ checksum แล้ว |
+| `/etc/dashboard-portal/dashboard-portal.env` | Config และ encryption key; root:dashboardportal, 0640 |
+| `/var/lib/dashboard-portal` | SQLite state และ project workspaces |
+| `/srv/hostmgr/projects` | Releases ที่ helper เตรียมสำหรับ host activation |
+| `/etc/hostmgr/projects` | Config/environment ของ services โปรเจกต์ |
+| `/var/backups/dashboard-portal` | Snapshot ก่อน installer เปลี่ยน managed files |
+| `dashboard-portal` | Portal ที่รันด้วย service account ไม่มีสิทธิ์ root |
+| `hostmgr-deploy-helper` | Root-owned Unix-socket helper สำหรับคำสั่งที่อนุญาต |
 
-Never change `HOSTMGR_SECRET_KEY` after credentials or project environment values exist. Back up `/etc/dashboard-portal/dashboard-portal.env` and `/var/lib/dashboard-portal` together, encrypted and access-controlled. A backup of only one is not recoverable.
-
-For a project deployment, save at least one FQDN in the Project's **Domains** action before creating a release. Its DNS record must already resolve to the host. On activation the helper creates only `/etc/nginx/sites-available/hostmgr-<project-slug>.conf`, validates Nginx, requests or expands a Let's Encrypt certificate, and reloads Nginx. It does not modify unrelated virtual hosts. Before the first certificate, verify that `http://<project-domain>/.well-known/acme-challenge/…` reaches this host without a CDN HTTPS redirect; otherwise HTTP-01 will fail.
-
-For a Docker Compose project, install Docker Engine + Compose from **Setup** first and select a repository-relative Compose YAML file plus its web service. The helper rejects privileged containers, host network/PID/IPC namespaces, and host bind mounts, and requires that service to publish the configured project port. Treat this as a trusted-owner runtime, not isolation for untrusted Dockerfiles or images; validate one real deployment, logs, health check, and rollback on the Ubuntu host after updating the Portal.
-
-## Acceptance checklist
-
-Run these on the Ubuntu VM after installation. Record the output with secrets redacted.
+## ตรวจหลังติดตั้งหรืออัปเดต
 
 ```bash
-sudo systemctl is-active dashboard-portal nginx
-curl --fail --silent --show-error https://dpt.domain.com/api/health
-curl --fail --silent --show-error -I https://dpt.domain.com/
-sudo systemctl reboot
-```
-
-After reconnecting, repeat the first two commands. Then use the Dashboard to create a test project with a public repository, provide its environment values, and validate a real deploy/health-check/rollback once that feature is enabled. For private repositories, verify separately that the token or deploy key never appears in `journalctl`, the project URL, `ps`, or the API response.
-
-Also exercise failure containment on the disposable VM: temporarily block inbound port 80 or point a test domain to the wrong host, run the installer, confirm it fails before reporting success, and confirm the pre-existing Dashboard service and Nginx configuration still work. Package installation and a certificate already issued by Let's Encrypt are intentionally not removed during rollback; the managed service, application, configuration, and Nginx files are restored.
-
-## Operations and recovery
-
-```bash
-sudo journalctl -u dashboard-portal --since '30 minutes ago' --no-pager
+sudo systemctl is-active dashboard-portal hostmgr-deploy-helper nginx
 sudo nginx -t
-sudo systemctl restart dashboard-portal
-sudo systemctl reload nginx
+curl -fsS https://portal.example.com/api/health
+curl -fsSI https://portal.example.com/
 ```
 
-### Reset an owner password over SSH
+ตรวจทั้ง API และหน้าเว็บ/static assets แล้ว login ทดสอบสร้าง project, environment, deploy, health และ rollback บน host จริง ตรวจ persistence หลัง reboot ในช่วงเวลาที่อนุญาตให้หยุดบริการ การทดสอบ local หรือ container ไม่ยืนยัน systemd, TLS และสิทธิ์ไฟล์บนเครื่องจริง
 
-If the owner password is lost, generate a new one directly on the host:
+ก่อน deploy แอป ให้เพิ่มโดเมนใน Project และตรวจ DNS/HTTP-01 เช่นเดียวกับ Portal แอป Docker Compose ต้องมี Docker Engine + Compose จาก Setup และใช้ repository ที่เชื่อถือ Helper ตรวจ privileged mode, host namespaces และ host bind mounts แต่ไม่ได้ให้ sandbox สำหรับ untrusted code
+
+## สำรองข้อมูลและกู้คืน
+
+เก็บ backup แบบเข้ารหัสและจำกัดสิทธิ์ โดยสำรอง **ทั้งสองส่วนพร้อมกัน**:
+
+1. `/etc/dashboard-portal/dashboard-portal.env` ซึ่งมี `HOSTMGR_SECRET_KEY`
+2. `/var/lib/dashboard-portal` ซึ่งมี state และ workspaces
+
+ห้ามสร้าง encryption key ใหม่แทน key เดิมเมื่อมี encrypted credentials/environment แล้ว สำรองไฟล์ SQLite ให้เป็นชุดที่สอดคล้องกัน: ใช้ SQLite backup หรือหยุดบริการที่เขียน state ระหว่างทำ snapshot ตามแผน downtime ของคุณ อย่าคัดลอกเฉพาะ `.sqlite` ระหว่างที่ WAL ยังเปลี่ยนอยู่
+
+แอปที่ deploy แล้วอาจมีข้อมูลเพิ่มเติมใต้ `/srv/hostmgr/projects`, `/etc/hostmgr/projects`, Docker volumes หรือ external database ต้องสำรองตามระบบนั้นด้วย รวมถึง Nginx และ `/etc/letsencrypt` เมื่อต้องการกู้ host ทั้งเครื่อง
+
+Snapshot ของ installer เก็บ managed config/service/application และ SQLite state ขนาดเล็ก แต่ **ไม่ใช่ backup เต็ม**: ไม่รวม project workspaces, release directories, dependencies และ caches การ rollback installer ไม่ถอน apt packages หรือ certificate ที่ออกแล้ว
+
+ทดสอบ restore บน staging ก่อนพึ่งพา backup: คืน state พร้อม key เดิม ตรวจ ownership/permissions, เริ่ม services, ตรวจ login/ข้อมูล/การอ่าน encrypted values และทดสอบแอป
+
+## อัปเดตผ่าน SSH
 
 ```bash
-sudo dashboard-portal --reset-pwd
-```
-
-The command prints a new random password once. Store it in a password manager before closing the terminal; it invalidates all existing Dashboard Portal sessions and restarts Dashboard Portal so the new password is active immediately.
-
-Do not expose port 3100 in the firewall. If the HTTPS health check fails, investigate `journalctl` and Nginx first; do not bypass TLS by proxying the login over plain HTTP. Restore only the timestamped snapshot that predates the failed change, test `nginx -t`, and reload Nginx. The installer keeps these lightweight snapshots under `/var/backups/dashboard-portal` for that purpose; project releases and dependency caches are intentionally excluded because project rollback is managed separately.
-
-## Software update notifications and SSH update
-
-The installer enrolls every normal installation in the Dashboard Portal
-`stable` channel. It copies the bundled Ed25519 **public** verification key to
-`/etc/dashboard-portal/update-public-key.pem`; the private signing key never
-reaches the host. The UI can report a signed release manifest, but it never
-applies a Dashboard Portal update. Apply an update only over SSH:
-
-```bash
+sudo dashboard-portal update --check
 sudo dashboard-portal update
+sudo dashboard-portal update --check
 ```
 
-If the host was installed before the current stable signing key, rotate the
-public update key once before running the update. Verify the downloaded key's
-SHA-256 fingerprint before installing it:
+Updater ตรวจ signed manifest และ SHA-256 แล้วใช้ installer ตามขั้นตอนปกติ พร้อมคง Node major จาก config หน้าเว็บตรวจและแจ้งเวอร์ชันได้ แต่ไม่สั่งอัปเดต Portal หลังอัปเดตให้ทำ health/static checks ด้านบนและตรวจ project เดิม
+
+การรองรับ Node 20 ใช้ SQLite driver อีกตัวที่อ่านไฟล์/schema เดิม ไม่ต้องแปลง DB เพื่อสลับ driver อย่างไรก็ตามควรมี backup ก่อนอัปเดตและทดสอบกับข้อมูล staging ของคุณ
+
+Stable feed ตั้งอัตโนมัติเป็น [latest stable manifest](https://github.com/raptercode/dashboard-portal-control/releases/latest/download/stable.json) ใช้ `configure-update` เฉพาะ custom feed:
+
+```bash
+sudo dashboard-portal configure-update \
+  --manifest=https://releases.example.com/dashboard-portal/stable.json \
+  --public-key=/secure/download/dashboard-portal-update-public.pem
+```
+
+### เครื่องเก่าที่ใช้ signing key ก่อน v0.7.0
+
+หากตรวจพบว่า installed public key เป็นรุ่นเก่าจริง ให้ยืนยัน fingerprint นี้จาก release ที่เชื่อถือก่อนเปลี่ยน key อย่าเปลี่ยน key เพียงเพื่อข้าม signature error:
 
 ```bash
 tmp="$(mktemp)"
@@ -111,45 +117,25 @@ curl -fsSL \
   -o "$tmp"
 printf '%s  %s\n' \
   e8435cb6c3763930158b458821021e89a4b92041c7c71b493e414fb8d70af715 "$tmp" |
-  sha256sum -c -
-sudo install -m 0644 -o root -g root "$tmp" /etc/dashboard-portal/update-public-key.pem
+  sha256sum -c - &&
+  sudo install -m 0644 -o root -g root "$tmp" /etc/dashboard-portal/update-public-key.pem
 rm -f "$tmp"
-sudo dashboard-portal update
 ```
 
-`stable` is the default when `--channel` is omitted. `--channel=NAME` remains
-available for an intentional non-default channel. Only self-hosted/custom
-release feeds need one-time manual configuration:
+## แก้ปัญหาเบื้องต้น
 
 ```bash
-sudo dashboard-portal configure-update \
-  --manifest=https://releases.example.com/dashboard-portal/stable.json \
-  --public-key=/secure/download/dashboard-portal-update-public.pem
+sudo journalctl -u dashboard-portal -u hostmgr-deploy-helper --since '30 minutes ago' --no-pager
+sudo nginx -t
+getent ahosts portal.example.com
 ```
 
-After an update, verify both the API and a static page, not only
-`/api/health` — a permission regression on the application root can leave the
-API healthy while static file serving returns `500` (this happened once; see
-the installer's `chmod 0755 "$APP_ROOT"` step, which now runs immediately
-after every staged install/update):
+- **DNS/TLS ไม่ผ่าน:** ตรวจจาก host, A/AAAA, port 80 และ CDN redirect แล้วแก้เหตุให้ชัดก่อน retry
+- **API ผ่านแต่หน้าเว็บ 500:** ตรวจสิทธิ์อ่าน/traverse ของ application root และ static assets
+- **Node 20 dependency ไม่พร้อม:** อ่านขั้น staging dependency install; ตรวจ network และ compiler prerequisite ก่อน retry
+- **Signature/checksum ไม่ผ่าน:** หยุดและตรวจแหล่ง release, asset และ public key
+- **ลืมรหัสผ่าน:** ใช้ `sudo dashboard-portal --reset-pwd` ผ่าน SSH คำสั่งแสดงรหัสใหม่ครั้งเดียวและยกเลิก sessions เดิม
 
-```bash
-sudo systemctl is-active dashboard-portal hostmgr-deploy-helper nginx
-curl -fsS http://127.0.0.1:3100/api/health
-curl -fsSI https://YOUR-DOMAIN/
-```
+อย่าเปิด port 3100 สู่สาธารณะเพื่อข้ามปัญหา HTTPS เก็บ logs โดยปิดบัง secrets ก่อนส่งให้ผู้อื่น
 
-To prepare a release artifact, generate the Ed25519 signing pair once outside
-the repository, retain only the private key in CI secrets, and sign a release:
-
-```bash
-npm run release:keygen -- --out=/secure/dashboard-portal-update-key
-npm run release:prepare -- \
-  --out=dist \
-  --archive-url=https://releases.example.com/dashboard-portal/dashboard-portal-0.2.0.tar.gz \
-  --private-key=/secure/dashboard-portal-update-key/dashboard-portal-update-private.pem
-```
-
-Publish the generated archive and `stable.json` at immutable HTTPS URLs (for
-example, release assets in GitHub Releases). Never commit the private key or
-serve the update archive from the Dashboard Portal host itself.
+ผู้ดูแล repository ที่ต้องการสร้าง release: [Release guide](releasing-and-ai-handoff.md)

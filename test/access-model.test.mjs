@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
+import { DatabaseSync } from '../scripts/sqlite.mjs';
 import { StateStore, appendAudit } from '../src/core.mjs';
 import { requestContext } from '../src/request-context.mjs';
 import { resetDemoOwnerPassword } from '../scripts/reset-demo-password.mjs';

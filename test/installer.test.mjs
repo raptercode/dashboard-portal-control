@@ -1,6 +1,26 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { runInNewContext } from 'node:vm';
+import { nodeMajorForProject } from '../scripts/node-versions.mjs';
+
+test('host activation uses the release Node major and defaults legacy releases to 24', async () => {
+  const helper = await readFile(new URL('../scripts/hostmgr-deploy-helper.mjs', import.meta.url), 'utf8');
+  const source = helper.match(/async function activateProject\(slug, releaseId\) \{[\s\S]*?\n\}/)[0];
+  for (const [stored, expected] of [[20, 20], [22, 22], [26, 26], [undefined, 24]]) {
+    let prepared;
+    const project = { runtime: 'node', nodeMajor: 26, domains: { hosts: [] }, deployment: { releases: [{ id: 'release', status: 'healthy', nodeMajor: stored }] } };
+    const activate = runInNewContext(`${source}; activateProject`, {
+      loadProject: async () => structuredClone(project), validateReleaseId() {}, nodeMajorForProject,
+      HelperError: Error, readTextOrEmpty: async () => '', join: (...parts) => parts.join('/'), PROJECT_ROOT: '/test',
+      prepareProjectRelease: async (candidate) => { prepared = candidate.nodeMajor; return { identity: {} }; },
+      startAndCheckProject: async () => {}, applyDomains: async () => {}, pruneHistoricalReleases: async () => 0
+    });
+    await activate('example', 'release');
+    assert.equal(prepared, expected);
+    assert.equal(project.nodeMajor, 26);
+  }
+});
 
 test('installer systemd and Nginx heredocs contain no command substitutions', async () => {
   const script = await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8');
@@ -30,7 +50,8 @@ test('installer keeps the deployed application root traversable by the service u
 
 test('installer syntax-checks the browser bundle before replacing the active application', async () => {
   const script = await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8');
-  assert.match(script, /"\/usr\/local\/bin\/node" --check "\$STAGING_ROOT\/public\/ui\/app\.js"/);
+  assert.match(script, /"\$PORTAL_NODE" --check "\$STAGING_ROOT\/public\/ui\/app\.js"/);
+  assert.match(script, /if \[\[ "\$PORTAL_NODE_MAJOR" == '20' \]\]; then[\s\S]*"\$PORTAL_NPM" ci --omit=dev[\s\S]*fi\r?\n\r?\nrm -rf -- "\$APP_ROOT"/);
 });
 
 test('installer keeps long-running owner actions within the Nginx proxy budget', async () => {

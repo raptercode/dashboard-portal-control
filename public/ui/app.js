@@ -648,12 +648,12 @@ async function refresh() {
 }
 
 function renderOverview() {
-  const { host, supportedNodeMajor, tools } = state.doctor;
+  const { host, portalNodeVersion, tools } = state.doctor;
   $('#host-name').textContent = host.hostname;
   $('#host-platform').textContent = `${host.platform} · ${host.arch}`;
   $('#host-name-detail').textContent = host.hostname;
   $('#host-platform-detail').textContent = `${host.platform} · ${host.arch}`;
-  $('#node-version').textContent = `v${supportedNodeMajor}`;
+  $('#node-version').textContent = portalNodeVersion || '…';
   $('#uptime').textContent = duration(host.uptimeSeconds);
   $('#memory').textContent = `${formatBytes(host.memoryBytes)} total`;
   renderResourceCards(host);
@@ -962,7 +962,7 @@ function renderProjectsHealth() {
     return item;
   };
   const items = [
-    pill(`Node ${state.doctor?.supportedNodeMajor ? `v${state.doctor.supportedNodeMajor}` : '…'}`),
+    pill(`Portal Node ${state.doctor?.portalNodeVersion || '…'}`),
     pill('Bun supported'),
     pill(installed('nginx') ? 'Nginx running' : 'Nginx not installed', !installed('nginx')),
     pill(installed('certbot') ? 'Certbot ready' : 'Certbot not installed', !installed('certbot')),
@@ -1164,6 +1164,7 @@ async function syncExistingProject(project, button) {
     branch: project.branch || 'main',
     port: project.port ?? null,
     runtime: project.runtime || 'node',
+    nodeMajor: project.nodeMajor || 24,
     framework: project.framework || '',
     healthCheckEnabled: project.healthCheckEnabled !== false,
     healthCheckPath: project.healthCheckPath || '/',
@@ -3368,6 +3369,7 @@ async function ensureEditDraft() {
     skipBuild: project.buildScript === null,
     startScript: project.startScript || 'start',
     runtime: project.runtime || 'node',
+    nodeMajor: project.nodeMajor || 24,
     framework: project.framework || '',
     goPackage: project.goPackage || '.',
     ...pythonProjectFields(project),
@@ -3423,6 +3425,7 @@ async function hydrateRepositoryStep() {
   $('#build-script').value = draft.buildScript ?? 'build';
   $('#skip-build').checked = draft.skipBuild === true || draft.buildScript === null;
   $('#start-script').value = draft.startScript || 'start';
+  $('#node-major').value = String(draft.nodeMajor || 24);
   $('#go-package').value = draft.goPackage || '.';
   $('#python-mode').value = draft.pythonMode || 'script';
   $('#python-entry').value = draft.pythonEntry || 'main.py';
@@ -3510,7 +3513,7 @@ function projectRuntimeSummary(draft) {
   if (draft.runtime === 'python') return `${choice.label} / Python / .venv`;
   if (draft.runtime === 'go') return 'Go / systemd';
   if (draft.runtime === 'bun') return `${choice.label} / Bun / systemd`;
-  return `${choice.label} / Node.js / systemd`;
+  return `${choice.label} / Node.js ${draft.nodeMajor || 24} / systemd`;
 }
 
 function applyFrameworkDefaults(selected) {
@@ -3619,6 +3622,8 @@ function toggleRuntimeFields() {
   const python = runtime === 'python';
   const php = runtime === 'php';
   const packageRuntime = !docker && !go && !python && !php;
+  $('#node-major-row').hidden = runtime !== 'node';
+  $('#node-major').disabled = runtime !== 'node';
   $('#python-fields').hidden = !python;
   for (const id of ['#python-mode', '#python-entry', '#python-install']) $(id).disabled = !python;
   $('#python-entry').required = python;
@@ -3982,6 +3987,7 @@ async function syncProjectDraft() {
     buildScript: draft.skipBuild === true || draft.buildScript === null ? '' : (draft.buildScript ?? 'build'),
     startScript: draft.startScript || 'start',
     runtime: draft.runtime || 'node',
+    nodeMajor: draft.runtime === 'node' ? Number(draft.nodeMajor || 24) : undefined,
     framework: draft.framework || '',
     goPackage: draft.goPackage || '.',
     ...pythonProjectFields(draft),

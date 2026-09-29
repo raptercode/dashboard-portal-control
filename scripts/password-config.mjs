@@ -3,7 +3,7 @@ import { access, chmod, chown, readFile, rename, rm, stat, writeFile } from 'nod
 import { randomBytes, randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { DatabaseSync } from 'node:sqlite';
+import { DatabaseSync } from './sqlite.mjs';
 
 export const DEFAULT_CONFIG_PATH = '/etc/dashboard-portal/dashboard-portal.env';
 export const DEFAULT_STATE_DATABASE_PATH = '/var/lib/dashboard-portal/state.sqlite';

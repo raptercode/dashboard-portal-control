@@ -1,6 +1,6 @@
 # การทดสอบแยกตามโมดูลและสิทธิ์ผู้ใช้
 
-ใช้ Node.js 24 ตาม `engines` ของโปรเจกต์ รันจาก root ของ repository:
+ใช้ Node.js ตาม `engines` ของโปรเจกต์ (20.20.2+, 22.13+, 24.x หรือ 26.x ภายใน major ที่ระบุ) แนะนำ Node 24 และรัน `npm ci` ก่อนทดสอบ โดยเฉพาะหลังเปลี่ยน major เพื่อสร้าง native dependency ให้ตรงกัน รันจาก root ของ repository:
 
 ```powershell
 npm test

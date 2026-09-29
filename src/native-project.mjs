@@ -2,12 +2,18 @@ import { pythonStartArgs } from '../scripts/python-project.mjs';
 import { phpExecutable, phpStartArgs } from '../scripts/php-project.mjs';
 import { projectServiceUser } from '../scripts/project-service-user.mjs';
 import { randomUUID } from 'node:crypto';
+import { nodeBin, nodeMajorForProject } from '../scripts/node-versions.mjs';
 import { InputError, validateProject, validateGoPackage, validatePythonProjectSettings, validatePhpProjectSettings } from './core.mjs';
 
 export function validateNativeProject(input) {
   const project = validateProject(input);
   const runtime = input.runtime ?? 'node';
   if (!['node', 'bun', 'go', 'python', 'php'].includes(runtime)) throw new InputError('This operation requires the Node.js, Bun, Go, Python or PHP runtime.');
+  let nodeMajor;
+  if (runtime === 'node') {
+    try { nodeMajor = nodeMajorForProject(input.nodeMajor); }
+    catch (error) { throw new InputError(error.message); }
+  }
   const buildScript = ['go', 'python', 'php'].includes(runtime) || input.buildScript === '' || input.buildScript === null
     ? null
     : validatePackageScript(input.buildScript ?? 'build', 'Build script');
@@ -15,7 +21,7 @@ export function validateNativeProject(input) {
   const environment = validateEnvironment(input.environment ?? {});
   const healthCheckTimeoutMs = validateTimeout(input.healthCheckTimeoutMs ?? 30_000);
   const candidatePort = validateCandidatePort(input.candidatePort ?? defaultCandidatePort(project.port), project.port);
-  return { ...project, runtime, buildScript, startScript, ...(runtime === 'go' ? { goPackage: validateGoPackage(input.goPackage) } : {}), ...(runtime === 'python' ? validatePythonProjectSettings(input) : {}), ...(runtime === 'php' ? validatePhpProjectSettings(input) : {}), environment, healthCheckTimeoutMs, candidatePort };
+  return { ...project, runtime, ...(runtime === 'node' ? { nodeMajor } : {}), buildScript, startScript, ...(runtime === 'go' ? { goPackage: validateGoPackage(input.goPackage) } : {}), ...(runtime === 'python' ? validatePythonProjectSettings(input) : {}), ...(runtime === 'php' ? validatePhpProjectSettings(input) : {}), environment, healthCheckTimeoutMs, candidatePort };
 }
 
 export function validateDockerComposeProject(input) {
@@ -45,7 +51,9 @@ export function renderSystemdUnit(input) {
       ? `${phpExecutable()} ${phpStartArgs(project, project.port).join(' ')}`
       : project.runtime === 'go'
         ? `${identity.root}/current/hostmgr-app`
-        : `${runtimeExecutable(project.runtime)} run ${project.startScript}`;
+        : project.runtime === 'node' && project.nodeMajor !== 24
+          ? `/usr/bin/env PATH=${nodeBin(project.nodeMajor)}:/usr/local/bin:/usr/bin:/bin ${nodeBin(project.nodeMajor)}/npm run ${project.startScript}`
+          : `${runtimeExecutable(project.runtime)} run ${project.startScript}`;
   return `[Unit]\nDescription=Host Manager project ${project.slug}\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nUser=${identity.user}\nGroup=${identity.user}\nWorkingDirectory=${identity.root}/current\nEnvironmentFile=${identity.environmentFile}\nEnvironment=PORT=${project.port}\nExecStart=${start}\nRestart=on-failure\nRestartSec=5\nNoNewPrivileges=true\nPrivateTmp=true\nProtectHome=true\nProtectSystem=strict\nReadWritePaths=${identity.root}\n\n[Install]\nWantedBy=multi-user.target\n`;
 }
 
@@ -81,6 +89,7 @@ export function createRelease(projectInput, revision = null) {
     createdAt: now,
     revision,
     runtime: project.runtime,
+    ...(project.runtime === 'node' ? { nodeMajor: project.nodeMajor } : {}),
     ...(project.runtime === 'python' ? validatePythonProjectSettings(project) : {}),
     ...(project.runtime === 'php' ? validatePhpProjectSettings(project) : {}),
     buildScript: project.buildScript ?? null,

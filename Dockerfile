@@ -13,9 +13,13 @@ RUN apt-get update \
     && useradd --create-home --shell /usr/sbin/nologin hostmgr
 
 WORKDIR /app
-COPY package.json ./
+COPY package.json package-lock.json ./
 COPY src ./src
+COPY scripts ./scripts
 COPY public ./public
+COPY views ./views
+
+RUN if [ "${NODE_VERSION%%.*}" = "20" ]; then npm ci --omit=dev --no-audit --no-fund; fi
 
 RUN mkdir -p /var/lib/hostmgr \
     && chown -R hostmgr:hostmgr /app /var/lib/hostmgr

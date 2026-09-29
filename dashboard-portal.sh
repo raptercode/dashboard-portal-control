@@ -8,11 +8,13 @@ umask 077
 
 DOMAIN=''
 EMAIL=''
+PORTAL_NODE_MAJOR='24'
 for arg in "$@"; do
   case "$arg" in
     --domain=*) DOMAIN="${arg#*=}" ;;
     --email=*) EMAIL="${arg#*=}" ;;
-    *) echo 'Usage: sudo ./dashboard-portal.sh --domain=portal.example.com --email=admin@example.com' >&2; exit 64 ;;
+    --node-major=*) PORTAL_NODE_MAJOR="${arg#*=}" ;;
+    *) echo 'Usage: sudo ./dashboard-portal.sh --domain=portal.example.com --email=admin@example.com [--node-major=20|22|24|26]' >&2; exit 64 ;;
   esac
 done
 
@@ -117,9 +119,10 @@ rollback() {
 trap rollback ERR INT TERM
 
 [[ $EUID -eq 0 ]] || die 'Run with sudo.'
+[[ "$PORTAL_NODE_MAJOR" =~ ^(20|22|24|26)$ ]] || die 'Portal Node.js major must be 20, 22, 24 or 26.'
 [[ -n "$DOMAIN" && "$DOMAIN" =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$ ]] || die 'A lower-case FQDN is required in --domain.'
 [[ -n "$EMAIL" && "$EMAIL" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]] || die 'A valid --email is required. HTTPS is mandatory for a public login.'
-[[ -f package.json && -d src && -d public && -f scripts/hostmgr-deploy-helper.mjs && -f scripts/mail-host-config.mjs && -f scripts/nginx-edge.mjs && -f scripts/password-config.mjs && -f scripts/dashboard-portal-update.mjs && -f scripts/software-update.mjs && -f "$UPDATE_PUBLIC_KEY_SOURCE" ]] || die 'Run this script from an extracted dashboard-portal release directory.'
+[[ -f package.json && -f package-lock.json && -d src && -d public && -f scripts/hostmgr-deploy-helper.mjs && -f scripts/sqlite.mjs && -f scripts/node-versions.mjs && -f scripts/mail-host-config.mjs && -f scripts/nginx-edge.mjs && -f scripts/password-config.mjs && -f scripts/dashboard-portal-update.mjs && -f scripts/software-update.mjs && -f "$UPDATE_PUBLIC_KEY_SOURCE" ]] || die 'Run this script from an extracted dashboard-portal release directory.'
 source /etc/os-release
 [[ "${ID:-}" == 'ubuntu' && ( "${VERSION_ID:-}" == '24.04' || "${VERSION_ID:-}" == '25.04' ) ]] || die 'This installer supports Ubuntu 24.04 or 25.04 only.'
 [[ "$(dpkg --print-architecture)" == 'amd64' ]] || die 'This release currently supports amd64 only.'
@@ -156,19 +159,39 @@ export DEBIAN_FRONTEND=noninteractive
 chmod 1777 /tmp
 apt-get update
 apt-get install -y --no-install-recommends nginx certbot python3-certbot-nginx curl ca-certificates xz-utils unzip git
+if [[ "$PORTAL_NODE_MAJOR" == '20' ]]; then apt-get install -y --no-install-recommends build-essential python3; fi
 
 if ! id -u "$APP_USER" >/dev/null 2>&1; then
   useradd --system --create-home --home-dir "$DATA_ROOT" --shell /usr/sbin/nologin "$APP_USER"
 fi
 
-if [[ ! -x "/opt/node-v${NODE_VERSION}/bin/node" ]]; then
-  node_archive="node-v${NODE_VERSION}-linux-x64.tar.xz"
-  curl --fail --location --proto '=https' --tlsv1.2 --silent --show-error \
-    "https://nodejs.org/dist/v${NODE_VERSION}/${node_archive}" -o "$TMP_DIR/$node_archive"
-  printf '%s  %s\n' "$NODE_SHA256" "$TMP_DIR/$node_archive" | sha256sum --check --status || die 'Node.js archive checksum verification failed.'
-  install -d -m 0755 "/opt/node-v${NODE_VERSION}"
-  tar --extract --xz --file "$TMP_DIR/$node_archive" --directory "/opt/node-v${NODE_VERSION}" --strip-components=1 --no-same-owner
-fi
+install_node_version() {
+  local major="$1" version sha archive target
+  case "$major" in
+    20) version='20.20.2'; sha='df770b2a6f130ed8627c9782c988fda9669fa23898329a61a871e32f965e007d' ;;
+    22) version='22.23.3'; sha='df450af89261115ef9f9e3830c3eeb2cc9213b63c720b1af623cb5dcbe2e02de' ;;
+    24) version="$NODE_VERSION"; sha="$NODE_SHA256" ;;
+    26) version='26.10.0'; sha='ca70e9e349de048b9522abb3adc05b3bd6f43c5ffd3ec57916c7da292f59f022' ;;
+  esac
+  target="/opt/node-v${version}"
+  if [[ ! -x "$target/bin/node" ]]; then
+    archive="node-v${version}-linux-x64.tar.xz"
+    curl --fail --location --proto '=https' --tlsv1.2 --silent --show-error \
+      "https://nodejs.org/dist/v${version}/${archive}" -o "$TMP_DIR/$archive"
+    printf '%s  %s\n' "$sha" "$TMP_DIR/$archive" | sha256sum --check --status || die "Node.js ${version} archive checksum verification failed."
+    install -d -m 0755 "$target"
+    tar --extract --xz --file "$TMP_DIR/$archive" --directory "$target" --strip-components=1 --no-same-owner
+  fi
+  "$target/bin/node" --version | grep -qx "v${version}" || die "Node.js ${version} installation is incomplete."
+  [[ -x "$target/bin/npm" ]] || die "Node.js ${version} installation is missing npm."
+}
+for major in 20 22 24 26; do install_node_version "$major"; done
+case "$PORTAL_NODE_MAJOR" in
+  20) PORTAL_NODE='/opt/node-v20.20.2/bin/node'; PORTAL_NPM='/opt/node-v20.20.2/bin/npm' ;;
+  22) PORTAL_NODE='/opt/node-v22.23.3/bin/node'; PORTAL_NPM='/opt/node-v22.23.3/bin/npm' ;;
+  24) PORTAL_NODE='/opt/node-v24.18.0/bin/node'; PORTAL_NPM='/opt/node-v24.18.0/bin/npm' ;;
+  26) PORTAL_NODE='/opt/node-v26.10.0/bin/node'; PORTAL_NPM='/opt/node-v26.10.0/bin/npm' ;;
+esac
 # Keep the complete pinned Node distribution on PATH. A node-only symlink
 # cannot execute the reproducible npm-based project deployment contract.
 for node_tool in node npm npx corepack; do
@@ -198,9 +221,15 @@ ln -sfn "/opt/bun-v${BUN_VERSION}/bin/bun" /usr/local/bin/bun
 STAGING_ROOT="$TMP_DIR/app"
 install -d -m 0755 "$STAGING_ROOT"
 tar --exclude='.env' --exclude='data' --exclude='node_modules' --exclude='.git' --exclude='dist' --exclude='release-out' -cf - . | tar -xf - -C "$STAGING_ROOT"
-"/usr/local/bin/node" --check "$STAGING_ROOT/src/server.mjs"
-"/usr/local/bin/node" --check "$STAGING_ROOT/scripts/mail-host-config.mjs"
-"/usr/local/bin/node" --check "$STAGING_ROOT/public/ui/app.js"
+"$PORTAL_NODE" --check "$STAGING_ROOT/src/server.mjs"
+"$PORTAL_NODE" --check "$STAGING_ROOT/scripts/mail-host-config.mjs"
+"$PORTAL_NODE" --check "$STAGING_ROOT/public/ui/app.js"
+if [[ "$PORTAL_NODE_MAJOR" == '20' ]]; then
+  [[ -f "$STAGING_ROOT/package-lock.json" ]] || die 'Node 20 requires the committed package-lock.json for its SQLite adapter.'
+  (cd "$STAGING_ROOT" && PATH="$(dirname "$PORTAL_NODE"):$PATH" "$PORTAL_NPM" ci --omit=dev --no-audit --no-fund)
+  (cd "$STAGING_ROOT" && "$PORTAL_NODE" -e "import('./scripts/sqlite.mjs').then(({DatabaseSync}) => new DatabaseSync(':memory:').close())") || die 'Node 20 SQLite adapter preflight failed.'
+  chmod -R a+rX "$STAGING_ROOT/node_modules"
+fi
 
 rm -rf -- "$APP_ROOT"
 mv "$STAGING_ROOT" "$APP_ROOT"
@@ -211,6 +240,9 @@ chmod 0755 "$APP_ROOT"
 chmod -R go-w "$APP_ROOT"
 install -d -m 0750 -o root -g root "$HELPER_ROOT"
 install -m 0750 -o root -g root "$APP_ROOT/scripts/hostmgr-deploy-helper.mjs" "$HELPER_SCRIPT"
+install -m 0644 -o root -g root "$APP_ROOT/scripts/sqlite.mjs" "$HELPER_ROOT/sqlite.mjs"
+install -m 0644 -o root -g root "$APP_ROOT/scripts/node-versions.mjs" "$HELPER_ROOT/node-versions.mjs"
+if [[ "$PORTAL_NODE_MAJOR" == '20' ]]; then ln -sfn "$APP_ROOT/node_modules" "$HELPER_ROOT/node_modules"; fi
 install -m 0750 -o root -g root "$APP_ROOT/scripts/python-project.mjs" "$HELPER_ROOT/python-project.mjs"
 install -m 0750 -o root -g root "$APP_ROOT/scripts/php-project.mjs" "$HELPER_ROOT/php-project.mjs"
 install -m 0750 -o root -g root "$APP_ROOT/scripts/project-service-user.mjs" "$HELPER_ROOT/project-service-user.mjs"
@@ -223,9 +255,9 @@ cat > "$UPDATE_COMMAND" <<EOF
 #!/usr/bin/env bash
 if [[ "\${1:-}" == '--reset-pwd' ]]; then
   shift
-  exec /usr/local/bin/node ${PASSWORD_SCRIPT} --reset-pwd "\$@"
+  exec ${PORTAL_NODE} ${PASSWORD_SCRIPT} --reset-pwd "\$@"
 fi
-exec /usr/local/bin/node ${UPDATE_SCRIPT} "\$@"
+exec ${PORTAL_NODE} ${UPDATE_SCRIPT} "\$@"
 EOF
 chown root:root "$UPDATE_COMMAND"
 chmod 0750 "$UPDATE_COMMAND"
@@ -262,6 +294,7 @@ set_config_value HOSTMGR_ACME_EMAIL "$EMAIL" "$CONFIG_ROOT/dashboard-portal.env"
 set_config_value HOSTMGR_PORTAL_DOMAIN "$DOMAIN" "$CONFIG_ROOT/dashboard-portal.env"
 set_config_value HOSTMGR_DEPLOY_HELPER_SOCKET "$HELPER_SOCKET" "$CONFIG_ROOT/dashboard-portal.env"
 set_config_value HOSTMGR_DATABASE_PATH "$DATA_ROOT/state.sqlite" "$CONFIG_ROOT/dashboard-portal.env"
+set_config_value HOSTMGR_NODE_MAJOR "$PORTAL_NODE_MAJOR" "$CONFIG_ROOT/dashboard-portal.env"
 # A normal installation is enrolled in the signed stable channel immediately.
 # Preserve an existing custom feed so an intentional self-hosted release setup
 # does not get silently replaced during a later Portal update.
@@ -290,7 +323,7 @@ User=${APP_USER}
 Group=${APP_USER}
 WorkingDirectory=${APP_ROOT}
 EnvironmentFile=${CONFIG_ROOT}/dashboard-portal.env
-ExecStart=/usr/local/bin/node ${APP_ROOT}/src/server.mjs
+ExecStart=${PORTAL_NODE} ${APP_ROOT}/src/server.mjs
 Restart=on-failure
 RestartSec=5
 UMask=0077
@@ -327,7 +360,7 @@ Group=root
 RuntimeDirectory=dashboard-portal
 RuntimeDirectoryMode=0755
 UMask=0007
-ExecStart=/usr/local/bin/node ${HELPER_SCRIPT} --socket ${HELPER_SOCKET}
+ExecStart=${PORTAL_NODE} ${HELPER_SCRIPT} --socket ${HELPER_SOCKET}
 Restart=on-failure
 RestartSec=2
 NoNewPrivileges=true

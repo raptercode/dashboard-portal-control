@@ -2,9 +2,9 @@
 
 ## Product boundary
 
-Modern Host Manager is a control plane for the owner of a single Linux server who deploys their own applications. It is not a shared-hosting panel, DNS provider, file manager, or multi-tenant platform.
+Dashboard Portal is a control plane for one self-managed Linux server. Master/User accounts and organization grants control access to projects and operations; organizations do not provide independent host security sandboxes. See [ADR 0027](../adr/0027-members-and-organization-permissions.md).
 
-The system assumes the owner chooses trusted repositories. Building or starting source from a repository therefore intentionally runs arbitrary application code, but that application code must not receive root privileges or control-plane secrets.
+The system assumes administrators choose trusted repositories. Building or starting source intentionally runs arbitrary application code. Candidate processes run within the unprivileged Portal execution context, so this is not isolation for untrusted tenant code. Activated native services use dedicated project Unix users.
 
 ## Trust boundary
 
@@ -14,9 +14,12 @@ Browser / CLI
   -> Privileged helper (fixed allowlisted operations)
   -> systemd, apt, owned Nginx files, Docker, owned mail configuration
 
-Project source/build process
+Project candidate build/check
+  -> unprivileged Portal execution context
+
+Activated native project service
   -> dedicated project Unix user
-  -> project working and release directories only
+  -> managed project release and environment
 
 Trusted Docker Compose project
   -> privileged helper validates a bounded Compose configuration
@@ -40,13 +43,13 @@ No layer accepts free-form shell commands from the Browser or API. Privileged wo
 ## Delivery lifecycle
 
 1. Validate project configuration and repository reference
-2. Build the Node candidate as the project user in a new release, or copy a Docker Compose candidate and validate its Compose policy
+2. Build the Node candidate in the Portal's unprivileged execution context in a new release, or copy a Docker Compose candidate and validate its Compose policy
 3. Start the Node candidate without affecting the active release; Docker Compose builds and starts during controlled host activation
 4. Run a bounded health check
 5. On success, switch owned traffic/config; Docker Compose rollback restores the prior release if activation/health fails
 6. On failure, keep logs and the previous active release; rollback must be an auditable operation
 
-Port allocation, release layout, health-check contract, and Node.js major details remain follow-on design topics.
+Ports are assigned automatically. Releases retain deployment and health metadata, including the selected Node major, so activation and rollback can reuse the correct runtime.
 
 ## Test environments
 
@@ -56,8 +59,13 @@ Ubuntu 24.04 or 25.04 host acceptance tests are required for paths that depend o
 
 Production deployment uses `dashboard-portal.sh` to install the service directly on Ubuntu 24.04 or 25.04. The application binds only to loopback and host Nginx owns public HTTP/HTTPS. A direct install fails closed unless domain resolution, a Certbot certificate, HTTPS redirect/HSTS, and an HTTPS health check succeed. It never removes unrelated Nginx virtual hosts.
 
-The pinned Node runtime is exposed as `node`, `npm`, `npx`, and `corepack` in
+Pinned Node 20/22/24/26 runtimes live under `/opt/node-v<version>`. Portal
+services use the installer-selected major; projects choose independently.
+Node 24 remains exposed as `node`, `npm`, `npx`, and `corepack` in
 `/usr/local/bin`; the checksum-verified Bun binary is exposed as `bun` there.
+The SQLite adapter uses built-in `node:sqlite` on Node 22.13+ and
+`better-sqlite3` on Node 20, sharing the existing file/schema and encryption key.
+See [ADR 0029](../adr/0029-selectable-node-runtimes-and-sqlite-adapter.md).
 Node candidates run `npm ci` when a valid lockfile is available. If it is
 absent or incompatible, the isolated candidate falls back to `npm install`
 without modifying the synced Git checkout. Bun candidates use `bun install

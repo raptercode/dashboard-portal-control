@@ -7,7 +7,8 @@ import { phpExecutable, phpSettings, phpStartArgs, phpUserOptions, preparePhpEnv
 import { access, chmod, chown, copyFile, cp, lstat, mkdir, readFile, readdir, readlink, rename, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { createDecipheriv } from 'node:crypto';
-import { DatabaseSync } from 'node:sqlite';
+import { DatabaseSync } from './sqlite.mjs';
+import { nodeBin, nodeMajorForProject } from './node-versions.mjs';
 import { updateStoredPassword } from './password-config.mjs';
 import { buildEdgeEvaluation, probeLoopbackHttp, publicEdgeResult, renderUnmatchedNginx } from './nginx-edge.mjs';
 import { buildMailPortPlan, renderDkimTables, renderDovecotConfiguration, renderMap, renderOpenDkimConfiguration, renderPostfixMain, renderPostfixMaster } from './mail-host-config.mjs';
@@ -462,6 +463,10 @@ async function activateProject(slug, releaseId) {
   validateReleaseId(releaseId);
   const release = project.deployment?.releases?.find((item) => item.id === releaseId);
   if (!release || !['candidate', 'healthy'].includes(release.status)) throw new HelperError('The requested release is not eligible for activation.');
+  if (project.runtime === 'node' && (!release.runtime || release.runtime === 'node')) {
+    try { project.nodeMajor = nodeMajorForProject(release.nodeMajor); }
+    catch (error) { throw new HelperError(error.message); }
+  }
   if (project.runtime === 'python' && release.runtime === 'python') Object.assign(project, pythonSettings(release));
   if (project.runtime === 'php' && release.runtime === 'php') Object.assign(project, phpSettings(release));
   const environment = await readTextOrEmpty(join(PROJECT_ROOT, slug, 'releases', releaseId, '.env'));
@@ -576,6 +581,10 @@ function validateProject(project) {
   if (!Number.isInteger(project.port) || project.port < 1024 || project.port > 65535) throw new HelperError('Project port is invalid.');
   project.runtime ??= 'node';
   if (!['node', 'bun', 'go', 'python', 'php', 'docker-compose'].includes(project.runtime)) throw new HelperError('Project runtime is invalid.');
+  if (project.runtime === 'node') {
+    try { project.nodeMajor = nodeMajorForProject(project.nodeMajor); }
+    catch (error) { throw new HelperError(error.message); }
+  }
   if (project.runtime === 'python') {
     try { Object.assign(project, pythonSettings(project)); }
     catch (error) { throw new HelperError(error.message); }
@@ -982,7 +991,9 @@ function renderProjectUnit(project, identity) {
       ? `${phpExecutable()} ${phpStartArgs(project, project.port).join(' ')}`
       : project.runtime === 'go'
         ? `${identity.current}/hostmgr-app`
-        : `${project.runtime === 'bun' ? BUN : NPM} run ${project.startScript}`;
+        : project.runtime === 'node' && project.nodeMajor !== 24
+          ? `/usr/bin/env PATH=${nodeBin(project.nodeMajor)}:/usr/local/bin:/usr/bin:/bin ${nodeBin(project.nodeMajor)}/npm run ${project.startScript}`
+          : `${project.runtime === 'bun' ? BUN : NPM} run ${project.startScript}`;
   const bunRuntime = project.runtime === 'bun';
   const workingDirectory = bunRuntime ? identity.runtimeApplicationPath : identity.current;
   const bunSandbox = bunRuntime ? `RuntimeDirectory=${identity.runtimeDirectory}/app\nRuntimeDirectoryMode=0750\nBindPaths=${identity.current}:${identity.runtimeApplicationPath}\n` : '';

@@ -45,6 +45,8 @@ test('project sync stores framework labels on matching runtimes including PHP', 
   const next = validateProjectSync({ name: 'Next app', slug: 'next-app', repository: 'https://github.com/example/next.git', port: 3000, protocol: 'https', runtime: 'node', framework: 'next', startScript: 'start' });
   assert.equal(next.framework, 'next');
   assert.equal(next.runtime, 'node');
+  assert.equal(next.nodeMajor, 24);
+  assert.equal(validateProjectSync({ name: 'Node 20 app', slug: 'node-20-app', repository: 'https://github.com/example/node20.git', port: 3001, protocol: 'https', runtime: 'node', nodeMajor: 20, startScript: 'start' }).nodeMajor, 20);
   const nest = validateProjectSync({ name: 'Nest app', slug: 'nest-app', repository: 'https://github.com/example/nest.git', port: 3000, protocol: 'https', runtime: 'node', framework: 'nestjs', startScript: 'start' });
   assert.equal(nest.framework, 'nestjs');
   const django = validateProjectSync({ name: 'Django app', slug: 'django-app', repository: 'https://github.com/example/django.git', port: 3000, protocol: 'https', runtime: 'python', framework: 'django', pythonMode: 'wsgi', pythonEntry: 'config.wsgi:application' });

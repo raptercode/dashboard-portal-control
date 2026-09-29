@@ -16,11 +16,28 @@ test('native project contract produces a constrained systemd unit', () => {
   assert.match(renderEnvironmentFile(project.environment), /API_KEY="not logged"/);
 });
 
+test('Node projects select a major without changing the legacy Node 24 default', () => {
+  assert.equal(validateNativeProject(project).nodeMajor, 24);
+  const node20 = validateNativeProject({ ...project, nodeMajor: 20 });
+  assert.match(renderSystemdUnit(node20), /PATH=\/opt\/node-v20\.20\.2\/bin:/);
+  assert.match(renderSystemdUnit(node20), /\/opt\/node-v20\.20\.2\/bin\/npm run start/);
+  for (const value of [19, 21, 27, '20;id']) assert.throws(() => validateNativeProject({ ...project, nodeMajor: value }), InputError);
+});
+
 test('native contract refuses shell-like scripts and invalid environment input', () => {
   assert.throws(() => validateNativeProject({ ...project, startScript: 'start && id' }), InputError);
   assert.throws(() => validateNativeProject({ ...project, environment: { 'BAD-NAME': 'x' } }), InputError);
   assert.throws(() => validateNativeProject({ ...project, environment: { API_KEY: 'line\nbreak' } }), InputError);
   assert.throws(() => projectIdentity('../../root'), InputError);
+});
+
+test('release snapshots its Node major when later project settings change', () => {
+  const selected = { ...project, nodeMajor: 20 };
+  const release = createRelease(selected, 'a'.repeat(40));
+  selected.nodeMajor = 26;
+  assert.equal(release.nodeMajor, 20);
+  assert.equal(createRelease(project).nodeMajor, 24);
+  assert.equal(Object.hasOwn(createRelease({ ...project, runtime: 'bun' }), 'nodeMajor'), false);
 });
 
 test('native deployment only activates a healthy candidate and preserves a rollback target', () => {
