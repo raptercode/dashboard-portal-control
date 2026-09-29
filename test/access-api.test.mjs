@@ -61,9 +61,10 @@ for (const preset of ['viewer', 'operator', 'maintainer']) {
     const access = await request(base, '/api/access', member);
     assert.equal(access.body.user.role, 'user');
     assert.deepEqual((await request(base, '/api/projects', member)).body.projects.map((p) => p.slug), ['alpha']);
-    for (const path of ['/api/members', '/api/doctor', '/api/metrics', '/api/git-config', '/api/credentials', '/api/mail', '/api/databases', '/api/software-update']) {
+    for (const path of ['/api/members', '/api/doctor', '/api/metrics', '/api/git-config', '/api/mail', '/api/databases', '/api/software-update']) {
       assert.equal((await request(base, path, member)).status, 403, path);
     }
+    assert.deepEqual((await request(base, '/api/credentials', member)).body.credentials, []);
     assert.equal((await request(base, `/api/members/${userId}`, member, 'PATCH', { role: 'master' })).status, 403);
     assert.equal((await request(base, '/api/projects/alpha', member, 'DELETE', {})).status, 403);
     assert.equal((await request(base, '/api/projects/bravo/logs', member)).status, 404);

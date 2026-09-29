@@ -34,6 +34,8 @@ Runner เลือกได้ทั้งชื่อโมดูลเต็�
 
 โมดูลเดิมอื่นยังแยกตามงาน ได้แก่ authentication, core/state, secrets, runtime ของ Node/Bun/Go/Python/PHP, mail, DNS/Nginx, database, metrics, installer, software update และ UI แต่ละส่วน
 
+`org-credentials-api` ทดสอบ credential grants ทั้งสี่แบบแยกกัน, หลาย org, defaults, encrypted storage, rotation, private repository branch/runtime/sync ผ่าน callback ที่จำลอง Git, legacy credentials, CSRF และการถอนสิทธิ์ ผลนี้ไม่ใช่หลักฐานการเข้าถึง private GitHub repository จริง คำสั่ง: `node scripts/test-modules.mjs org-credentials-api`
+
 ## Role กับ permission template
 
 ระบบมี role จริงสองค่า: `master` และ `user` ส่วน `viewer`, `operator`, `maintainer` เป็นชุด permission เริ่มต้นของ membership ในองค์กร ไม่ใช่ role ผู้ใช้คนเดียวใช้ permission ต่างกันในแต่ละองค์กรได้

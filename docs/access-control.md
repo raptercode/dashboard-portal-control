@@ -18,6 +18,10 @@ Projects use stable organization IDs. Renaming an organization updates the displ
 | `project.create` | Create a project in the organization |
 | `project.configure` | Edit project configuration |
 | `source.sync` | Refresh the configured repository source |
+| `credentials.use` | Select an organization's HTTPS credential for private repositories (requires the relevant project permission too) |
+| `credentials.create` | Add encrypted HTTPS credentials to the organization |
+| `credentials.update` | Rename/rotate credentials and set or clear the organization's default |
+| `credentials.delete` | Delete credentials that are not selected by a project |
 | `deploy.start` | Start a deployment |
 | `deploy.rollback` | Activate a previous release |
 | `logs.read` | Read logs and deployment job details |
@@ -37,7 +41,21 @@ Presets:
 - **Operator:** Viewer plus source sync, deploy, and rollback.
 - **Maintainer:** all organization permissions, including environment values and project creation.
 
-Global host tools, host metrics, Git identity, credential vault, mail, database connections/queries, Portal updates, member management, and organization management remain Master-only. Users cannot change a private project's repository or credential binding. A Master configures those bindings first; authorized Users can sync the existing binding.
+Global host tools, host metrics, Git identity, legacy global credentials, mail, database connections/queries, Portal updates, member management, and organization management remain Master-only. Organization HTTPS credentials are managed using the four separate credential permissions above.
+
+## Organization repository credentials
+
+In **Members**, a Master grants the required credential permissions separately for each organization. On **Credentials**, select that organization, then add a name, Git hostname and repository token. Creating a private project requires `project.create` and `credentials.use`; editing its repository or credential additionally requires `project.view`, `source.sync` and `project.configure`. Selecting the Maintainer preset includes all four credential grants. Existing memberships keep their explicit grants and are not automatically expanded by this update.
+
+Credential names and defaults are scoped to their organization. Credentials from another organization cannot be selected, even by a Master moving a project; select a credential in the destination organization first. Members cannot select legacy global credentials. Their existing projects can still sync an unchanged legacy binding, but a Master must change that binding or repository.
+
+Tokens are encrypted using the existing vault and are never returned by credential APIs or prefilled in the edit form. Editing with a blank token retains the current secret; entering a new token rotates it for future syncs. The host cannot change while a project references the credential, and changing an unused credential's host requires a replacement token. Credentials in use cannot be deleted; change each project's binding first. Organization ownership is immutable; create a separate credential in a different organization instead.
+
+`credentials.use` authorizes access to repositories permitted by the stored Git token on its configured host. Scope the provider token to the repositories and read permissions the team needs. Credential management does not automatically grant project/deploy permissions, and `source.sync` can continue refreshing an already bound repository without a separate `credentials.use` grant. Already configured polling and hooks also keep their project binding. Revoking a provider token requires rotation at the Git provider or replacing the stored credential.
+
+Git identity and Git installation remain host setup prerequisites maintained by Master. The Credentials page manages HTTPS repository authentication; it does not create repositories at GitHub or grant Git-provider permissions. SSH keys remain under the existing Master-managed policy.
+
+Git authentication refuses HTTP redirects and uses an isolated configuration instead of host credential helpers or global URL rewrites. Use the canonical HTTPS clone URL, including after a repository is renamed or moved. Existing checkouts with local transport overrides must have those overrides removed before a saved credential can be used. Temporary authentication files are private and removed after each operation; the askpass helper only answers for the selected HTTPS authority.
 
 ## Enforcement and migration
 

@@ -22,6 +22,12 @@ their assigned projects. Viewer, Operator, and Maintainer templates can be adjus
 permission by permission. See [access control](docs/access-control.md) and the
 [test modules and role matrix](docs/testing.md).
 
+HTTPS repository credentials belong to an organization. Masters can grant members
+separate permissions to use, add, edit/rotate, or delete them. Members select their
+organization on **Credentials** and can connect private repositories when granted
+both project creation and credential use. Existing memberships need these new grants
+explicitly; existing global credentials remain Master-managed.
+
 ## Requirements
 
 - **Try it locally:** Docker + Docker Compose, or Node.js 24.x if you'd rather run it directly (no other dependency — the app only uses Node.js built-ins, so there is no `npm install` step)

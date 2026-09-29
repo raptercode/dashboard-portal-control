@@ -22,6 +22,9 @@ const state = {
   git: { identity: null },
   projects: [],
   credentials: [],
+  credentialOrganizationId: null,
+  editingCredentialId: null,
+  credentialEditorGeneration: 0,
   defaultCredentialId: null,
   vaultReady: false,
   softwareUpdate: null,
@@ -63,7 +66,21 @@ function can(permission, project = null) {
 function canInAnyOrganization(permission) { return isMaster() || state.organizations.some((organization) => organization.permissions?.includes(permission)); }
 function organizationIdForName(name) { return state.organizations.find((item) => item.name === name)?.id || ''; }
 function currentFlowOrganizationId() { const draft = readDraft(); return draft.organizationId || organizationIdForName(draft.organization); }
-function boundSourceLocked() { const project = state.projects.find((item) => item.slug === editSlug); return !isMaster() && flowMode === 'edit' && Boolean(project?.credentialId || project?.sshKeyId); }
+const credentialPermissions = ['credentials.use', 'credentials.create', 'credentials.update', 'credentials.delete'];
+function canUseFlowCredentials() { return can('credentials.use', { organizationId: currentFlowOrganizationId() }); }
+function flowCredentials() {
+  if (!canUseFlowCredentials()) return [];
+  const organizationId = currentFlowOrganizationId();
+  return state.credentials.filter((credential) => credential.organizationId === organizationId || (isMaster() && !credential.organizationId));
+}
+function boundSourceLocked() {
+  const project = state.projects.find((item) => item.slug === editSlug);
+  if (isMaster() || flowMode !== 'edit') return false;
+  if (project?.sshKeyId) return true;
+  if (!project?.credentialId) return false;
+  const credential = state.credentials.find((item) => item.id === project.credentialId);
+  return !canUseFlowCredentials() || credential?.organizationId !== project.organizationId;
+}
 
 function icon(name) {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -528,7 +545,7 @@ async function showBootstrap(requireCurrent = false) {
 }
 
 async function showDashboard() {
-  if (!isMaster() && ['setup', 'credentials', 'databases', 'mail', 'members', 'overview'].includes(page)) {
+  if (!isMaster() && ['setup', 'databases', 'mail', 'members', 'overview'].includes(page)) {
     location.replace('/projects');
     return;
   }
@@ -578,7 +595,9 @@ async function refresh() {
   $$('.master-only').forEach((node) => { node.hidden = !master; });
   const [doctor, audit, git, projects, credentials, softwareUpdate] = master
     ? await Promise.all([api('/api/doctor'), api('/api/audit'), api('/api/git-config'), api('/api/projects'), api('/api/credentials'), api('/api/software-update')])
-    : [null, canInAnyOrganization('audit.read') ? await api('/api/audit') : { events: [] }, { identity: null }, await api('/api/projects'), { credentials: [] }, null];
+    : [null, canInAnyOrganization('audit.read') ? await api('/api/audit') : { events: [] }, { identity: null }, await api('/api/projects'), credentialPermissions.some(canInAnyOrganization) ? await api('/api/credentials') : { credentials: [] }, null];
+  const credentialsLink = $('[data-nav="credentials"]');
+  if (credentialsLink) credentialsLink.hidden = !credentialPermissions.some(canInAnyOrganization);
   const activityLink = $('[data-nav="activity"]');
   if (activityLink) activityLink.hidden = !canInAnyOrganization('audit.read');
   state.doctor = doctor;
@@ -1179,17 +1198,72 @@ async function syncExistingProject(project, button) {
   });
 }
 
+function credentialScopeAllowed(permission) {
+  return can(permission, { organizationId: state.credentialOrganizationId });
+}
+
+function resetCredentialEditor() {
+  state.credentialEditorGeneration += 1;
+  state.editingCredentialId = null;
+  const form = $('#credential-form');
+  if (form) resetForm(form);
+  renderCredentialEditor();
+}
+
+async function saveCredentialForm(form) {
+  const generation = state.credentialEditorGeneration;
+  const editingId = state.editingCredentialId;
+  const data = Object.fromEntries(new FormData(form));
+  if (editingId) {
+    delete data.defaultCredential;
+    if (!data.token) delete data.token;
+    await api(`/api/credentials/${encodeURIComponent(editingId)}`, { method: 'PATCH', body: data });
+  } else {
+    data.organizationId = state.credentialOrganizationId || null;
+    data.defaultCredential = $('#credential-default').checked && credentialScopeAllowed('credentials.update');
+    await api('/api/credentials', { method: 'POST', body: data });
+  }
+  if (generation === state.credentialEditorGeneration) resetCredentialEditor();
+  toast(editingId ? 'แก้ไข credential แล้ว' : 'บันทึก credential แล้ว');
+  await refresh();
+}
+
+function renderCredentialEditor() {
+  const credential = state.credentials.find((item) => item.id === state.editingCredentialId);
+  const editing = Boolean(credential);
+  $('#credential-editor').hidden = !state.vaultReady || !(editing ? credentialScopeAllowed('credentials.update') : credentialScopeAllowed('credentials.create'));
+  $('#credential-form-title').textContent = editing ? `แก้ไข ${credential.name}` : 'เพิ่ม HTTPS token';
+  $('#credential-edit-hint').textContent = editing
+    ? 'เว้น token ว่างเพื่อใช้ค่าเดิม หรือกรอก token ใหม่เพื่อเปลี่ยนให้โปรเจคที่ผูกอยู่ทั้งหมด องค์กรของ credential เปลี่ยนไม่ได้'
+    : 'Token ถูกเข้ารหัสก่อนบันทึก สามารถเปลี่ยน token ภายหลังโดยโปรเจคยังใช้ credential เดิมได้';
+  $('#credential-token').required = !editing;
+  $('#credential-default-row').hidden = editing || !credentialScopeAllowed('credentials.update');
+  $('#credential-default').disabled = editing || !credentialScopeAllowed('credentials.update');
+  $('#credential-edit-cancel').hidden = !editing;
+}
+
 function renderCredentials() {
   const root = $('#credentials');
+  const scopes = state.organizations.filter((organization) => credentialPermissions.some((permission) => can(permission, { organizationId: organization.id })));
+  const scope = $('#credential-organization');
+  const options = scopes.map((organization) => new Option(organization.name, organization.id));
+  if (isMaster()) options.push(new Option('ส่วนกลางเดิม · Master เท่านั้น', ''));
+  scope.replaceChildren(...options);
+  if (!options.some((option) => option.value === state.credentialOrganizationId)) state.credentialOrganizationId = options[0]?.value ?? null;
+  scope.value = state.credentialOrganizationId ?? '';
+  scope.disabled = !options.length;
+  $('#credential-scope-note').textContent = !options.length ? 'ไม่มีสิทธิ์ใช้หรือจัดการ credentials ในองค์กรใด' : state.credentialOrganizationId ? 'รายการและค่าเริ่มต้นใช้เฉพาะองค์กรที่เลือก' : 'Credentials ส่วนกลางเดิมใช้งานและจัดการได้เฉพาะ Master';
+  renderCredentialEditor();
   if (!state.vaultReady) {
     root.replaceChildren(element('div', 'empty-state', 'Credential vault ยังไม่พร้อม ตั้งค่า HOSTMGR_SECRET_KEY ก่อนบันทึก token'));
     return;
   }
-  if (!state.credentials.length) {
+  const credentials = state.credentials.filter((credential) => (credential.organizationId || '') === state.credentialOrganizationId);
+  if (!credentials.length) {
     root.replaceChildren(element('div', 'empty-state', 'ยังไม่มี credential ที่บันทึกไว้'));
     return;
   }
-  root.replaceChildren(...state.credentials.map((credential) => {
+  root.replaceChildren(...credentials.map((credential) => {
     const row = element('article', 'credential-row');
     const copy = element('div');
     const title = element('h3', '', credential.name);
@@ -1201,14 +1275,21 @@ function renderCredentials() {
     setDefault.type = 'button';
     setDefault.addEventListener('click', async () => {
       await withBusy(setDefault, async () => {
-        const payload = credential.isDefault ? { credentialId: null } : { credentialId: credential.id };
-        const result = await api('/api/credentials/default', { method: 'POST', body: payload });
-        state.defaultCredentialId = result.defaultCredentialId || null;
-        state.git.defaultCredentialId = state.defaultCredentialId;
-        state.credentials = result.credentials || [];
+        const payload = { organizationId: credential.organizationId || null, credentialId: credential.isDefault ? null : credential.id };
+        await api('/api/credentials/default', { method: 'POST', body: payload });
         toast(credential.isDefault ? 'ล้าง default credential แล้ว' : `ตั้ง ${credential.name} เป็น default แล้ว`);
-        renderCredentials();
-      });
+        await refresh();
+      }).catch(showError);
+    });
+    const edit = element('button', 'secondary', 'แก้ไข / เปลี่ยน token');
+    edit.type = 'button';
+    edit.addEventListener('click', () => {
+      resetCredentialEditor();
+      state.editingCredentialId = credential.id;
+      $('#credential-name').value = credential.name;
+      $('#credential-host').value = credential.host || 'github.com';
+      renderCredentialEditor();
+      $('#credential-name').focus();
     });
     const remove = element('button', 'secondary danger', 'ลบ');
     remove.type = 'button';
@@ -1216,11 +1297,13 @@ function renderCredentials() {
       if (!await confirmAction('ลบ credential', `ลบ ${credential.name} หรือไม่? โปรเจคที่ยังเลือกใช้จะลบไม่ได้`, 'ลบ')) return;
       await withBusy(remove, async () => {
         await api(`/api/credentials/${encodeURIComponent(credential.id)}`, { method: 'DELETE', body: {} });
+        if (state.editingCredentialId === credential.id) resetCredentialEditor();
         toast('ลบ credential แล้ว');
         await refresh();
-      });
+      }).catch(showError);
     });
-    actions.append(setDefault, remove);
+    if (credentialScopeAllowed('credentials.update')) actions.append(edit, setDefault);
+    if (credentialScopeAllowed('credentials.delete')) actions.append(remove);
     row.append(copy, actions);
     return row;
   }));
@@ -2412,7 +2495,7 @@ function wizardStepTest() {
 function fillCredentialSelect(selected = '', { useDefault = true } = {}) {
   const select = $('#credential-id');
   if (!select) return;
-  select.replaceChildren(new Option('Public repository ไม่ต้องใช้ credential', ''), ...state.credentials.map((credential) => new Option(`${credential.name}${credential.host ? ` · ${credential.host}` : ''}`, credential.id)));
+  select.replaceChildren(new Option('Public repository ไม่ต้องใช้ credential', ''), ...flowCredentials().map((credential) => new Option(`${credential.name}${credential.host ? ` · ${credential.host}` : ''}${!credential.organizationId ? ' · ส่วนกลาง' : ''}`, credential.id)));
   const wanted = selected || (useDefault ? defaultCredentialForRepository($('#repository')?.value || '')?.id : '');
   select.value = [...select.options].some((option) => option.value === wanted) ? wanted : '';
   select.dataset.protocolCleared = 'false';
@@ -3330,13 +3413,9 @@ async function hydrateRepositoryStep() {
   $('#project-source-name').textContent = draft.name || '…';
   const sourceMeta = [draft.organization && `องค์กร: ${draft.organization}`, draft.slug && `slug: ${draft.slug}`].filter(Boolean);
   $('#project-source-meta').textContent = sourceMeta.join(' · ') || '…';
-  fillCredentialSelect(draft.credentialId || '', { useDefault: flowMode !== 'edit' && !draft.repository });
   $('#repository').value = draft.repository || '';
-  if (!isMaster()) {
-    $('#https-credential').hidden = true;
-    $('#credential-id').disabled = true;
-    if (flowMode === 'edit' && (draft.credentialId || draft.sshKeyId)) $('#repository').readOnly = true;
-  }
+  fillCredentialSelect(draft.credentialId || '', { useDefault: flowMode !== 'edit' && !draft.repository });
+  $('#repository').readOnly = boundSourceLocked();
   $('#project-directory').value = draft.directory || '/';
   setBranchOptions([draft.branch || 'main'], draft.branch || 'main');
   $('#project-port').value = draft.port || '';
@@ -3363,7 +3442,7 @@ async function hydrateRepositoryStep() {
   if (boundSourceLocked()) {
     $('#fetch-branches').hidden = true;
     $('#detect-project-runtime').hidden = true;
-    $('#runtime-detection-note').textContent = 'Repository นี้ผูก Credential หรือ SSH key ไว้ ผู้ใช้แก้ไขการตั้งค่าอื่นได้ แต่ Master เป็นผู้ตรวจ source และเปลี่ยน repository';
+    $('#runtime-detection-note').textContent = 'ใช้ repository และ credential ที่ผูกไว้เดิมได้ การเปลี่ยน source ต้องมีสิทธิ์ใช้ credential ขององค์กรนี้; SSH key และ credential ส่วนกลางจัดการโดย Master';
   }
   toggleHealthCheckFields();
   toggleRuntimeFields();
@@ -3687,13 +3766,15 @@ function credentialMatchesRepository(credential, repository = $('#repository')?.
 }
 
 function defaultCredentialForRepository(repository = $('#repository')?.value) {
-  const credential = state.credentials.find((item) => item.id === state.defaultCredentialId);
+  const available = flowCredentials();
+  const credential = available.find((item) => item.organizationId === currentFlowOrganizationId() && item.isDefault)
+    || available.find((item) => !item.organizationId && item.id === state.defaultCredentialId);
   return credentialMatchesRepository(credential, repository) ? credential : null;
 }
 
 function selectedCredential() {
   const id = $('#credential-id')?.value;
-  return id ? state.credentials.find((credential) => credential.id === id) : null;
+  return id ? flowCredentials().find((credential) => credential.id === id) : null;
 }
 
 function updateRepositoryConnection() {
@@ -3701,8 +3782,8 @@ function updateRepositoryConnection() {
   const protocol = repositoryProtocol(repository);
   const credential = $('#credential-id');
   const credentialRow = $('#https-credential');
-  credentialRow.hidden = !isMaster() || protocol !== 'https';
-  credential.disabled = !isMaster() || protocol !== 'https';
+  credentialRow.hidden = !canUseFlowCredentials() || boundSourceLocked() || protocol !== 'https';
+  credential.disabled = !canUseFlowCredentials() || boundSourceLocked() || protocol !== 'https';
   if (protocol === 'ssh') {
     credential.value = '';
     credential.dataset.protocolCleared = 'true';
@@ -3721,18 +3802,19 @@ function updateRepositoryConnection() {
 }
 
 async function fetchBranches({ quiet = false, request = null } = {}) {
+  if (boundSourceLocked()) return false;
   const repository = $('#repository');
   if (!repository.reportValidity()) return;
   const button = $('#fetch-branches');
   const requestRepository = request?.repository ?? repository.value;
   const protocol = request?.protocol ?? repositoryProtocol(requestRepository);
-  const credentialId = isMaster() ? (request?.credentialId ?? ($('#credential-id').value || '')) : '';
-  const organizationId = currentFlowOrganizationId();
+  const credentialId = canUseFlowCredentials() ? (request?.credentialId ?? ($('#credential-id').value || '')) : '';
+  const organizationId = request?.organizationId ?? currentFlowOrganizationId();
   const requestKey = request?.key ?? repositoryInspectKey();
   button.disabled = true;
   try {
     const result = await api('/api/git/branches', { method: 'POST', body: { organizationId, repository: requestRepository, protocol, credentialId } });
-    if (quiet && requestKey !== repositoryInspectKey()) return false;
+    if (requestKey !== repositoryInspectKey()) return false;
     if (!result.branches.length) throw new Error('ไม่พบ branch ที่เลือกได้ใน repository นี้');
     const previous = $('#branch').value;
     const selectedBranch = result.branches.includes(previous) ? previous : (result.branches.includes('main') ? 'main' : result.branches[0]);
@@ -3742,6 +3824,7 @@ async function fetchBranches({ quiet = false, request = null } = {}) {
       quiet: true,
       request: {
         key: requestKey,
+        organizationId,
         repository: requestRepository,
         protocol,
         credentialId,
@@ -3750,6 +3833,7 @@ async function fetchBranches({ quiet = false, request = null } = {}) {
       }
     });
   } catch (error) {
+    if (requestKey !== repositoryInspectKey()) return false;
     const note = $('#runtime-detection-note');
     if (quiet && note) note.textContent = `อ่าน repository ไม่สำเร็จ: ${error.message}`;
     if (!quiet) showError(error);
@@ -3761,8 +3845,16 @@ async function fetchBranches({ quiet = false, request = null } = {}) {
 function repositoryInspectKey() {
   const repository = $('#repository')?.value.trim() || '';
   const protocol = repositoryProtocol(repository);
-  const credentialId = isMaster() && protocol === 'https' ? ($('#credential-id')?.value || '') : '';
-  return [repository, protocol, credentialId].join('\n');
+  const credentialId = canUseFlowCredentials() && protocol === 'https' ? ($('#credential-id')?.value || '') : '';
+  return [currentFlowOrganizationId(), repository, protocol, credentialId].join('\n');
+}
+
+function runtimeInspectKey(request = {}) {
+  const repository = request.repository ?? ($('#repository')?.value.trim() || '');
+  const protocol = request.protocol ?? repositoryProtocol(repository);
+  const credentialId = request.credentialId ?? (canUseFlowCredentials() && protocol === 'https' ? ($('#credential-id')?.value || '') : '');
+  return [request.organizationId ?? currentFlowOrganizationId(), repository, protocol, credentialId,
+    request.branch ?? ($('#branch')?.value || 'main'), request.directory ?? ($('#project-directory')?.value || '/')].join('\n');
 }
 
 function scheduleRepositoryAutoInspect(delayMs = 300) {
@@ -3782,7 +3874,7 @@ async function autoInspectRepository() {
   const value = repository.value.trim();
   if (!value || !repository.checkValidity() || !looksLikeRepositoryUrl(value)) return;
   const protocol = repositoryProtocol(value);
-  const credentialId = isMaster() && protocol === 'https' ? ($('#credential-id')?.value || '') : '';
+  const credentialId = canUseFlowCredentials() && protocol === 'https' ? ($('#credential-id')?.value || '') : '';
   const key = repositoryInspectKey();
   if (state.repositoryAutoInspectRunning) {
     state.repositoryAutoInspectPending = true;
@@ -3806,16 +3898,18 @@ async function autoInspectRepository() {
 }
 
 async function detectProjectRuntimeFromRepository({ quiet = false, request = null } = {}) {
+  if (boundSourceLocked()) return false;
   const repository = $('#repository');
   if (!repository?.reportValidity()) return;
   const button = $('#detect-project-runtime');
   const note = $('#runtime-detection-note');
   const requestRepository = request?.repository ?? repository.value;
   const protocol = request?.protocol ?? repositoryProtocol(requestRepository);
-  const credentialId = isMaster() ? (request?.credentialId ?? ($('#credential-id').value || '')) : '';
-  const organizationId = currentFlowOrganizationId();
+  const credentialId = canUseFlowCredentials() ? (request?.credentialId ?? ($('#credential-id').value || '')) : '';
+  const organizationId = request?.organizationId ?? currentFlowOrganizationId();
   const branch = request?.branch ?? ($('#branch').value || 'main');
   const directory = request?.directory ?? ($('#project-directory').value || '/');
+  const requestKey = runtimeInspectKey({ organizationId, repository: requestRepository, protocol, credentialId, branch, directory });
   const original = button?.textContent;
   if (button) button.disabled = true;
   if (note) note.textContent = 'กำลังอ่าน metadata ของ repository…';
@@ -3831,7 +3925,7 @@ async function detectProjectRuntimeFromRepository({ quiet = false, request = nul
         credentialId
       }
     });
-    if (quiet && request?.key && request.key !== repositoryInspectKey()) return false;
+    if (requestKey !== runtimeInspectKey()) return false;
     const detection = result.detection;
     state.runtimeDetection = detection || null;
     if (detection?.recommendedRuntime) setProjectRuntime(detection.recommendedRuntime);
@@ -3862,6 +3956,7 @@ async function detectProjectRuntimeFromRepository({ quiet = false, request = nul
     if (!quiet && (detection?.recommendedFramework || detection?.recommendedRuntime)) toast(`เลือก ${projectFrameworks[detection.recommendedFramework]?.label || projectRuntimes[detection.recommendedRuntime]?.label || 'runtime'} ให้แล้ว`);
     return true;
   } catch (error) {
+    if (requestKey !== runtimeInspectKey()) return false;
     if (note) note.textContent = `ตรวจอัตโนมัติไม่สำเร็จ: ${error.message}`;
     if (!quiet) throw error;
     return false;
@@ -4050,13 +4145,17 @@ function bindEvents() {
     const form = event.currentTarget;
     await withBusy(submitButton(event), async () => {
       try {
-        await api('/api/credentials', { method: 'POST', body: Object.fromEntries(new FormData(form)) });
-        resetForm(form);
-        toast('บันทึก credential แล้ว');
-        await refresh();
+        await saveCredentialForm(form);
       } catch (error) { showError(error); }
     });
   });
+  $('#credential-form')?.addEventListener('input', () => { state.credentialEditorGeneration += 1; });
+  $('#credential-organization')?.addEventListener('change', (event) => {
+    state.credentialOrganizationId = event.currentTarget.value;
+    resetCredentialEditor();
+    renderCredentials();
+  });
+  $('#credential-edit-cancel')?.addEventListener('click', resetCredentialEditor);
   $('#password-change-form')?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
@@ -4123,6 +4222,12 @@ function bindEvents() {
     }
     if (!data.organizationId) { showError(new Error('เลือกองค์กรที่มีอยู่ก่อนดำเนินการต่อ')); return; }
     if (flowMode !== 'edit' && !can('project.create', { organizationId: data.organizationId })) { showError(new Error('ไม่มีสิทธิ์สร้างโปรเจคในองค์กรนี้')); return; }
+    if (currentFlowOrganizationId() !== data.organizationId) {
+      data.credentialId = '';
+      data.sshKeyId = '';
+      state.repositoryAutoInspectKey = '';
+      state.runtimeDetection = null;
+    }
     writeDraft(data);
     location.href = flowPath('repository');
   });
@@ -4137,10 +4242,11 @@ function bindEvents() {
     const data = Object.fromEntries(new FormData(event.currentTarget));
     if (!isMaster() && flowMode === 'edit') {
       const existing = state.projects.find((project) => project.slug === editSlug);
-      if ((existing?.credentialId || existing?.sshKeyId) && data.repository !== existing.repository) { showError(new Error('Repository นี้ผูก Credential หรือ SSH key อยู่ เฉพาะ Master ที่เปลี่ยนได้')); return; }
-      data.credentialId = existing?.credentialId || '';
+      if (boundSourceLocked() && data.repository !== existing.repository) { showError(new Error('ไม่มีสิทธิ์เปลี่ยน repository ที่ผูก credential หรือ SSH key นี้')); return; }
+      if (boundSourceLocked() || !canUseFlowCredentials()) data.credentialId = existing?.credentialId || '';
       data.sshKeyId = existing?.sshKeyId || '';
     }
+    if (!data.credentialId) data.credentialId = '';
     data.protocol = repositoryProtocol(data.repository);
     if (data.protocol === 'ssh') data.credentialId = '';
     data.runtime = runtimeValue();

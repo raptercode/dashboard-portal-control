@@ -13,7 +13,8 @@ const status = (code) => (error) => error.status === code;
 
 test('user routes deny host access and hidden projects, jobs and unsupported actions', () => {
   const { call, user } = fixture();
-  for (const path of ['/api/doctor', '/api/metrics', '/api/credentials', '/api/mail', '/api/members', '/api/organizations', '/api/databases', '/api/software-update']) assert.throws(() => call(path), status(403));
+  for (const path of ['/api/doctor', '/api/metrics', '/api/mail', '/api/members', '/api/organizations', '/api/databases', '/api/software-update']) assert.throws(() => call(path), status(403));
+  assert.deepEqual(call('/api/credentials'), { organizationId: undefined });
   assert.throws(() => call('/api/projects/other/logs'), status(404));
   assert.throws(() => call('/api/jobs/other-job'), status(404));
   assert.throws(() => call('/api/projects/app', 'DELETE'), status(403));

@@ -12,3 +12,5 @@ Current operational decisions include [ADR 0020](0020-host-helper-keeps-shadow-u
 [ADR 0026](0026-owner-can-read-and-edit-project-environment.md) replaces the earlier environment read restrictions with complete owner editing, file imports and visible values while retaining encrypted storage.
 
 [ADR 0027](0027-members-and-organization-permissions.md) adds Master/User accounts, organization permissions, invitations, and revocable sessions, extending environment access through explicit grants.
+
+[ADR 0028](0028-organization-repository-credentials.md) extends credential ownership to organizations with separate use/create/update/delete grants and preserves existing global bindings.

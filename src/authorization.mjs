@@ -2,6 +2,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { canAccess, resolveProjectOrganization } from './access.mjs';
 import { AccessError } from './access-api.mjs';
 import { validateProjectSync } from './core.mjs';
+import { assertCredentialUse, authorizeCredentialRequest } from './credentials.mjs';
 
 const denied = () => { throw new AccessError(); };
 const hidden = () => { throw new AccessError('Not found.', 404); };
@@ -20,6 +21,8 @@ export function authorizeRequest({ state, user, path, method, body = {} }) {
     return { project, organization, organizationId: organization.id };
   };
 
+  if (/^\/credentials(?:\/|$)/.test(path)) return authorizeCredentialRequest(state, current, path, method, body);
+
   if (method === 'POST' && path === '/projects/sync') {
     const project = state.projects?.find((item) => item.slug === body.slug) ?? null;
     const existingOrganization = resolveProjectOrganization(state, project);
@@ -27,17 +30,28 @@ export function authorizeRequest({ state, user, path, method, body = {} }) {
       ? state.organizations?.find((item) => item.id === body.organizationId)
       : existingOrganization ?? state.organizations?.find((item) => item.name === (body.organization?.trim() || 'Default'));
     if (body.organizationId && !organization) hidden();
-    if (master) return { project, organization: organization ?? null, organizationId: organization?.id, organizationName: organization?.name ?? (body.organization?.trim() || 'Default') };
+    if (master) {
+      assertCredentialUse(state, current, body.credentialId, organization?.id);
+      return { project, organization: organization ?? null, organizationId: organization?.id, organizationName: organization?.name ?? (body.organization?.trim() || 'Default') };
+    }
     if (project) {
       const scope = scopeProject(project.slug);
       organization = scope.organization;
       if ((body.organizationId && body.organizationId !== organization.id) || (body.organization && body.organization.trim() !== organization.name)) denied();
       requirePermission(organization.id, 'source.sync');
-      // A bound credential cannot be sent to a replacement repository by a member.
-      if ((body.credentialId || null) !== (project.credentialId || null)) denied();
+      const bindingChanged = (body.credentialId || null) !== (project.credentialId || null);
+      const repositoryChanged = body.repository !== project.repository;
+      const boundCredential = state.credentials?.find((item) => item.id === project.credentialId);
+      // Existing legacy host credentials remain usable only on their bound source.
+      if (project.credentialId && !boundCredential?.organizationId && (bindingChanged || repositoryChanged)) denied();
+      if (bindingChanged || (body.credentialId && repositoryChanged)) {
+        requirePermission(organization.id, 'project.configure');
+        requirePermission(organization.id, 'credentials.use');
+        assertCredentialUse(state, current, body.credentialId, organization.id);
+      }
       if ((body.sshKeyId || null) !== (project.sshKeyId || null)) denied();
       if (!project.sshKeyId && String(body.repository ?? '').startsWith('git@')) denied();
-      if ((project.credentialId || project.sshKeyId) && body.repository !== project.repository) denied();
+      if (project.sshKeyId && repositoryChanged) denied();
       const incoming = validateProjectSync({ ...body, organization: organization.name });
       const stored = validateProjectSync({ ...project, organization: organization.name, domains: project.domains?.hosts });
       const canonical = (value) => Object.fromEntries(Object.entries(value).filter(([key]) => !['domains', 'organization'].includes(key)));
@@ -53,19 +67,27 @@ export function authorizeRequest({ state, user, path, method, body = {} }) {
     }
     if (!body.organizationId || !organization) denied();
     requirePermission(organization.id, 'project.create');
-    if (body.credentialId || body.sshKeyId || String(body.repository ?? '').startsWith('git@')) denied();
+    if (body.sshKeyId || String(body.repository ?? '').startsWith('git@')) denied();
+    assertCredentialUse(state, current, body.credentialId, organization.id);
     if (body.domains?.length) requirePermission(organization.id, 'domains.manage');
     return { organizationId: organization.id, organization, project: null };
   }
-  if (master) return {};
+  if (master) {
+    if (method === 'POST' && ['/git/branches', '/projects/runtime-detect'].includes(path)) {
+      assertCredentialUse(state, current, body.credentialId, body.organizationId);
+      return { organizationId: body.organizationId };
+    }
+    return {};
+  }
   if (current.role !== 'user') denied();
   if (method === 'GET' && ['/access', '/projects', '/audit', '/notification-hooks', '/monitor-tokens'].includes(path)) return {};
   if (method === 'POST' && ['/logout', '/settings/password'].includes(path)) return {};
 
   if (method === 'POST' && ['/git/branches', '/projects/runtime-detect'].includes(path)) {
     const organization = state.organizations?.find((item) => item.id === body.organizationId);
-    if (!organization || body.credentialId || String(body.repository ?? '').startsWith('git@')) denied();
+    if (!organization || String(body.repository ?? '').startsWith('git@')) denied();
     if (!has(organization.id, 'project.create') && !has(organization.id, 'project.configure')) denied();
+    assertCredentialUse(state, current, body.credentialId, organization.id);
     return { organization, organizationId: organization.id };
   }
   const jobMatch = path.match(/^\/jobs\/([^/]+)$/);

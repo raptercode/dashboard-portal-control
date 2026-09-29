@@ -42,6 +42,7 @@ test('Git sync failures expose a safe actionable category without Git output', (
   assert.equal(safeGitSyncFailure(new Error('fatal: Remote branch main not found in upstream origin')), 'the configured branch was not found.');
   assert.equal(safeGitSyncFailure(new Error('fatal: destination path already exists and is not an empty directory.')), 'an incomplete project workspace could not be reset.');
   assert.equal(safeGitSyncFailure(new Error('fatal: Authentication failed for https://token@example.test/repo.git')), 'repository authentication was rejected.');
+  assert.equal(safeGitSyncFailure(new Error('fatal: unable to access repository: The requested URL returned error: 302')), 'repository redirect was refused; use the canonical HTTPS repository URL.');
   assert.equal(safeGitSyncFailure(new Error('unexpected internal detail')), 'Git exited without a classified error.');
 });
 

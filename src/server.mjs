@@ -9,7 +9,7 @@ import { parseEnvironmentDocument } from '../public/ui/environment-editor.js';
 import { spawn } from 'node:child_process';
 import { assertPythonSource, pythonSettings, pythonStartArgs } from '../scripts/python-project.mjs';
 import { assertPhpSource, phpSettings, phpStartArgs } from '../scripts/php-project.mjs';
-import { StateStore, TOOLS, SUPPORTED_NODE_MAJOR, SecretVault, appendAudit, initialMailState, validateDomain, validateEnvironmentContent, validateEnvironmentVariables, validateGitBranchRequest, validateGitIdentity, validateHttpsCredential, validateNotificationHook, validatePasswordChange, validateProjectDomains, validateProjectRuntimeDetection, validateProjectSync, validateTool, InputError } from './core.mjs';
+import { StateStore, TOOLS, SUPPORTED_NODE_MAJOR, SecretVault, appendAudit, initialMailState, validateDomain, validateEnvironmentContent, validateEnvironmentVariables, validateGitBranchRequest, validateGitIdentity, validateNotificationHook, validatePasswordChange, validateProjectDomains, validateProjectRuntimeDetection, validateProjectSync, validateTool, InputError } from './core.mjs';
 import { checkDomainDns } from './dns-check.mjs';
 import { activateRelease, appendReleaseEvent, beginDeployment, beginRollback, createRelease, defaultCandidatePort, failRelease, initialDeployment, markReleaseHealthy, markReleasePendingActivation, projectIdentity, pruneInactiveReleases, validateDockerComposeProject, validateNativeProject, validatePackageScripts } from './native-project.mjs';
 import { callHostHelper } from './helper-client.mjs';
@@ -30,6 +30,8 @@ import { buildMailPortPlan, demoInboundMailReadiness } from '../scripts/mail-hos
 import { migrateAccessState, publicUser, visibleOrganizations, canAccess, permissionsFor, resolveProjectOrganization } from './access.mjs';
 import { AccessError, handleAccessApi } from './access-api.mjs';
 import { authorizeRequest } from './authorization.mjs';
+import { handleCredentialsApi } from './credentials.mjs';
+import { prepareGitCredentials, assertSafeGitRepositoryConfig } from './git-credentials.mjs';
 import { requestContext } from './request-context.mjs';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
@@ -245,7 +247,10 @@ export async function createApplication(options = {}) {
         const context = requestContext.getStore();
         context.user = session.user;
         const bodyRoutes = ['/api/projects/sync', '/api/git/branches', '/api/projects/runtime-detect', '/api/monitor-tokens', '/api/notification-hooks'];
-        const body = request.method === 'POST' && bodyRoutes.includes(url.pathname) ? await readJson(request) : {};
+        const credentialRoute = /^\/api\/credentials(?:\/|$)/.test(url.pathname);
+        const body = credentialRoute && request.method === 'GET'
+          ? { organizationId: url.searchParams.get('organizationId') || undefined }
+          : (credentialRoute || (request.method === 'POST' && bodyRoutes.includes(url.pathname))) ? await readJson(request) : {};
         if (!getSession(request)) return sendJson(response, 401, { error: 'Session permissions changed. Sign in again.' });
         const access = authorizeRequest({ state: store.snapshot(), user: session.user, path: url.pathname, method: request.method, body });
         context.authorization = { path: url.pathname, method: request.method, body };
@@ -256,6 +261,7 @@ export async function createApplication(options = {}) {
         }
       }
       if (await handleAccessApi({ request, response, path: url.pathname, store, user: requestContext.getStore().user, readJson, sendJson })) return;
+      if (await handleCredentialsApi({ request, response, url, store, user: requestContext.getStore().user, vault, readJson, sendJson })) return;
       if (request.method === 'POST' && url.pathname === '/api/settings/password') return await handlePasswordChange(request, response);
       if (request.method === 'POST' && url.pathname === '/api/logout') {
         const session = requireSession(request, response, true);
@@ -326,12 +332,6 @@ export async function createApplication(options = {}) {
       if (request.method === 'POST' && domainsMatch) return await handleProjectDomains(request, response, domainsMatch[1]);
       const logsMatch = url.pathname.match(/^\/api\/projects\/([a-z][a-z0-9-]{0,62})\/logs$/);
       if (request.method === 'GET' && logsMatch) return await handleProjectLogs(request, response, logsMatch[1]);
-      if (request.method === 'GET' && url.pathname === '/api/credentials') {
-        if (!requireSession(request, response)) return;
-        const snapshot = store.snapshot();
-        const defaultCredentialId = snapshot.git?.defaultCredentialId ?? null;
-        return sendJson(response, 200, { credentials: snapshot.credentials.map((credential) => publicCredential(credential, defaultCredentialId)), defaultCredentialId, vaultReady: Boolean(vault) });
-      }
       if (request.method === 'GET' && url.pathname === '/api/monitor-tokens') {
         if (!requireSession(request, response)) return;
         return sendJson(response, 200, { tokens: (store.snapshot().monitorTokens ?? []).filter(visibleIntegration).map(publicMonitorToken) });
@@ -339,10 +339,6 @@ export async function createApplication(options = {}) {
       if (request.method === 'POST' && url.pathname === '/api/monitor-tokens') return await handleMonitorTokenCreate(request, response);
       const monitorTokenMatch = url.pathname.match(/^\/api\/monitor-tokens\/([a-f0-9-]{36})$/i);
       if (request.method === 'DELETE' && monitorTokenMatch) return await handleMonitorTokenDelete(request, response, monitorTokenMatch[1]);
-      if (request.method === 'POST' && url.pathname === '/api/credentials') return await handleCredential(request, response);
-      if (request.method === 'POST' && url.pathname === '/api/credentials/default') return await handleCredentialDefault(request, response);
-      const credentialMatch = url.pathname.match(/^\/api\/credentials\/([a-f0-9-]{36})$/i);
-      if (request.method === 'DELETE' && credentialMatch) return await handleCredentialDelete(request, response, credentialMatch[1]);
       if (request.method === 'GET' && url.pathname === '/api/notification-hooks') {
         if (!requireSession(request, response)) return;
         return sendJson(response, 200, { hooks: (store.snapshot().notificationHooks ?? []).filter(visibleIntegration).map(publicNotificationHook), vaultReady: Boolean(vault) });
@@ -975,7 +971,7 @@ export async function createApplication(options = {}) {
       if (dockerTool.status !== 'Installed') throw new InputError('Install Docker Engine + Compose before syncing a Docker Compose project.');
     }
     if (!state.git.identity) throw new InputError('Configure Git identity before syncing a project.');
-    const credential = project.credentialId ? credentialForRepository(state, project.credentialId, project.repository) : null;
+    const credential = project.credentialId ? credentialForRepository(store.snapshot(), project.credentialId, project.repository, project.organizationId) : null;
     const previousRevision = storedProject?.sync?.revision ?? null;
     const sync = shouldSyncProjectSource
       ? await projectSyncer(project, credential, vault, projectRoot)
@@ -983,6 +979,8 @@ export async function createApplication(options = {}) {
     const syncFailed = sync.status === 'failed';
     await store.update((next) => {
       authorizeRequest({ state: next, user: requestContext.getStore().user, path: '/api/projects/sync', method: 'POST', body });
+      // A credential may have been changed or deleted while Git was in flight.
+      if (project.credentialId) credentialForRepository(next, project.credentialId, project.repository, project.organizationId);
       if (!project.organizationId) {
         let organization = next.organizations.find((item) => item.name === project.organization);
         if (!organization) { organization = { id: randomUUID(), name: project.organization, createdAt: new Date().toISOString() }; next.organizations.push(organization); }
@@ -1175,7 +1173,7 @@ export async function createApplication(options = {}) {
         rememberPendingSourceCheck(slug, trigger);
         return;
       }
-      const credential = project.credentialId ? credentialForRepository(snapshot, project.credentialId, project.repository) : null;
+      const credential = project.credentialId ? credentialForRepository(snapshot, project.credentialId, project.repository, project.organizationId) : null;
       const sync = shouldSyncProjectSource
         ? await projectSyncer(project, credential, vault, projectRoot)
         : { status: 'synced', at: new Date().toISOString(), revision: project.sync?.revision ?? null, detail: 'Simulated five-minute source check.' };
@@ -1229,7 +1227,7 @@ export async function createApplication(options = {}) {
     const state = store.snapshot();
     const gitTool = mode === 'host' ? (await toolProbe([state.tools.git]))[0] : state.tools.git;
     if (gitTool.status !== 'Installed') throw new InputError('Install Git before fetching branches.');
-    const credential = query.credentialId ? credentialForRepository(state, query.credentialId, query.repository) : null;
+    const credential = query.credentialId ? credentialForRepository(store.snapshot(), query.credentialId, query.repository, requestContext.getStore().organizationId) : null;
     try {
       const branches = await branchFetcher({ repository: query.repository, credential, vault, scratchRoot: projectRoot });
       return sendJson(response, 200, { branches: normalizeBranches(branches) });
@@ -1244,7 +1242,7 @@ export async function createApplication(options = {}) {
     const state = store.snapshot();
     const gitTool = mode === 'host' ? (await toolProbe([state.tools.git]))[0] : state.tools.git;
     if (gitTool.status !== 'Installed') throw new InputError('Install Git before detecting a project runtime.');
-    const credential = query.credentialId ? credentialForRepository(state, query.credentialId, query.repository) : null;
+    const credential = query.credentialId ? credentialForRepository(store.snapshot(), query.credentialId, query.repository, requestContext.getStore().organizationId) : null;
     try {
       const detection = await projectRuntimeDetector({ ...query, credential, vault, scratchRoot: projectRoot });
       await store.update((next) => appendAudit(next, {
@@ -1630,61 +1628,6 @@ export async function createApplication(options = {}) {
     return sendJson(response, 200, { project: publicMonitorProject(project), jobs: state.jobs.filter((item) => item.projectSlug === slug).slice(-25).reverse().map(publicJob) });
   }
 
-  async function handleCredential(request, response) {
-    if (!requireSession(request, response, true)) return;
-    if (!vault) throw new InputError('Credential vault is not configured. Set HOSTMGR_SECRET_KEY before saving a token.');
-    const body = await readJson(request);
-    const credential = validateHttpsCredential(body);
-    const makeDefault = body.default === true || body.default === 'on' || body.defaultCredential === true || body.defaultCredential === 'on';
-    const created = { id: randomUUID(), name: credential.name, host: credential.host, type: 'https_token', createdAt: new Date().toISOString(), encryptedToken: vault.encrypt(credential.token) };
-    await store.update((state) => {
-      if (state.credentials.some((item) => item.name === created.name)) throw new InputError('A credential with this name already exists.');
-      state.credentials.push(created);
-      if (makeDefault) state.git.defaultCredentialId = created.id;
-      appendAudit(state, { action: 'credential.create', outcome: 'success', actor: 'owner', target: created.name, detail: 'HTTPS credential saved without exposing its token' });
-      if (makeDefault) appendAudit(state, { action: 'credential.default_set', outcome: 'success', actor: 'owner', target: created.name, detail: 'Default HTTPS credential updated' });
-    });
-    return sendJson(response, 201, { ok: true, credential: publicCredential(created, store.snapshot().git?.defaultCredentialId ?? null) });
-  }
-
-  async function handleCredentialDefault(request, response) {
-    if (!requireSession(request, response, true)) return;
-    const body = await readJson(request);
-    const credentialId = typeof body.credentialId === 'string' && body.credentialId ? body.credentialId : null;
-    if (credentialId && !/^[a-f0-9-]{36}$/i.test(credentialId)) throw new InputError('Credential selection is invalid.');
-    const snapshot = store.snapshot();
-    const credential = credentialId ? snapshot.credentials.find((item) => item.id === credentialId) : null;
-    if (credentialId && !credential) throw new NotFoundError('Credential was not found.');
-    await store.update((state) => {
-      state.git.defaultCredentialId = credentialId;
-      appendAudit(state, {
-        action: credentialId ? 'credential.default_set' : 'credential.default_clear',
-        outcome: 'success',
-        actor: 'owner',
-        target: credential?.name ?? null,
-        detail: credentialId ? 'Default HTTPS credential updated' : 'Default HTTPS credential cleared'
-      });
-    });
-    const next = store.snapshot();
-    const defaultCredentialId = next.git?.defaultCredentialId ?? null;
-    return sendJson(response, 200, { ok: true, defaultCredentialId, credentials: next.credentials.map((item) => publicCredential(item, defaultCredentialId)) });
-  }
-
-  async function handleCredentialDelete(request, response, id) {
-    if (!requireSession(request, response, true)) return;
-    const snapshot = store.snapshot();
-    const credential = snapshot.credentials.find((item) => item.id === id);
-    if (!credential) throw new NotFoundError('Credential was not found.');
-    const inUse = snapshot.projects.some((project) => project.credentialId === id);
-    if (inUse) throw new InputError('This credential is still selected by a project. Change that project to another credential first.');
-    await store.update((state) => {
-      state.credentials = state.credentials.filter((item) => item.id !== id);
-      if (state.git.defaultCredentialId === id) state.git.defaultCredentialId = null;
-      appendAudit(state, { action: 'credential.delete', outcome: 'success', actor: 'owner', target: credential.name, detail: 'HTTPS credential deleted from the encrypted vault.' });
-    });
-    return sendJson(response, 200, { ok: true });
-  }
-
   async function handleNotificationHookCreate(request, response) {
     if (!requireSession(request, response, true)) return;
     if (!vault) throw new InputError('Credential vault is not configured.');
@@ -1952,20 +1895,8 @@ export async function cloneInSandbox(project, credential, vault, projectRoot) {
   const workspace = projectWorkspace(project, projectRoot);
   const target = repositoryRoot(project, projectRoot);
   await mkdir(workspace, { recursive: true, mode: 0o750 });
-  const env = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
-  let cleanup = async () => {};
-  if (credential) {
-    if (!vault) throw new InputError('Credential vault is not configured.');
-    const tokenFile = join(workspace, `.git-token-${randomUUID()}`);
-    const askPass = join(workspace, `.git-askpass-${randomUUID()}`);
-    await writeFile(tokenFile, vault.decrypt(credential.encryptedToken), { mode: 0o600 });
-    await writeFile(askPass, '#!/bin/sh\ncase "$1" in *Username*) printf %s x-access-token ;; *) cat "$HOSTMGR_GIT_TOKEN_FILE" ;; esac\n', { mode: 0o700 });
-    await chmod(askPass, 0o700);
-    env.GIT_ASKPASS = askPass;
-    env.GIT_ASKPASS_REQUIRE = 'force';
-    env.HOSTMGR_GIT_TOKEN_FILE = tokenFile;
-    cleanup = async () => Promise.all([rm(tokenFile, { force: true }), rm(askPass, { force: true })]);
-  }
+  const authentication = await prepareGitCredentials({ repository: project.repository, credential, vault, scratchRoot: workspace });
+  const { env, args, cwd, cleanup } = authentication;
   try {
     const exists = await stat(join(target, '.git')).then(() => true).catch(() => false);
     if (!exists) {
@@ -1974,18 +1905,19 @@ export async function cloneInSandbox(project, credential, vault, projectRoot) {
       // retry fail with "destination path already exists".
       const incompleteTarget = await stat(target).then(() => true).catch(() => false);
       if (incompleteTarget) await rm(target, { recursive: true, force: true });
-      await run('git', ['clone', '--branch', project.branch, '--single-branch', project.repository, target], { env });
+      await run('git', [...args, 'clone', '--branch', project.branch, '--single-branch', authentication.repository, target], { env, cwd });
     }
     else {
       // The project's repository URL can change after the first sync (an
       // edit). Without repointing origin first, fetch/reset would silently
       // keep pulling the previously configured repository.
-      await run('git', ['-C', target, 'remote', 'set-url', 'origin', project.repository], { env });
-      await run('git', ['-C', target, 'fetch', '--prune', 'origin', project.branch], { env });
-      await run('git', ['-C', target, 'checkout', '--force', project.branch], { env });
-      await run('git', ['-C', target, 'reset', '--hard', `origin/${project.branch}`], { env });
+      if (credential) await assertSafeGitRepositoryConfig(target, authentication);
+      await run('git', [...args, '-C', target, 'remote', 'set-url', 'origin', authentication.repository], { env, cwd });
+      await run('git', [...args, '-C', target, 'fetch', '--prune', 'origin', project.branch], { env, cwd });
+      await run('git', [...args, '-C', target, 'checkout', '--force', project.branch], { env, cwd });
+      await run('git', [...args, '-C', target, 'reset', '--hard', `origin/${project.branch}`], { env, cwd });
     }
-    const revision = await run('git', ['-C', target, 'rev-parse', 'HEAD'], { env });
+    const revision = await run('git', [...args, '-C', target, 'rev-parse', 'HEAD'], { env, cwd });
     return { status: 'synced', at: new Date().toISOString(), revision, detail: 'Repository cloned or pulled in the sandbox.' };
   } catch (error) {
     return { status: 'failed', at: new Date().toISOString(), detail: `Repository sync failed: ${safeGitSyncFailure(error)}` };
@@ -1994,6 +1926,7 @@ export async function cloneInSandbox(project, credential, vault, projectRoot) {
 
 export function safeGitSyncFailure(error) {
   const message = String(error?.message ?? '');
+  if (/requested URL returned error:\s*30[12378]|redirect.*(?:refused|not allowed)|redirection/i.test(message)) return 'repository redirect was refused; use the canonical HTTPS repository URL.';
   if (/could not resolve host|network is unreachable|connection timed out|failed to connect/i.test(message)) return 'network connection to the repository failed.';
   if (/remote branch .* not found|couldn.t find remote ref/i.test(message)) return 'the configured branch was not found.';
   if (/authentication failed|could not read username|terminal prompts disabled/i.test(message)) return 'repository authentication was rejected.';
@@ -2007,25 +1940,13 @@ export function safeGitSyncFailure(error) {
 async function listRemoteBranches({ repository, credential, vault, scratchRoot }) {
   const directory = join(scratchRoot, `.git-branches-${randomUUID()}`);
   await mkdir(directory, { recursive: true, mode: 0o700 });
-  const env = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
-  let cleanup = async () => {};
-  if (credential) {
-    if (!vault) throw new InputError('Credential vault is not configured.');
-    const tokenFile = join(directory, 'token');
-    const askPass = join(directory, 'askpass');
-    await writeFile(tokenFile, vault.decrypt(credential.encryptedToken), { mode: 0o600 });
-    await writeFile(askPass, '#!/bin/sh\ncase "$1" in *Username*) printf %s x-access-token ;; *) cat "$HOSTMGR_GIT_TOKEN_FILE" ;; esac\n', { mode: 0o700 });
-    await chmod(askPass, 0o700);
-    env.GIT_ASKPASS = askPass;
-    env.GIT_ASKPASS_REQUIRE = 'force';
-    env.HOSTMGR_GIT_TOKEN_FILE = tokenFile;
-    cleanup = async () => Promise.all([rm(tokenFile, { force: true }), rm(askPass, { force: true })]);
-  }
+  let authentication;
   try {
-    const output = await run('git', ['ls-remote', '--heads', repository], { env, timeout: 30_000 });
+    authentication = await prepareGitCredentials({ repository, credential, vault, scratchRoot: directory });
+    const output = await run('git', [...authentication.args, 'ls-remote', '--heads', authentication.repository], { env: authentication.env, cwd: authentication.cwd, timeout: 30_000 });
     return output.split('\n').map((line) => line.split('\t')[1]?.replace(/^refs\/heads\//, '')).filter(Boolean);
   } finally {
-    await cleanup();
+    await authentication?.cleanup();
     await rm(directory, { recursive: true, force: true });
   }
 }
@@ -2048,31 +1969,20 @@ export async function detectProjectRuntime({ repository, protocol, branch, direc
   const workspace = join(scratchRoot, `.git-runtime-${randomUUID()}`);
   const checkout = join(workspace, 'repository');
   await mkdir(workspace, { recursive: true, mode: 0o700 });
-  const env = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
-  let cleanup = async () => {};
-  if (credential) {
-    if (!vault) throw new InputError('Credential vault is not configured.');
-    const tokenFile = join(workspace, 'token');
-    const askPass = join(workspace, 'askpass');
-    await writeFile(tokenFile, vault.decrypt(credential.encryptedToken), { mode: 0o600 });
-    await writeFile(askPass, '#!/bin/sh\ncase "$1" in *Username*) printf %s x-access-token ;; *) cat "$HOSTMGR_GIT_TOKEN_FILE" ;; esac\n', { mode: 0o700 });
-    await chmod(askPass, 0o700);
-    env.GIT_ASKPASS = askPass;
-    env.GIT_ASKPASS_REQUIRE = 'force';
-    env.HOSTMGR_GIT_TOKEN_FILE = tokenFile;
-    cleanup = async () => Promise.all([rm(tokenFile, { force: true }), rm(askPass, { force: true })]);
-  }
+  let authentication;
   try {
-    await run('git', ['clone', '--depth', '1', '--single-branch', '--no-tags', '--branch', branch, repository, checkout], { env, timeout: 120_000 });
+    authentication = await prepareGitCredentials({ repository, credential, vault, scratchRoot: workspace });
+    await run('git', [...authentication.args, 'clone', '--depth', '1', '--single-branch', '--no-tags', '--branch', branch, authentication.repository, checkout], { env: authentication.env, cwd: authentication.cwd, timeout: 120_000 });
     return await scanProjectRuntimeDirectory(checkout, directory);
   } finally {
-    await cleanup();
+    await authentication?.cleanup();
     await rm(workspace, { recursive: true, force: true });
   }
 }
 
 function safeGitBranchFailure(error) {
   const message = String(error?.message ?? '');
+  if (/requested URL returned error:\s*30[12378]|redirect.*(?:refused|not allowed)|redirection/i.test(message)) return 'repository redirect was refused; use the canonical HTTPS repository URL.';
   if (/could not resolve host|network is unreachable|connection timed out|failed to connect/i.test(message)) return 'network connection to the repository failed.';
   if (/authentication failed|could not read username|terminal prompts disabled/i.test(message)) return 'repository authentication was rejected.';
   if (/permission denied|eacces/i.test(message)) return 'repository access was denied.';
@@ -2601,14 +2511,11 @@ function delay(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
-function publicCredential(credential, defaultCredentialId = null) {
-  const { encryptedToken, ...safe } = credential;
-  return { ...safe, isDefault: credential.id === defaultCredentialId };
-}
-
-function credentialForRepository(state, credentialId, repository) {
+function credentialForRepository(state, credentialId, repository, organizationId) {
+  assertRequestAuthorization(state);
   const credential = state.credentials.find((item) => item.id === credentialId);
   if (!credential) throw new InputError('Selected credential was not found.');
+  if (credential.organizationId && credential.organizationId !== organizationId) throw new AccessError('Selected credential is not available for this organization.');
   const host = repositoryHost(repository);
   if (credential.host && host && credential.host !== host) throw new InputError(`Selected credential is scoped to ${credential.host}, not ${host}.`);
   if (!credential.host) throw new InputError('Selected credential has no Git host scope. Recreate it before use.');

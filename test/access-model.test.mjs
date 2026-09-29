@@ -50,7 +50,7 @@ test('permissions isolate organizations and consult current account status and r
 test('master grants only known permissions in existing organizations; presets and public records are safe', () => {
   const user = { id: 'm', role: 'master', status: 'active', password: 'secret', token: 'secret', authVersion: 9 };
   const state = { users: [user], organizations: [{ id: 'a', name: 'A' }] };
-  assert.equal(permissionsFor(state, user, 'a').length, 12);
+  assert.deepEqual(permissionsFor(state, user, 'a'), PERMISSIONS.map(({ id }) => id));
   assert.equal(canAccess(state, user, 'a', 'project.delete'), false);
   assert.equal(canAccess(state, user, 'missing', 'project.view'), false);
   assert.equal(publicUser(user).password, undefined);
