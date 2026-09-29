@@ -87,7 +87,8 @@ host bind mounts; this is a guardrail, not a hostile-code sandbox (ADR 0021).
 - Clone over SSH deploy keys — **Planned**; SSH projects are intentionally blocked (`needs_ssh_key`) until key generation, registration, rotation, and revocation exist
 - Choose the deploy branch (fetched from the remote) — **Implemented**
 - Manual deploy from the Dashboard — **Implemented**
-- Webhook-triggered auto deploy — **Planned**
+- GitHub push webhook-triggered auto deploy — **Implemented** (signed delivery, exact repository and branch, polling fallback)
+- GitLab inbound auto deploy — **Planned**
 - Store credentials encrypted, never returned or logged — **Implemented**
 
 ### Domain management
@@ -328,7 +329,8 @@ boundary (see ADR 0021).
 Project onboarding inspects a shallow, non-executing repository checkout and
 suggests Docker Compose, Bun, or Node from its metadata; the owner can always
 override the icon-based dropdown. Mail host provisioning is port-aware and
-fails closed as described above. GitHub/GitLab inbound auto-deploy,
+fails closed as described above. Signed GitHub push-triggered auto-deploy is implemented;
+GitLab inbound auto-deploy,
 per-project backup/restore, certificate-expiry alerting, and notification
 retry queues remain planned follow-on work.
 

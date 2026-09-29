@@ -3,7 +3,7 @@ import { createServer as createTcpServer } from 'node:net';
 import { chmod, cp, lstat, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import os from 'node:os';
 import { parseEnvironmentDocument } from '../public/ui/environment-editor.js';
 import { spawn } from 'node:child_process';
@@ -122,6 +122,7 @@ export async function createApplication(options = {}) {
   const loginAttempts = new Map();
   let deploymentQueueDraining = false;
   const autoSyncRunning = new Set();
+  const autoSyncPending = new Map();
   const autoSyncIntervalMs = options.autoSyncIntervalMs ?? 5 * 60 * 1000;
   const autoSyncPollingEnabled = options.autoSyncPollingEnabled !== false;
   let autoSyncTimer = null;
@@ -194,6 +195,10 @@ export async function createApplication(options = {}) {
         return response.end();
       }
       if (request.method === 'GET' && url.pathname === '/api/health') return sendJson(response, 200, { status: 'ok', mode, node: process.version });
+      const githubPushMatch = url.pathname.match(/^\/api\/webhooks\/github\/([a-z][a-z0-9-]{0,62})$/);
+      if (request.method === 'POST' && githubPushMatch) return await handleGithubPush(request, response, githubPushMatch[1]);
+      const actionsHookMatch = url.pathname.match(/^\/api\/webhooks\/actions\/([a-z][a-z0-9-]{0,62})$/);
+      if (request.method === 'POST' && actionsHookMatch) return await handleActionsHook(request, response, actionsHookMatch[1]);
       const monitorDeploymentMatch = url.pathname.match(/^\/api\/monitor\/v1\/projects\/([a-z][a-z0-9-]{0,62})\/deployments$/);
       if (request.method === 'GET' && monitorDeploymentMatch) return await handleMonitorDeployment(request, response, monitorDeploymentMatch[1]);
       if (request.method === 'GET' && url.pathname === '/api/session') {
@@ -255,6 +260,10 @@ export async function createApplication(options = {}) {
       if (request.method === 'POST' && deployMatch) return await handleProjectDeploy(request, response, deployMatch[1]);
       const autoSyncMatch = url.pathname.match(/^\/api\/projects\/([a-z][a-z0-9-]{0,62})\/auto-sync$/);
       if (request.method === 'POST' && autoSyncMatch) return await handleProjectAutoSync(request, response, autoSyncMatch[1]);
+      const githubHookMatch = url.pathname.match(/^\/api\/projects\/([a-z][a-z0-9-]{0,62})\/github-webhook$/);
+      if (request.method === 'POST' && githubHookMatch) return await handleGithubWebhookConfig(request, response, githubHookMatch[1]);
+      const actionsConfigMatch = url.pathname.match(/^\/api\/projects\/([a-z][a-z0-9-]{0,62})\/actions-hook$/);
+      if (request.method === 'POST' && actionsConfigMatch) return await handleActionsHookConfig(request, response, actionsConfigMatch[1]);
       const rollbackMatch = url.pathname.match(/^\/api\/projects\/([a-z][a-z0-9-]{0,62})\/rollback$/);
       if (request.method === 'POST' && rollbackMatch) return await handleProjectRollback(request, response, rollbackMatch[1]);
       const deployConfigurationMatch = url.pathname.match(/^\/api\/projects\/([a-z][a-z0-9-]{0,62})\/deploy-configuration$/);
@@ -919,7 +928,7 @@ export async function createApplication(options = {}) {
       appendAudit(next, { action: 'project.sync_configure', outcome: syncFailed ? 'failure' : 'success', actor: 'owner', target: project.slug, detail: syncFailed ? 'Repository sync failed without changing an active release' : `${project.protocol.toUpperCase()} project sync configured` });
     });
     let autoDeploy = null;
-    if (!syncFailed) {
+    if (!syncFailed && storedProject?.autoSync?.mode !== 'actions') {
       const currentRevision = store.snapshot().projects.find((item) => item.slug === project.slug)?.sync?.revision ?? null;
       if (currentRevision && currentRevision !== previousRevision) autoDeploy = await queueAutoDeployIfEnabled(project.slug, currentRevision);
     }
@@ -934,12 +943,103 @@ export async function createApplication(options = {}) {
     findProject(store.snapshot(), slug);
     await store.update((state) => {
       const target = findProject(state, slug);
-      target.autoSync = enabled
-        ? { enabled: true, provider: 'poll', configuredAt: new Date().toISOString(), lastCheckedAt: target.autoSync?.lastCheckedAt ?? null, lastResult: { status: 'enabled', at: new Date().toISOString(), detail: 'Portal will check this branch every 5 minutes.' } }
-        : { enabled: false, provider: 'poll', configuredAt: null, lastCheckedAt: target.autoSync?.lastCheckedAt ?? null, lastResult: { status: 'disabled', at: new Date().toISOString(), detail: 'Portal will continue checking for new commits but will not deploy them automatically.' } };
+      target.autoSync = {
+        ...target.autoSync,
+        enabled,
+        mode: 'poll',
+        provider: 'poll',
+        configuredAt: enabled ? new Date().toISOString() : null,
+        lastCheckedAt: target.autoSync?.lastCheckedAt ?? null,
+        lastResult: { status: enabled ? 'enabled' : 'disabled', at: new Date().toISOString(), detail: enabled ? 'Portal will check this branch every 5 minutes.' : 'Portal will continue checking for new commits but will not deploy them automatically.' }
+      };
       appendAudit(state, { action: 'project.auto_sync_configure', outcome: 'success', actor: 'owner', target: slug, detail: enabled ? 'Five-minute source polling and automatic redeploy enabled.' : 'Automatic redeploy disabled; five-minute source polling remains enabled.' });
     });
     return sendJson(response, 200, { ok: true, project: publicProject(store.snapshot().projects.find((item) => item.slug === slug)) });
+  }
+
+  async function handleGithubWebhookConfig(request, response, slug) {
+    if (!requireSession(request, response, true)) return;
+    if (!vault) throw new InputError('Credential vault is not configured.');
+    const action = (await readJson(request)).action;
+    if (!['rotate', 'disable'].includes(action)) throw new InputError('Webhook action is invalid.');
+    if (action === 'rotate' && !githubRepositoryName(findProject(store.snapshot(), slug).repository)) throw new InputError('GitHub webhook requires a github.com repository.');
+    const secret = action === 'rotate' ? randomBytes(32).toString('hex') : null;
+    await store.update((state) => {
+      const project = findProject(state, slug);
+      project.autoSync ??= { enabled: false, provider: 'poll', configuredAt: null, lastCheckedAt: null, lastResult: null };
+      if (action === 'rotate') {
+        project.autoSync.encryptedSecret = vault.encrypt(secret);
+        project.autoSync.enabled = true;
+        project.autoSync.mode = 'github';
+        project.autoSync.configuredAt ??= new Date().toISOString();
+      }
+      else {
+        delete project.autoSync.encryptedSecret;
+        if (project.autoSync.mode === 'github') project.autoSync.mode = 'poll';
+      }
+      appendAudit(state, { action: 'project.github_webhook', outcome: 'success', actor: 'owner', target: slug, detail: action === 'rotate' ? 'GitHub webhook secret created or rotated.' : 'GitHub webhook disabled.' });
+    });
+    return sendJson(response, 200, { ok: true, secret, project: publicProject(findProject(store.snapshot(), slug)) });
+  }
+
+  async function handleGithubPush(request, response, slug) {
+    const project = store.snapshot().projects.find((item) => item.slug === slug);
+    // Unknown projects and unconfigured hooks share the same response.
+    if (!project?.autoSync?.encryptedSecret || !vault) return sendJson(response, 404, { error: 'Webhook not found.' });
+    const body = await readRawBody(request, 1024 * 1024);
+    const signature = request.headers['x-hub-signature-256'];
+    const expected = `sha256=${createHmac('sha256', vault.decrypt(project.autoSync.encryptedSecret)).update(body).digest('hex')}`;
+    if (typeof signature !== 'string' || !/^(sha256=)[a-f0-9]{64}$/.test(signature) || !timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
+      return sendJson(response, 401, { error: 'Invalid webhook signature.' });
+    }
+    if (request.headers['x-github-event'] !== 'push') return sendJson(response, 202, { accepted: false, reason: 'event_ignored' });
+    let payload;
+    try { payload = JSON.parse(body.toString('utf8')); }
+    catch { throw new InputError('Invalid JSON body.'); }
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new InputError('Invalid webhook payload.');
+    if (payload.ref !== `refs/heads/${project.branch}` || payload.deleted === true || githubRepositoryName(project.repository) !== (typeof payload.repository?.full_name === 'string' ? payload.repository.full_name.toLowerCase() : null)) {
+      return sendJson(response, 202, { accepted: false, reason: 'source_ignored' });
+    }
+    if (!project.autoSync.enabled || project.autoSync.mode !== 'github') return sendJson(response, 202, { accepted: false, reason: 'auto_deploy_disabled' });
+    // Always fetch the configured branch; a delivery can arrive late or out of order.
+    setImmediate(() => { void pollProjectSource(slug, 'github'); });
+    return sendJson(response, 202, { accepted: true });
+  }
+
+  async function handleActionsHookConfig(request, response, slug) {
+    if (!requireSession(request, response, true)) return;
+    if (!vault) throw new InputError('Credential vault is not configured.');
+    const action = (await readJson(request)).action;
+    if (!['rotate', 'disable'].includes(action)) throw new InputError('Actions hook action is invalid.');
+    const secret = action === 'rotate' ? randomBytes(32).toString('hex') : null;
+    await store.update((state) => {
+      const project = findProject(state, slug);
+      project.autoSync ??= { enabled: false, provider: 'poll', configuredAt: null, lastCheckedAt: null, lastResult: null };
+      if (action === 'rotate') {
+        project.autoSync.encryptedActionsSecret = vault.encrypt(secret);
+        project.autoSync.enabled = true;
+        project.autoSync.mode = 'actions';
+        project.autoSync.configuredAt ??= new Date().toISOString();
+      } else {
+        delete project.autoSync.encryptedActionsSecret;
+        if (project.autoSync.mode === 'actions') project.autoSync.enabled = false;
+      }
+      appendAudit(state, { action: 'project.actions_hook', outcome: 'success', actor: 'owner', target: slug, detail: action === 'rotate' ? 'Actions hook secret created or rotated.' : 'Actions hook disabled.' });
+    });
+    return sendJson(response, 200, { ok: true, secret, project: publicProject(findProject(store.snapshot(), slug)) });
+  }
+
+  async function handleActionsHook(request, response, slug) {
+    const project = store.snapshot().projects.find((item) => item.slug === slug);
+    if (!project?.autoSync?.encryptedActionsSecret || !vault) return sendJson(response, 404, { error: 'Hook not found.' });
+    const authorization = request.headers.authorization;
+    const token = typeof authorization === 'string' && /^Bearer ([a-f0-9]{64})$/.exec(authorization)?.[1];
+    const expected = vault.decrypt(project.autoSync.encryptedActionsSecret);
+    if (!token || !timingSafeEqual(Buffer.from(token), Buffer.from(expected))) return sendJson(response, 401, { error: 'Invalid hook token.' });
+    await readRawBody(request, 1024);
+    if (!project.autoSync.enabled || project.autoSync.mode !== 'actions') return sendJson(response, 202, { accepted: false, reason: 'auto_deploy_disabled' });
+    setImmediate(() => { void pollProjectSource(slug, 'actions'); });
+    return sendJson(response, 202, { accepted: true });
   }
 
   async function queueAutoDeployIfEnabled(slug, revision) {
@@ -989,13 +1089,20 @@ export async function createApplication(options = {}) {
     for (const project of store.snapshot().projects) await pollProjectSource(project.slug);
   }
 
-  async function pollProjectSource(slug) {
-    if (autoSyncRunning.has(slug)) return;
+  async function pollProjectSource(slug, trigger = 'poll') {
+    if (autoSyncRunning.has(slug)) {
+      rememberPendingSourceCheck(slug, trigger);
+      return;
+    }
     autoSyncRunning.add(slug);
     try {
       const snapshot = store.snapshot();
       const project = snapshot.projects.find((item) => item.slug === slug);
-      if (!project || snapshot.jobs.some((job) => job.projectSlug === slug && ['queued', 'running'].includes(job.status))) return;
+      if (!project) return;
+      if (snapshot.jobs.some((job) => job.projectSlug === slug && ['queued', 'running'].includes(job.status))) {
+        rememberPendingSourceCheck(slug, trigger);
+        return;
+      }
       const credential = project.credentialId ? credentialForRepository(snapshot, project.credentialId, project.repository) : null;
       const sync = shouldSyncProjectSource
         ? await projectSyncer(project, credential, vault, projectRoot)
@@ -1009,13 +1116,30 @@ export async function createApplication(options = {}) {
         target.autoSync.lastResult = { status: sync.status !== 'synced' ? 'failed' : (hasNewCommit ? 'new_commit' : 'unchanged'), at: sync.at, detail: sync.detail };
         appendAudit(state, { action: 'project.source_poll', outcome: sync.status === 'synced' ? 'success' : 'failure', actor: 'system', target: slug, detail: sync.status !== 'synced' ? sync.detail : (hasNewCommit ? `New commit ${sync.revision} found.` : 'No new commit found.') });
       });
-      if (!hasNewCommit) return;
+      const latestRelease = project.deployment?.releases?.[0];
+      const hookNeedsRelease = trigger !== 'poll' && sync.status === 'synced' && Boolean(sync.revision)
+        && (latestRelease?.revision !== sync.revision || latestRelease.status === 'failed');
+      const currentMode = store.snapshot().projects.find((item) => item.slug === slug)?.autoSync?.mode;
+      if (trigger === 'poll' && currentMode === 'actions') return;
+      if (trigger === 'github' && currentMode !== 'github') return;
+      if (trigger === 'actions' && currentMode !== 'actions') return;
+      if (!hasNewCommit && !hookNeedsRelease) return;
       await queueAutoDeployIfEnabled(slug, sync.revision);
     } catch (error) {
       await recordAutoSyncResult(slug, 'failed', safeDeploymentFailure(error));
     } finally {
       autoSyncRunning.delete(slug);
+      const pendingTrigger = autoSyncPending.get(slug);
+      if (pendingTrigger && !store.snapshot().jobs.some((job) => job.projectSlug === slug && ['queued', 'running'].includes(job.status))) {
+        autoSyncPending.delete(slug);
+        setImmediate(() => { void pollProjectSource(slug, pendingTrigger); });
+      }
     }
+  }
+
+  function rememberPendingSourceCheck(slug, trigger) {
+    const existing = autoSyncPending.get(slug);
+    if (!existing || trigger !== 'poll') autoSyncPending.set(slug, trigger);
   }
 
   async function recordAutoSyncResult(slug, status, detail) {
@@ -1237,6 +1361,10 @@ export async function createApplication(options = {}) {
     void drainDeploymentQueue().finally(() => {
       deploymentQueueDraining = false;
       if (store.snapshot().jobs.some((item) => item.status === 'queued')) scheduleDeploymentQueue();
+      else for (const [slug, trigger] of autoSyncPending) {
+        autoSyncPending.delete(slug);
+        setImmediate(() => { void pollProjectSource(slug, trigger); });
+      }
     });
   }
 
@@ -2455,9 +2583,16 @@ function publicProject(project) {
   if (safe.environment) delete safe.environment.encryptedContent;
   if (safe.autoSync) {
     delete safe.autoSync.encryptedSecret;
+    delete safe.autoSync.encryptedActionsSecret;
     safe.autoSync.hasSecret = Boolean(project.autoSync.encryptedSecret);
+    safe.autoSync.hasActionsSecret = Boolean(project.autoSync.encryptedActionsSecret);
   }
   return safe;
+}
+
+function githubRepositoryName(repository) {
+  const match = String(repository ?? '').match(/^(?:https:\/\/github\.com\/|git@github\.com:)([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+?)(?:\.git)?\/?$/i);
+  return match?.[1].toLowerCase() ?? null;
 }
 
 function publicJob(job) {

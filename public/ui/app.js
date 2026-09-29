@@ -997,7 +997,7 @@ function projectRow(project) {
     ['Runtime', runtime],
     ['Environment', project.environment?.keys?.length ? `.env ${project.environment.keys.length} keys` : 'ไม่มีค่า .env'],
     ['Auto deploy', project.autoSync?.enabled
-      ? `เมื่อ sync Git จะสร้าง release อัตโนมัติ${project.autoSync.lastResult ? ` · ${project.autoSync.lastResult.status}` : ''}`
+      ? `${project.autoSync.mode === 'actions' ? 'รอ Actions hook หลัง CI ผ่าน' : project.autoSync.mode === 'github' ? 'GitHub push + ตรวจ Git ทุก 5 นาที' : 'ตรวจ Git ทุก 5 นาที'}${project.autoSync.lastResult ? ` · ${project.autoSync.lastResult.status}` : ''}`
       : 'เมื่อ sync Git ต้องกด Deploy เอง']
   ];
   values.forEach(([label, value]) => detailList.append(element('dt', '', label), element('dd', '', value)));
@@ -1063,10 +1063,20 @@ function projectRow(project) {
   hooks.type = 'button';
   hooks.addEventListener('click', closeMenu(() => openNotificationHookDialog(project).catch(showError)));
   actionList.append(hooks);
-  const autoSync = element('button', 'secondary', project.autoSync?.enabled ? 'ปิด Auto deploy' : 'เปิด Auto deploy');
+  const autoSync = element('button', 'secondary', project.autoSync?.enabled && project.autoSync.mode !== 'actions' ? 'ปิด Auto deploy' : 'ใช้ Auto deploy แบบตรวจ Git ทุก 5 นาที');
   autoSync.type = 'button';
   autoSync.addEventListener('click', closeMenu(() => configureAutoSync(project, autoSync).catch(showError)));
   actionList.append(autoSync);
+  if (/^(?:https:\/\/github\.com\/|git@github\.com:)/i.test(project.repository)) {
+    const githubWebhook = element('button', 'secondary', 'ตั้งค่า GitHub webhook');
+    githubWebhook.type = 'button';
+    githubWebhook.addEventListener('click', closeMenu(() => openGithubWebhookDialog(project)));
+    actionList.append(githubWebhook);
+  }
+  const actionsHook = element('button', 'secondary', 'ตั้งค่า Actions hook (ทางเลือก)');
+  actionsHook.type = 'button';
+  actionsHook.addEventListener('click', closeMenu(() => openActionsHookDialog(project)));
+  actionList.append(actionsHook);
   const edit = element('a', 'secondary button', 'แก้ไขโปรเจค');
   edit.href = `/projects/${encodeURIComponent(project.slug)}/edit`;
   actionList.append(edit);
@@ -1472,7 +1482,7 @@ function renderMailPreview() {
 }
 
 async function configureAutoSync(project, button) {
-  if (project.autoSync?.enabled) {
+  if (project.autoSync?.enabled && project.autoSync.mode !== 'actions') {
     if (!await confirmAction('ปิด Auto deploy', `หยุดสร้าง release อัตโนมัติหลัง sync Git ของ ${project.name} หรือไม่?`, 'ปิด Auto deploy')) return;
     await withBusy(button, async () => {
       await api(`/api/projects/${encodeURIComponent(project.slug)}/auto-sync`, { method: 'POST', body: { enabled: false } });
@@ -1484,7 +1494,71 @@ async function configureAutoSync(project, button) {
   await withBusy(button, async () => {
     await api(`/api/projects/${encodeURIComponent(project.slug)}/auto-sync`, { method: 'POST', body: { enabled: true } });
     await refresh();
-    toast('เปิด Auto deploy แล้ว เมื่อ sync Git จะสร้าง release อัตโนมัติ');
+    toast('ใช้ Auto deploy แบบตรวจ Git ทุก 5 นาทีแล้ว ไม่ต้องตั้ง Actions');
+  });
+}
+
+function openGithubWebhookDialog(project) {
+  state.activeProject = project;
+  $('#github-webhook-project').textContent = `${project.name} · branch ${project.branch}`;
+  $('#github-webhook-url').value = `${location.origin}/api/webhooks/github/${encodeURIComponent(project.slug)}`;
+  $('#github-webhook-status').textContent = project.autoSync?.hasSecret
+    ? (project.autoSync.enabled && project.autoSync.mode === 'github' ? 'GitHub webhook พร้อมใช้งาน · มี polling สำรอง' : 'มี Secret แต่โหมด GitHub webhook ยังไม่เปิด')
+    : 'ยังไม่มี Secret';
+  $('#github-webhook-secret').value = '';
+  $('#github-webhook-secret-row').hidden = true;
+  $('#github-webhook-copy').hidden = true;
+  $('#github-webhook-disable').hidden = !project.autoSync?.hasSecret;
+  $('#github-webhook-rotate').textContent = project.autoSync?.hasSecret ? 'เปลี่ยน Secret' : 'สร้าง Secret';
+  showDialog($('#github-webhook-dialog'));
+}
+
+async function updateGithubWebhook(action, button) {
+  const project = state.activeProject;
+  if (!project) return;
+  if (action === 'rotate' && project.autoSync?.hasSecret && !await confirmAction('เปลี่ยน Secret', 'GitHub webhook เดิมจะใช้ไม่ได้ทันที ต้องนำ Secret ใหม่ไปบันทึกใน GitHub', 'เปลี่ยน Secret')) return;
+  if (action === 'disable' && !await confirmAction('ปิด GitHub webhook', 'GitHub push จะหยุด trigger ทันที แต่ Auto deploy แบบตรวจทุก 5 นาทียังทำงานถ้าเปิดไว้', 'ปิด webhook')) return;
+  await withBusy(button, async () => {
+    const result = await api(`/api/projects/${encodeURIComponent(project.slug)}/github-webhook`, { method: 'POST', body: { action } });
+    project.autoSync = result.project.autoSync;
+    $('#github-webhook-status').textContent = action === 'rotate' ? 'เปิด Auto deploy แล้ว · คัดลอก Secret ตอนนี้ ระบบจะไม่แสดงอีก' : 'ปิด GitHub webhook แล้ว';
+    $('#github-webhook-secret').value = result.secret || '';
+    $('#github-webhook-secret-row').hidden = !result.secret;
+    $('#github-webhook-copy').hidden = !result.secret;
+    $('#github-webhook-disable').hidden = action === 'disable';
+    $('#github-webhook-rotate').textContent = 'เปลี่ยน Secret';
+  });
+}
+
+function openActionsHookDialog(project) {
+  state.activeProject = project;
+  $('#actions-hook-project').textContent = `${project.name} · branch ${project.branch}`;
+  $('#actions-hook-url').value = `${location.origin}/api/webhooks/actions/${encodeURIComponent(project.slug)}`;
+  $('#actions-hook-status').textContent = project.autoSync?.hasActionsSecret
+    ? (project.autoSync.enabled && project.autoSync.mode === 'actions' ? 'โหมด Actions hook เปิดอยู่ · รอ CI ผ่านก่อน deploy' : 'มี Token แต่โหมด Actions hook ยังไม่เปิด')
+    : 'ยังไม่มี Token';
+  $('#actions-hook-secret').value = '';
+  $('#actions-hook-secret-row').hidden = true;
+  $('#actions-hook-copy').hidden = true;
+  $('#actions-hook-disable').hidden = !project.autoSync?.hasActionsSecret;
+  $('#actions-hook-rotate').textContent = project.autoSync?.hasActionsSecret ? 'เปลี่ยน Token' : 'สร้าง Token';
+  showDialog($('#actions-hook-dialog'));
+}
+
+async function updateActionsHook(action, button) {
+  const project = state.activeProject;
+  if (!project) return;
+  if (action === 'rotate' && project.autoSync?.hasActionsSecret && !await confirmAction('เปลี่ยน Token', 'Actions hook เดิมจะใช้ไม่ได้ทันที ต้องอัปเดต Secret ใน CI', 'เปลี่ยน Token')) return;
+  if (action === 'disable' && !await confirmAction('ปิด Actions hook', 'CI จะหยุด trigger ผ่าน hook และ Auto deploy จะปิด เลือกโหมดตรวจ Git ทุก 5 นาทีได้จากเมนูโปรเจค', 'ปิด hook')) return;
+  await withBusy(button, async () => {
+    const result = await api(`/api/projects/${encodeURIComponent(project.slug)}/actions-hook`, { method: 'POST', body: { action } });
+    project.autoSync = result.project.autoSync;
+    $('#actions-hook-status').textContent = action === 'rotate' ? 'เปิด Auto deploy แล้ว · คัดลอก Token ตอนนี้ ระบบจะไม่แสดงอีก' : 'ปิด Actions hook แล้ว';
+    $('#actions-hook-secret').value = result.secret || '';
+    $('#actions-hook-secret-row').hidden = !result.secret;
+    $('#actions-hook-copy').hidden = !result.secret;
+    $('#actions-hook-disable').hidden = action === 'disable';
+    $('#actions-hook-rotate').textContent = 'เปลี่ยน Token';
   });
 }
 
@@ -3757,6 +3831,18 @@ async function syncProjectDraft() {
 
 function bindEvents() {
   bindDialogDismissals();
+  $('#github-webhook-rotate')?.addEventListener('click', (event) => updateGithubWebhook('rotate', event.currentTarget).catch(showError));
+  $('#github-webhook-disable')?.addEventListener('click', (event) => updateGithubWebhook('disable', event.currentTarget).catch(showError));
+  $('#github-webhook-copy')?.addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText($('#github-webhook-secret').value); toast('คัดลอก Secret แล้ว'); }
+    catch { showDialogError($('#github-webhook-dialog'), 'คัดลอกอัตโนมัติไม่ได้ กรุณาเลือก Secret แล้วคัดลอก'); }
+  });
+  $('#actions-hook-rotate')?.addEventListener('click', (event) => updateActionsHook('rotate', event.currentTarget).catch(showError));
+  $('#actions-hook-disable')?.addEventListener('click', (event) => updateActionsHook('disable', event.currentTarget).catch(showError));
+  $('#actions-hook-copy')?.addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText($('#actions-hook-secret').value); toast('คัดลอก Token แล้ว'); }
+    catch { showDialogError($('#actions-hook-dialog'), 'คัดลอกอัตโนมัติไม่ได้ กรุณาเลือก Token แล้วคัดลอก'); }
+  });
   $('#login-form')?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const error = $('#login-error');

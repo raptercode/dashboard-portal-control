@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createHmac } from 'node:crypto';
 import { candidateRuntimeEnvironment, copyCandidateSource, createApplication, healthCheckCandidate, installCandidateDependencies, redactBuildOutput, resolveProjectPort } from '../src/server.mjs';
 import { SecretVault } from '../src/core.mjs';
 
@@ -481,6 +482,117 @@ test('manual git sync auto deploys only when auto deploy is enabled', async (t) 
   assert.equal(enabledPayload.project.deployment.state, 'active');
   assert.equal(enabledPayload.project.sync.revision, revision);
   assert.equal(enabledPayload.project.deployment.releases[0]?.revision, revision);
+});
+
+test('signed GitHub push syncs the configured branch and deploys only a new commit', async (t) => {
+  let revision = 'a'.repeat(40);
+  const { app, base } = await start({ autoSyncPollingEnabled: false, projectSyncer: async () => ({ status: 'synced', at: new Date().toISOString(), revision, detail: 'Repository checked.' }) });
+  t.after(() => app.close());
+  const login = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'owner@local.test', password: 'correct-horse-battery-staple' }) });
+  const session = await login.json();
+  const cookie = login.headers.get('set-cookie').split(';')[0];
+  const headers = { cookie, 'content-type': 'application/json', 'x-csrf-token': session.csrfToken };
+  await fetch(`${base}/api/tools/git/install`, { method: 'POST', headers, body: JSON.stringify({ confirm: true }) });
+  await fetch(`${base}/api/git-config`, { method: 'POST', headers, body: JSON.stringify({ name: 'Demo Owner', email: 'owner@example.test' }) });
+  const synced = await fetch(`${base}/api/projects/sync`, { method: 'POST', headers, body: JSON.stringify({ name: 'GitHub app', slug: 'github-app', repository: 'https://github.com/example/web.git', branch: 'main', port: 3003, protocol: 'https' }) });
+  assert.equal(synced.status, 200);
+  await fetch(`${base}/api/projects/github-app/environment`, { method: 'POST', headers, body: JSON.stringify({ content: 'NODE_ENV=production\n' }) });
+  const configured = await fetch(`${base}/api/projects/github-app/github-webhook`, { method: 'POST', headers, body: JSON.stringify({ action: 'rotate' }) });
+  const { secret, project } = await configured.json();
+  assert.equal(configured.status, 200);
+  assert.equal(project.autoSync.hasSecret, true);
+  assert.equal(project.autoSync.encryptedSecret, undefined);
+  assert.equal(project.autoSync.mode, 'github');
+  const readProject = async () => (await (await fetch(`${base}/api/projects`, { headers: { cookie } })).json()).projects.find((item) => item.slug === 'github-app');
+  const sendPush = (payload, signatureSecret = secret, event = 'push') => {
+    const body = JSON.stringify(payload);
+    return fetch(`${base}/api/webhooks/github/github-app`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-github-event': event, 'x-hub-signature-256': `sha256=${createHmac('sha256', signatureSecret).update(body).digest('hex')}` }, body });
+  };
+  const payload = { ref: 'refs/heads/main', repository: { full_name: 'example/web' } };
+  revision = 'b'.repeat(40);
+  assert.equal((await sendPush(payload, 'wrong-secret')).status, 401);
+  assert.equal((await sendPush({ ...payload, ref: 'refs/heads/staging' })).status, 202);
+  assert.equal((await sendPush({ ...payload, repository: { full_name: 'example/other' } })).status, 202);
+  assert.equal((await readProject()).deployment.state, 'idle');
+  assert.equal((await sendPush(payload)).status, 202);
+  let current;
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    current = await readProject();
+    if (current.deployment.state === 'active') break;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.equal(current.deployment.releases[0].revision, revision);
+  const releaseCount = current.deployment.releases.length;
+  assert.equal((await sendPush(payload)).status, 202);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal((await readProject()).deployment.releases.length, releaseCount);
+  assert.equal((await sendPush(payload, secret, 'ping')).status, 202);
+  const rotated = await fetch(`${base}/api/projects/github-app/github-webhook`, { method: 'POST', headers, body: JSON.stringify({ action: 'rotate' }) });
+  const replacementSecret = (await rotated.json()).secret;
+  assert.equal((await sendPush(payload)).status, 401);
+  assert.equal((await sendPush(payload, replacementSecret)).status, 202);
+  const disabled = await fetch(`${base}/api/projects/github-app/github-webhook`, { method: 'POST', headers, body: JSON.stringify({ action: 'disable' }) });
+  assert.equal(disabled.status, 200);
+  assert.equal((await sendPush(payload, replacementSecret)).status, 404);
+});
+
+test('Actions mode waits for the hook even after polling syncs the new commit', async (t) => {
+  let revision = '1'.repeat(40);
+  const { app, base } = await start({ autoSyncIntervalMs: 15, projectSyncer: async () => ({ status: 'synced', at: new Date().toISOString(), revision, detail: 'Repository checked.' }) });
+  t.after(() => app.close());
+  const login = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'owner@local.test', password: 'correct-horse-battery-staple' }) });
+  const session = await login.json();
+  const cookie = login.headers.get('set-cookie').split(';')[0];
+  const headers = { cookie, 'content-type': 'application/json', 'x-csrf-token': session.csrfToken };
+  await fetch(`${base}/api/tools/git/install`, { method: 'POST', headers, body: JSON.stringify({ confirm: true }) });
+  await fetch(`${base}/api/git-config`, { method: 'POST', headers, body: JSON.stringify({ name: 'Demo Owner', email: 'owner@example.test' }) });
+  const synced = await fetch(`${base}/api/projects/sync`, { method: 'POST', headers, body: JSON.stringify({ name: 'Actions app', slug: 'actions-app', repository: 'https://gitlab.com/example/web.git', branch: 'main', port: 3004, protocol: 'https' }) });
+  assert.equal(synced.status, 200);
+  await fetch(`${base}/api/projects/actions-app/environment`, { method: 'POST', headers, body: JSON.stringify({ content: 'NODE_ENV=production\n' }) });
+  const url = `${base}/api/webhooks/actions/actions-app`;
+  assert.equal((await fetch(url, { method: 'POST' })).status, 404);
+  const configured = await fetch(`${base}/api/projects/actions-app/actions-hook`, { method: 'POST', headers, body: JSON.stringify({ action: 'rotate' }) });
+  const { secret, project } = await configured.json();
+  assert.equal(configured.status, 200);
+  assert.equal(project.autoSync.enabled, true);
+  assert.equal(project.autoSync.mode, 'actions');
+  assert.equal(project.autoSync.hasActionsSecret, true);
+  assert.equal(project.autoSync.encryptedActionsSecret, undefined);
+  assert.equal((await fetch(url, { method: 'POST' })).status, 401);
+  assert.equal((await fetch(url, { method: 'POST', headers: { authorization: `Bearer ${'0'.repeat(64)}` } })).status, 401);
+  revision = '2'.repeat(40);
+  const readProject = async () => (await (await fetch(`${base}/api/projects`, { headers: { cookie } })).json()).projects.find((item) => item.slug === 'actions-app');
+  let current;
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    current = await readProject();
+    if (current.sync.revision === revision) break;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.equal(current.sync.revision, revision);
+  assert.equal(current.deployment.state, 'idle');
+  const manualSync = await fetch(`${base}/api/projects/sync`, { method: 'POST', headers, body: JSON.stringify({ name: 'Actions app', slug: 'actions-app', repository: 'https://gitlab.com/example/web.git', branch: 'main', port: 3004, protocol: 'https' }) });
+  assert.equal((await manualSync.json()).activation, undefined);
+  assert.equal((await readProject()).deployment.state, 'idle');
+  assert.equal((await fetch(url, { method: 'POST', headers: { authorization: `Bearer ${secret}` } })).status, 202);
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    current = await readProject();
+    if (current.deployment.state === 'active') break;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.equal(current.deployment.releases[0].revision, revision);
+  const disabled = await fetch(`${base}/api/projects/actions-app/actions-hook`, { method: 'POST', headers, body: JSON.stringify({ action: 'disable' }) });
+  assert.equal(disabled.status, 200);
+  assert.equal((await fetch(url, { method: 'POST', headers: { authorization: `Bearer ${secret}` } })).status, 404);
+  assert.equal((await readProject()).autoSync.enabled, false);
+  const polling = await fetch(`${base}/api/projects/actions-app/auto-sync`, { method: 'POST', headers, body: JSON.stringify({ enabled: true }) });
+  assert.equal((await polling.json()).project.autoSync.mode, 'poll');
+  revision = '3'.repeat(40);
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    current = await readProject();
+    if (current.deployment.releases[0]?.revision === revision) break;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.equal(current.deployment.releases[0].revision, revision);
 });
 
 test('five-minute source polling updates commit state and only auto deploys a new commit when enabled', async (t) => {

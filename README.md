@@ -88,6 +88,8 @@ so you can exercise the same pipeline production uses:
    rollback-safe failure handling — is exactly what production runs.
 5. **Activity** (`/activity`) shows the audit trail of everything above.
 
+To deploy project commits automatically, see [Project auto deploy](docs/project-auto-deploy.md) for five-minute polling and signed GitHub push webhooks.
+
 ### Run it directly with Node instead
 
 For Go applications, see [Deploy a Go project](docs/go-projects.md). The host

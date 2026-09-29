@@ -46,7 +46,8 @@ test('project list keeps technical settings behind details and protects deletion
   assert.match(app, /sync\.revision/);
   assert.match(app, /function openNotificationHookDialog\(project\)/);
   assert.match(app, /function configureAutoSync\(project, button\)/);
-  assert.match(app, /เมื่อ sync Git จะสร้าง release อัตโนมัติ/);
+  assert.match(app, /ตรวจ Git ทุก 5 นาที/);
+  assert.match(app, /รอ Actions hook หลัง CI ผ่าน/);
   assert.match(app, /api\/projects\/\$\{encodeURIComponent\(project\.slug\)\}\/auto-sync/);
   assert.match(app, /function projectDisplayStatus\(project\)/);
   assert.match(app, /Ready to release/);

@@ -186,6 +186,50 @@
   </form>
 </dialog>
 
+<dialog id="github-webhook-dialog" class="modal notification-hook-modal" aria-labelledby="github-webhook-title">
+  <div class="modal-form">
+    <header class="modal-header">
+      <div><h2 id="github-webhook-title">GitHub Auto deploy</h2><p id="github-webhook-project" class="modal-sub"></p></div>
+      <button class="modal-close" type="button" data-dialog-close aria-label="ปิด"><svg class="icon" aria-hidden="true"><use href="#icon-close"></use></svg></button>
+    </header>
+    <div class="modal-body">
+      <p>เมื่อ GitHub push เข้า branch ที่ตั้งไว้ Dashboard จะ sync commit ล่าสุดและสร้าง release ผ่าน health check อัตโนมัติ ส่วนการตรวจทุก 5 นาทียังทำงานสำรอง โปรเจคต้องมี ENV อย่างน้อย 1 ค่า และบน host ต้องตั้ง domain ก่อน deploy</p>
+      <p id="github-webhook-status" class="muted"></p>
+      <label>Payload URL<input id="github-webhook-url" readonly></label>
+      <label id="github-webhook-secret-row" hidden>Secret (แสดงครั้งเดียว)<input id="github-webhook-secret" readonly autocomplete="off"></label>
+      <p class="muted">ใน GitHub Repository Settings → Webhooks เพิ่ม Payload URL นี้ เลือก application/json และ Push event แล้ววาง Secret ที่สร้างด้านล่าง</p>
+    </div>
+    <footer class="modal-footer">
+      <button class="secondary" id="github-webhook-disable" type="button">ปิด webhook</button>
+      <span class="modal-spacer"></span>
+      <button class="secondary" id="github-webhook-copy" type="button" hidden>คัดลอก Secret</button>
+      <button id="github-webhook-rotate" type="button">สร้าง Secret</button>
+    </footer>
+  </div>
+</dialog>
+
+<dialog id="actions-hook-dialog" class="modal notification-hook-modal" aria-labelledby="actions-hook-title">
+  <div class="modal-form">
+    <header class="modal-header">
+      <div><h2 id="actions-hook-title">Actions hook</h2><p id="actions-hook-project" class="modal-sub"></p></div>
+      <button class="modal-close" type="button" data-dialog-close aria-label="ปิด"><svg class="icon" aria-hidden="true"><use href="#icon-close"></use></svg></button>
+    </header>
+    <div class="modal-body">
+      <p>เลือกโหมดนี้เมื่ออยากให้ GitHub Actions หรือ CI ตรวจงานให้ผ่านก่อน deploy ระบบยัง sync Git ทุก 5 นาที แต่จะรอ hook ก่อนสร้าง release ถ้าไม่ตั้ง hook สามารถเลือก Auto deploy แบบตรวจ Git จากเมนูโปรเจคได้</p>
+      <p id="actions-hook-status" class="muted"></p>
+      <label>Hook URL<input id="actions-hook-url" readonly></label>
+      <label id="actions-hook-secret-row" hidden>Bearer token (แสดงครั้งเดียว)<input id="actions-hook-secret" readonly autocomplete="off"></label>
+      <p class="muted">ให้ CI ส่ง POST มาที่ URL นี้พร้อม header Authorization: Bearer &lt;token&gt; เก็บ token ใน GitHub Actions Secret ห้ามใส่ใน workflow file</p>
+    </div>
+    <footer class="modal-footer">
+      <button class="secondary" id="actions-hook-disable" type="button">ปิด hook</button>
+      <span class="modal-spacer"></span>
+      <button class="secondary" id="actions-hook-copy" type="button" hidden>คัดลอก Token</button>
+      <button id="actions-hook-rotate" type="button">สร้าง Token</button>
+    </footer>
+  </div>
+</dialog>
+
 <dialog id="confirm-dialog" class="modal confirm-modal" aria-labelledby="confirm-title" aria-describedby="confirm-message">
   <form method="dialog" class="confirm-form">
     <div class="warning-mark" aria-hidden="true"><svg class="icon" aria-hidden="true"><use href="#icon-alert"></use></svg></div>
