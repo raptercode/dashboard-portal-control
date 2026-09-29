@@ -6,3 +6,6 @@ dist/
 release-out/
 *.tar.gz
 *.tar.gz.sha256
+
+# Future machine-local research notes; shared docs/{th,en}/knowledge stay tracked.
+/docs/knowledge-local/

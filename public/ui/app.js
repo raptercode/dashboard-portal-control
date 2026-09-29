@@ -1815,7 +1815,7 @@ function renderMailReader() {
   }
 }
 
-// ---- Mail Setup Wizard (7 steps per docs/design/mail-setup-wizard.md) ----
+// ---- Mail Setup Wizard (7 steps per docs/th/knowledge/design/mail-setup-wizard.md) ----
 const MAIL_OUTBOUND_STORAGE = 'hostmgr.mailOutbound';
 const wizard = { step: 1, settings: null, outbound: null, inbound: null, newDomain: '' };
 

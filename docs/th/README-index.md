@@ -1,0 +1,62 @@
+# สารบัญเอกสาร
+
+[Dashboard Portal](README.md) · [English](../en/README-index.md)
+
+คู่มือ how-to ใช้สำหรับขั้นตอนทำงาน ส่วน knowledge เก็บ architecture/context, ADR, design และ plans ต้องตรวจสถานะ Accepted/Proposed และหลักฐานก่อนนำไปพัฒนา Shared knowledge อยู่ใน Git; โน้ตส่วนตัวใช้ `docs/knowledge-local/` ที่ gitignore ไม่ควรเก็บ secrets ในเอกสาร
+
+## คู่มือทำงาน
+
+- [สมาชิก องค์กร และสิทธิ์](how-to/access-control.md)
+- [เผยแพร่ bootstrap URL](how-to/bootstrap-hosting.md)
+- [Deploy โปรเจกต์ Go](how-to/go-projects.md)
+- [Node.js ของ Portal และแอป](how-to/node-versions.md)
+- [ติดตั้ง Dashboard Portal บน Ubuntu](how-to/production-install.md)
+- [ตั้งค่า automatic deployment](how-to/project-auto-deploy.md)
+- [Deploy Python ด้วย venv ของแต่ละ release](how-to/python-projects.md)
+- [Git, signed release และส่งต่องาน](how-to/releasing-and-ai-handoff.md)
+- [การทดสอบแยกตามโมดูลและสิทธิ์ผู้ใช้](how-to/testing.md)
+
+## ความรู้และงานพัฒนาต่อ
+
+- [ADR 0001: Ubuntu 24.04 เป็น baseline](knowledge/adr/0001-ubuntu-24-04-is-the-supported-host.md)
+- [ADR 0002: Native ใช้ Node major เดียวในระยะแรก](knowledge/adr/0002-one-supported-nodejs-major.md)
+- [ADR 0003: จัดการเฉพาะ Nginx files ที่ระบบเป็นเจ้าของ](knowledge/adr/0003-nginx-managed-files-only.md)
+- [ADR 0004: UI installer เป็น privileged workflow แบบจำกัด](knowledge/adr/0004-ui-installer-is-a-real-privileged-workflow.md)
+- [ADR 0005: Docker tests ไม่รับรอง host](knowledge/adr/0005-docker-is-a-sandbox-not-a-host-certification.md)
+- [ADR 0006: Native Node/Bun รับชื่อ script](knowledge/adr/0006-native-projects-use-npm-scripts-not-shell-commands.md)
+- [ADR 0007: Git credentials เป็น references หรือ host keys](knowledge/adr/0007-git-credentials-are-references-or-host-managed-keys.md)
+- [ADR 0008: เข้ารหัส credentials และ environment](knowledge/adr/0008-persisted-credentials-and-project-environment-are-encrypted.md)
+- [ADR 0009: Project organization และ temporary AskPass](knowledge/adr/0009-projects-are-organized-and-https-sync-uses-askpass.md)
+- [ADR 0010: Production ใช้ Ubuntu systemd/Nginx](knowledge/adr/0010-direct-ubuntu-production-installer.md)
+- [ADR 0011: ติดตั้งสำเร็จเมื่อ TLS ผ่าน](knowledge/adr/0011-production-installations-fail-closed-on-tls.md)
+- [ADR 0012: ข้อยกเว้น operational host Ubuntu 25.04](knowledge/adr/0012-ubuntu-25-04-is-an-operationally-supported-host.md)
+- [ADR 0013: Sessions เจ็ดวันเก็บเฉพาะ hash](knowledge/adr/0013-owner-sessions-persist-for-seven-days-with-hashed-identifiers.md)
+- [ADR 0014: Build script เป็น optional](knowledge/adr/0014-native-project-build-step-is-optional.md)
+- [ADR 0015: Domain sync ผ่าน root socket helper](knowledge/adr/0015-project-domain-sync-uses-a-root-owned-socket-helper.md)
+- [ADR 0016: Portal update สั่งผ่าน SSH](knowledge/adr/0016-dashboard-software-updates-are-ssh-initiated.md)
+- [ADR 0017: SQLite เป็น control-plane store ของ host เดียว](knowledge/adr/0017-sqlite-is-the-single-host-control-plane-store.md)
+- [ADR 0018: Repository subdirectory และ branch](knowledge/adr/0018-project-subdirectories-branch-selection-and-deletion.md)
+- [ADR 0019: Runtime logs อ่านผ่าน helper](knowledge/adr/0019-runtime-project-logs-are-read-through-the-root-owned-helper.md)
+- [ADR 0020: Helper เห็น shadow-utils และ ACME paths](knowledge/adr/0020-host-helper-keeps-shadow-utils-and-acme-visible.md)
+- [ADR 0021: Trusted Docker Compose runtime](knowledge/adr/0021-trusted-docker-compose-project-runtime.md)
+- [ADR 0022: Bun เป็น native runtime](knowledge/adr/0022-bun-native-project-runtime.md)
+- [ADR 0022: Auto deploy มี trigger modes](knowledge/adr/0022-project-auto-deploy-triggers.md)
+- [ADR 0023: จอง project port อัตโนมัติ](knowledge/adr/0023-project-ports-are-auto-assigned.md)
+- [ADR 0024: Bun bind path และ cleanup dependencies](knowledge/adr/0024-bun-sandbox-path-and-release-dependency-cleanup.md)
+- [ADR 0025: Mail provisioning ตาม ports และ fail closed](knowledge/adr/0025-port-aware-mail-host-provisioning.md)
+- [ADR 0026: Owner อ่านและแก้ ENV ทั้งชุด](knowledge/adr/0026-owner-can-read-and-edit-project-environment.md)
+- [ADR 0027: Master/User และ grants ขององค์กร](knowledge/adr/0027-members-and-organization-permissions.md)
+- [ADR 0028: Credentials ขององค์กร](knowledge/adr/0028-organization-repository-credentials.md)
+- [ADR 0029: เลือก Node และ SQLite adapter](knowledge/adr/0029-selectable-node-runtimes-and-sqlite-adapter.md)
+- [ADR 0030: Public bootstrap และเอกสารสองภาษา](knowledge/adr/0030-public-bootstrap-and-bilingual-documentation.md)
+- [Architecture Decision Records](knowledge/adr/README.md)
+- [สถาปัตยกรรมปัจจุบัน](knowledge/context/architecture.md)
+- [Diagnostics และ health checks ของ deployment](knowledge/context/deployment-diagnostics-and-health-checks.md)
+- [Bootstrap บัญชีและ database connectors](knowledge/context/owner-auth-and-db-connectors.md)
+- [ขอบเขตผลิตภัณฑ์และ roadmap](knowledge/context/scope-and-roadmap.md)
+- [Layout ของ UI (2026-08)](knowledge/context/ui-rewrite-layout.md)
+- [Mail Setup Wizard — ออกแบบขั้นตอนติดตั้ง self-hosted Mail Service](knowledge/design/mail-setup-wizard.md)
+- [คำศัพท์](knowledge/glossary.md)
+- [แผนทดลองรองรับ Ubuntu ของ Dashboard Portal](knowledge/plans/ubuntu-compatibility-plan.md)
+
+- [แหล่งที่มา runtime logos](knowledge/runtime-logo-sources.md)

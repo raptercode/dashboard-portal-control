@@ -2,3 +2,5 @@
 *.mjs text eol=lf
 dist/ export-ignore
 release-out/ export-ignore
+
+docs/knowledge-local/ export-ignore

@@ -1,0 +1,62 @@
+# Documentation index
+
+[Dashboard Portal](README.md) · [ภาษาไทย](../th/README-index.md)
+
+How-to contains procedures; knowledge holds architecture/context, ADRs, designs and plans. Check status and evidence before implementing plans. Shared knowledge remains in Git. Machine-local notes belong in ignored `docs/knowledge-local/`; keep secrets out of documentation.
+
+## How-to guides
+
+- [Members, organizations, and permissions](how-to/access-control.md)
+- [Publish the bootstrap URL](how-to/bootstrap-hosting.md)
+- [Deploy a Go project](how-to/go-projects.md)
+- [Portal and application Node.js versions](how-to/node-versions.md)
+- [Install Dashboard Portal on Ubuntu](how-to/production-install.md)
+- [Project auto deploy](how-to/project-auto-deploy.md)
+- [Deploy Python in a project venv](how-to/python-projects.md)
+- [Git, signed releases, and handoff](how-to/releasing-and-ai-handoff.md)
+- [Test modules and acceptance boundaries](how-to/testing.md)
+
+## Knowledge and further development
+
+- [ADR 0001: Ubuntu 24.04 LTS is the supported host](knowledge/adr/0001-ubuntu-24-04-is-the-supported-host.md)
+- [ADR 0002: Native mode supports one Node.js major version](knowledge/adr/0002-one-supported-nodejs-major.md)
+- [ADR 0003: Nginx is managed through owned files only](knowledge/adr/0003-nginx-managed-files-only.md)
+- [ADR 0004: UI installer is a real, constrained privileged workflow](knowledge/adr/0004-ui-installer-is-a-real-privileged-workflow.md)
+- [ADR 0005: Docker sandbox does not certify host behaviour](knowledge/adr/0005-docker-is-a-sandbox-not-a-host-certification.md)
+- [ADR 0006: Native projects use package scripts, not UI-provided shell commands](knowledge/adr/0006-native-projects-use-npm-scripts-not-shell-commands.md)
+- [ADR 0007: Git credentials are references or host-managed keys](knowledge/adr/0007-git-credentials-are-references-or-host-managed-keys.md)
+- [ADR 0008: Persisted credentials and project environment are encrypted](knowledge/adr/0008-persisted-credentials-and-project-environment-are-encrypted.md)
+- [ADR 0009: Projects are organized and HTTPS sync uses temporary AskPass credentials](knowledge/adr/0009-projects-are-organized-and-https-sync-uses-askpass.md)
+- [ADR 0010: Production runs directly on Ubuntu through systemd and Nginx](knowledge/adr/0010-direct-ubuntu-production-installer.md)
+- [ADR 0011: Production installation fails closed until TLS is verified](knowledge/adr/0011-production-installations-fail-closed-on-tls.md)
+- [ADR 0012: Ubuntu 25.04 is accepted for the current operational host](knowledge/adr/0012-ubuntu-25-04-is-an-operationally-supported-host.md)
+- [ADR 0013: Owner sessions persist for seven days with hashed identifiers](knowledge/adr/0013-owner-sessions-persist-for-seven-days-with-hashed-identifiers.md)
+- [ADR 0014: Native project build step is optional](knowledge/adr/0014-native-project-build-step-is-optional.md)
+- [ADR 0015: Project domain sync uses a root-owned socket helper](knowledge/adr/0015-project-domain-sync-uses-a-root-owned-socket-helper.md)
+- [ADR 0016: Dashboard software updates are SSH-initiated](knowledge/adr/0016-dashboard-software-updates-are-ssh-initiated.md)
+- [ADR 0017: SQLite is the single-host control-plane store](knowledge/adr/0017-sqlite-is-the-single-host-control-plane-store.md)
+- [ADR 0018: Project sources may use a repository subdirectory](knowledge/adr/0018-project-subdirectories-branch-selection-and-deletion.md)
+- [ADR 0019: Runtime project logs are read through the root-owned helper](knowledge/adr/0019-runtime-project-logs-are-read-through-the-root-owned-helper.md)
+- [ADR 0020: Host helper keeps shadow-utils and ACME paths visible](knowledge/adr/0020-host-helper-keeps-shadow-utils-and-acme-visible.md)
+- [ADR 0021: Trusted Docker Compose project runtime](knowledge/adr/0021-trusted-docker-compose-project-runtime.md)
+- [ADR 0022: Bun is a supported native project runtime](knowledge/adr/0022-bun-native-project-runtime.md)
+- [ADR 0022: Project auto deploy trigger modes](knowledge/adr/0022-project-auto-deploy-triggers.md)
+- [ADR 0023: Project ports are auto-assigned and reserved](knowledge/adr/0023-project-ports-are-auto-assigned.md)
+- [ADR 0024: Bun uses a runtime bind path and old dependencies are pruned](knowledge/adr/0024-bun-sandbox-path-and-release-dependency-cleanup.md)
+- [ADR 0025: Mail host provisioning is port-aware and fails closed](knowledge/adr/0025-port-aware-mail-host-provisioning.md)
+- [ADR 0026: The owner can read and edit the complete project environment](knowledge/adr/0026-owner-can-read-and-edit-project-environment.md)
+- [ADR 0027: Member accounts and organization permissions](knowledge/adr/0027-members-and-organization-permissions.md)
+- [ADR 0028: Organization repository credentials](knowledge/adr/0028-organization-repository-credentials.md)
+- [ADR 0029: Selectable Node runtimes and a SQLite compatibility adapter](knowledge/adr/0029-selectable-node-runtimes-and-sqlite-adapter.md)
+- [ADR 0030: Public bootstrap and bilingual documentation](knowledge/adr/0030-public-bootstrap-and-bilingual-documentation.md)
+- [Architecture Decision Records](knowledge/adr/README.md)
+- [Current architecture context](knowledge/context/architecture.md)
+- [Deployment diagnostics and health checks](knowledge/context/deployment-diagnostics-and-health-checks.md)
+- [Owner bootstrap, email login, and database connectors](knowledge/context/owner-auth-and-db-connectors.md)
+- [Product scope, architecture reference, and roadmap](knowledge/context/scope-and-roadmap.md)
+- [UI rewrite layout (2026-08)](knowledge/context/ui-rewrite-layout.md)
+- [Mail setup wizard design](knowledge/design/mail-setup-wizard.md)
+- [Glossary](knowledge/glossary.md)
+- [Ubuntu compatibility and platform expansion plan](knowledge/plans/ubuntu-compatibility-plan.md)
+
+- [Runtime logo sources](knowledge/runtime-logo-sources.md)

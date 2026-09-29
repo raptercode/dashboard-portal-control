@@ -16,6 +16,7 @@
     "test:modules": "node scripts/test-modules.mjs",
     "test:module": "node scripts/test-modules.mjs",
     "test:watch": "node --test --watch",
+    "docs:check": "node scripts/check-docs.mjs",
     "release:prepare": "node scripts/prepare-release.mjs",
     "release:keygen": "node scripts/generate-update-key.mjs"
   },
