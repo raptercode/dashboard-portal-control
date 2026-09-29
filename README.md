@@ -1,24 +1,24 @@
 # Dashboard Portal
 
-แดชบอร์ดสำหรับจัดการแอปบน Linux server ของคุณ: เชื่อม Git, deploy, ดู logs, ผูกโดเมนและออก TLS certificate ผ่านหน้าเว็บ พร้อมแยกสมาชิกและสิทธิ์ตามองค์กร
+A dashboard for managing applications on your own Linux server. Connect Git repositories, deploy applications, inspect logs, configure domains and TLS, and manage member access by organization.
 
-[ดาวน์โหลด release](https://github.com/raptercode/dashboard-portal-control/releases/latest) · [ติดตั้งบน Ubuntu](docs/production-install.md) · [เลือกเวอร์ชัน Node.js](docs/node-versions.md) · [บันทึกการเปลี่ยนแปลง](CHANGELOG.md)
+[Latest release](https://github.com/raptercode/dashboard-portal-control/releases/latest) · [Ubuntu installation](docs/production-install.md) · [Node.js versions](docs/node-versions.md) · [Changelog](CHANGELOG.md)
 
-## ทำอะไรได้บ้าง
+## Features
 
-- Deploy แอป **Node.js, Bun, Go, Python, PHP และ Docker Compose** จาก repository ที่คุณเชื่อถือ
-- เลือก Node.js **20, 22, 24 หรือ 26** แยกต่อแอป และเลือกเวอร์ชันที่ใช้รัน Portal ได้
-- Sync source, ตั้งค่า environment, build, health check, activate และ rollback release
-- จัดการโดเมน, Nginx และ Let's Encrypt ผ่าน helper ที่จำกัดคำสั่ง
-- ดูสถานะเครื่อง, logs และประวัติการทำงาน พร้อมตั้ง auto deploy และ notification hooks
-- จัดการ Master/User, องค์กร, คำเชิญ และสิทธิ์ของสมาชิก
-- เก็บ repository credentials และ environment แบบเข้ารหัส พร้อมรับอัปเดต Portal ที่ตรวจลายเซ็นได้
+- Deploy trusted repositories with **Node.js, Bun, Go, Python, PHP, or Docker Compose**.
+- Choose Node.js **20, 22, 24, or 26** for each Node application and select a separate version for the Portal.
+- Sync source, configure environment variables, build, check health, activate releases, and roll back.
+- Manage domains, Nginx, and Let's Encrypt through a helper with restricted operations.
+- View host status, logs, and audit history; configure automatic deployments and notification hooks.
+- Manage Master/User accounts, organizations, invitations, and member permissions.
+- Store repository credentials and application environment values encrypted, and receive signed Portal updates.
 
-**ขอบเขต:** Portal จัดการหนึ่งเครื่องและใช้กับ source ที่คุณเชื่อถือ การ build/start แอปคือการรันโค้ดจาก repository; ระบบนี้ไม่ได้เป็น sandbox สำหรับรับโค้ดจากบุคคลทั่วไป สิทธิ์องค์กรควบคุมการเข้าถึงใน Portal แต่ไม่ได้แยกเครื่องให้แต่ละองค์กร
+**Scope:** Dashboard Portal manages one host and assumes administrators choose trusted source repositories. Building and starting an application executes its repository code. Organization permissions control access inside the Portal; they do not provide separate host security boundaries.
 
-## เริ่มทดลองบนเครื่องตัวเอง
+## Try it locally
 
-ต้องมี Git และ Node.js ตามช่วงที่ระบุใน [package.json](package.json) แนะนำ Node 24 สำหรับเริ่มต้น
+Install Git and a Node.js version supported by [package.json](package.json). Node 24 is the recommended starting point.
 
 ```bash
 git clone https://github.com/raptercode/dashboard-portal-control.git
@@ -26,10 +26,10 @@ cd dashboard-portal-control
 cp .env.example .env
 ```
 
-บน PowerShell ใช้ `Copy-Item .env.example .env` แล้วแก้ไฟล์:
+On PowerShell, use `Copy-Item .env.example .env`. Then edit these values in `.env`:
 
-- `HOSTMGR_ADMIN_PASSWORD`: รหัสผ่านเฉพาะสำหรับการทดลอง
-- `HOSTMGR_SECRET_KEY`: key ขนาด 32 bytes แบบ Base64 สร้างได้ด้วยคำสั่งด้านล่าง เก็บ key เดิมไว้เมื่อมีข้อมูลแล้ว
+- `HOSTMGR_ADMIN_PASSWORD`: a unique password for the local demo.
+- `HOSTMGR_SECRET_KEY`: a Base64-encoded, 32-byte key. Generate one with the command below and keep it when you have saved data.
 
 ```bash
 node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"
@@ -37,25 +37,25 @@ npm ci
 npm run demo
 ```
 
-เปิด **http://localhost:3000** แล้วทำขั้นตอนตั้งค่าบัญชีแรก หน้าเว็บ local ใช้ HTTP ได้เพราะ `.env.example` ตั้ง demo mode และปิด secure cookie ไว้ อย่าใช้การตั้งค่านี้เปิด login สู่สาธารณะ
+Open **http://localhost:3000** and complete the first-account setup. The example configuration permits HTTP for a local demo and disables secure cookies. Do not expose that configuration as a public login.
 
-Node 20 ใช้ native dependency `better-sqlite3`; หากเครื่องไม่มี prebuilt binary ที่ตรงกัน ต้องมีเครื่องมือ compile C/C++ และ Python ส่วน Node 22.13+ ใช้ `node:sqlite` ในตัว อ่าน [วิธีสลับ Node ด้วย nvm](docs/node-versions.md#ติดตั้งหลายเวอร์ชันด้วย-nvm)
+On Node 20, the Portal needs the native `better-sqlite3` dependency. If a matching prebuilt binary is unavailable, installation needs C/C++ build tools and Python. Node 22.13+ uses the built-in `node:sqlite` driver. See the [Node.js version and nvm guide](docs/node-versions.md).
 
-### ทดลองด้วย Docker Compose
+### Try Docker Compose
 
-เมื่อเตรียม `.env` แล้ว:
+After preparing `.env`:
 
 ```bash
 docker compose up --build
 ```
 
-เปิด **http://localhost** โดย Compose เก็บ state ใน named volume ตัว image มี Node ตาม build argument (ค่าเริ่มต้น 24) และไม่ได้ติดตั้ง runtime ทุกชนิด การ clone/build repository สามารถรันโค้ดจริงได้; host activation, systemd และ TLS ต้องทดสอบบน Ubuntu จริง
+Open **http://localhost**. Compose stores state in a named volume. The image contains the Node version selected at build time (Node 24 by default), not every supported application runtime. Cloning or building a repository can execute its code. Host activation, systemd, and TLS require testing on an Ubuntu host.
 
-## ติดตั้งใช้งานบน Ubuntu
+## Install on Ubuntu
 
-ตัว installer รองรับ **Ubuntu 24.04 หรือ 25.04, amd64** ต้องมีโดเมนที่ resolve มายังเครื่อง และเปิด TCP 80/443 สำหรับ HTTPS
+The installer supports **Ubuntu 24.04 or 25.04 on amd64**. The host needs a domain that resolves to it and inbound TCP ports 80 and 443 for HTTPS.
 
-ดาวน์โหลดและตรวจ checksum ของ release ตาม [คู่มือติดตั้ง](docs/production-install.md) แล้วรันจากโฟลเดอร์ที่แตก archive:
+Download a release, check its checksum, and extract it using the [production installation guide](docs/production-install.md). Then run the installer from the extracted directory:
 
 ```bash
 sudo bash ./dashboard-portal.sh \
@@ -64,27 +64,27 @@ sudo bash ./dashboard-portal.sh \
   --node-major=24
 ```
 
-Installer ติดตั้ง Nginx, Certbot, Git, Bun และ Node ทั้งสี่ major แบบตรวจ SHA-256 จากนั้นตั้ง Portal ที่ `127.0.0.1:3100` หลัง Nginx พร้อม HTTPS ค่า `--node-major` เลือก Node ของ Portal; แอปแต่ละตัวเลือกแยกกันได้
+The installer provisions Nginx, Certbot, Git, Bun, and checksum-verified Node runtimes for all four supported majors. It serves the Portal at `127.0.0.1:3100` behind Nginx and HTTPS. `--node-major` selects the Portal runtime; each Node application can select its own version.
 
-Runtime/เครื่องมือเสริม เช่น Go, Python, PHP และ Docker ต้องตรวจความพร้อมใน **Setup/Doctor** ก่อน deploy ดูรายละเอียดของแต่ละ runtime ในเอกสารด้านล่าง
+Check the availability of additional tools such as Go, Python, PHP, and Docker in **Setup/Doctor** before deploying applications. See the runtime guides in the [documentation table](#documentation).
 
-## Deploy แอปแรก
+## Deploy your first application
 
-1. สร้างองค์กร/สมาชิกตามต้องการ แล้วเพิ่ม repository credential หากใช้ private repository
-2. เพิ่ม Project ด้วย repository URL และ branch เลือก runtime และ Node major สำหรับแอป Node.js
-3. ตั้งชื่อ build/start script, working directory และ health check ให้ตรงกับแอป แล้ว sync source
-4. ใส่ environment ผ่านหน้า Environment และเพิ่มโดเมนที่ DNS ชี้มาที่เครื่อง
-5. สร้าง release ตรวจผล build/health check แล้ว activate ตรวจ HTTPS และ logs หลัง deploy
+1. Create organizations and members as needed. Add a repository credential for a private repository.
+2. Create a Project with its repository URL and branch. Choose its runtime and, for Node.js, its Node major.
+3. Configure the build and start script names, working directory, and health check for the application, then sync its source.
+4. Set values in **Environment** and add a domain whose DNS record points to the host.
+5. Create a release, review its build and health checks, activate it, and check HTTPS and logs.
 
-Node projects ใช้ `npm ci` เมื่อ lockfile ใช้งานได้; หากไม่มีหรือไม่เข้ากัน candidate จะ fallback เป็น `npm install` โดยไม่แก้ checkout ที่ sync มา แอปต้องฟังพอร์ตที่ Portal กำหนดให้ผ่าน environment และตอบ health endpoint ตามที่ตั้งไว้
+Node projects use `npm ci` when a usable lockfile is available. Otherwise, the candidate falls back to `npm install` without changing the synced checkout. The application must listen on the port supplied by the Portal and respond at its configured health endpoint.
 
-ค่า environment ถูกเข้ารหัสในฐานข้อมูล ผู้มีสิทธิ์ `env.read` สามารถอ่านค่าจริงได้ และ `env.write` ใช้แก้ไขได้ การแก้ environment หรือ Node major มีผลเมื่อสร้าง deployment ใหม่ Release เก็บ Node major เพื่อใช้ซ้ำตอน rollback
+Environment values are encrypted in the database. Members with `env.read` can view their values; `env.write` allows edits. Changes to the environment or Node major take effect in a new deployment. Each release records its Node major so rollback uses the matching runtime.
 
-คู่มือเพิ่มเติม: [สิทธิ์สมาชิก](docs/access-control.md), [auto deploy](docs/project-auto-deploy.md), [Go](docs/go-projects.md), [Python](docs/python-projects.md), [วิเคราะห์ deployment ที่ล้มเหลว](docs/context/deployment-diagnostics-and-health-checks.md)
+Related guides: [access control](docs/access-control.md), [automatic deployment](docs/project-auto-deploy.md), [Go projects](docs/go-projects.md), [Python projects](docs/python-projects.md), and [deployment diagnostics](docs/context/deployment-diagnostics-and-health-checks.md).
 
-## อัปเดต Portal
+## Update the Portal
 
-หน้าเว็บแจ้งอัปเดตได้ ผู้ดูแลใช้ SSH บน host เพื่ออัปเดต:
+The UI can report available updates. An administrator applies them over SSH on the host:
 
 ```bash
 sudo dashboard-portal update --check
@@ -94,9 +94,9 @@ curl -fsS https://portal.example.com/api/health
 curl -fsSI https://portal.example.com/
 ```
 
-Updater ตรวจ Ed25519 signature และ SHA-256 ก่อนติดตั้ง และคง Node major ของ Portal ตาม config เดิม ฐานข้อมูลยังเป็น SQLite ไฟล์เดิม การรองรับ Node 20 ไม่ต้องแปลงข้อมูล แต่ควรสำรอง **state พร้อม encryption key** ก่อนอัปเดต ดู [การสำรองและกู้คืน](docs/production-install.md#สำรองข้อมูลและกู้คืน)
+The updater checks the Ed25519 signature and SHA-256 checksum before installing, and preserves the Portal's selected Node major. Both SQLite drivers use the existing database file and schema; enabling Node 20 does not require a data conversion. Back up the **state and its encryption key together** before updating. See [backup and recovery](docs/production-install.md).
 
-## พัฒนาและทดสอบ
+## Develop and test
 
 ```bash
 npm ci
@@ -105,21 +105,21 @@ node scripts/test-modules.mjs --list
 bash -n dashboard-portal.sh
 ```
 
-บน Windows ใช้ Git Bash สำหรับตรวจ shell script ผล unit/API tests บนเครื่องพัฒนาไม่ยืนยัน apt, systemd, Nginx, TLS หรือสิทธิ์ไฟล์บน Ubuntu ดู [แผนทดสอบ](docs/testing.md)
+On Windows, use Git Bash for the shell-script syntax check. Local unit and API tests do not verify apt, systemd, Nginx, TLS, or Ubuntu file permissions. See the [testing guide](docs/testing.md).
 
-## เอกสาร
+## Documentation
 
-| หัวข้อ | เอกสาร |
+| Topic | Guide |
 | --- | --- |
-| ติดตั้ง อัปเดต สำรอง และแก้ปัญหา | [Production installation](docs/production-install.md) |
-| Node ของ Portal/แอป และ nvm | [Node.js versions](docs/node-versions.md) |
-| สมาชิก องค์กร และสิทธิ์ | [Access control](docs/access-control.md) |
-| สถาปัตยกรรมปัจจุบัน | [Architecture](docs/context/architecture.md) |
-| ขอบเขตฟีเจอร์และแผนงาน | [Scope and roadmap](docs/context/scope-and-roadmap.md) |
-| เหตุผลการตัดสินใจ | [Architecture Decision Records](docs/adr/README.md) |
-| คำศัพท์ | [Glossary](docs/glossary.md) |
-| ทดสอบและเผยแพร่ signed release | [Testing](docs/testing.md) · [Release guide](docs/releasing-and-ai-handoff.md) |
+| Installation, updates, backup, and troubleshooting | [Production installation](docs/production-install.md) |
+| Portal and application Node versions; nvm | [Node.js versions](docs/node-versions.md) |
+| Members, organizations, and permissions | [Access control](docs/access-control.md) |
+| Current system boundaries | [Architecture](docs/context/architecture.md) |
+| Feature scope and roadmap | [Scope and roadmap](docs/context/scope-and-roadmap.md) |
+| Design decisions | [Architecture Decision Records](docs/adr/README.md) |
+| Shared terminology | [Glossary](docs/glossary.md) |
+| Tests and signed releases | [Testing](docs/testing.md) · [Release guide](docs/releasing-and-ai-handoff.md) |
 
 ## License
 
-โค้ดของโปรเจกต์ใช้ **[MIT License](LICENSE)** Dependencies และ [runtime logos](public/ui/runtime-logos/SOURCES.md) อยู่ภายใต้เงื่อนไขและสิทธิ์ของเจ้าของแต่ละรายการ
+The project code is available under the **[MIT License](LICENSE)**. Dependencies and [runtime logos](public/ui/runtime-logos/SOURCES.md) remain subject to their respective owners' licenses and rights.
