@@ -79,6 +79,7 @@ host bind mounts; this is a guardrail, not a hostile-code sandbox (ADR 0021).
 - Docker Compose projects — **Implemented (v0.5)** for trusted repositories: selected Compose file/service, policy preflight, guarded host activation, rollback, and container logs. v0.6 can suggest this selection from a Compose manifest
 - Manage environment variables through file uploads, full `.env` editing or individual rows — **Implemented** (all values visible to the authenticated owner, encrypted at rest; ADR 0026)
 - Deploy and rollback — **Implemented**, including a durable job queue that survives a Dashboard restart
+- Deployment progress on project cards — **Implemented (v0.8.4)**, automatically refreshing phases and results without opening a log dialog; logs remain available on request
 - Stop/restart as a standalone action (outside of deploy/rollback) — **Planned**
 - Health check after deploy — **Implemented** (candidate check + host check, optional per project)
 - View build/candidate logs — **Implemented** (per-release event log in the Logs dialog)

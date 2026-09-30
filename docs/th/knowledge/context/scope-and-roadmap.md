@@ -19,6 +19,8 @@ Mail provisioning ใช้ encrypted relay/DKIM, helper-owned Postfix/Dovecot/O
 
 ## พัฒนาต่อ
 
+v0.8.4 แสดง phase และผล deploy บนการ์ด Projects อัตโนมัติ โดย Sync/Deploy/Rollback ไม่เปิด popup log เอง ผู้ใช้ยังเปิดรายละเอียดได้ตามสิทธิ์
+
 ทบทวนรายการ Planned ในต้นฉบับก่อนนำมาทำ Acceptance ต้องมี clean host install, health/static/login, deployment failure/rollback, certificate failure/recovery, backup/restore และ reboot พร้อม evidence ขอบเขต Nginx ที่ไม่ใช่ managed ต้องคง read-only ห้ามเพิ่ม raw shell UI หรือ claim hostile-tenant isolation
 
 เป้าหมาย OS ใหม่และ platform registry อยู่ใน [Ubuntu plan](../plans/ubuntu-compatibility-plan.md) ต้องพิสูจน์ package/runtime/service/mail compatibility ก่อนเพิ่ม support ไม่เปลี่ยน OS gate จากผล container tests อย่างเดียว

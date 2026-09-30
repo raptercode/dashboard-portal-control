@@ -1285,7 +1285,8 @@ export async function createApplication(options = {}) {
     const user = requestContext.getStore().user;
     return Promise.all(state.projects.filter((project) => user.role === 'master' || canAccess(state, user, resolveProjectOrganization(state, project)?.id, 'project.view')).map(async (project) => ({
       ...publicProject(project),
-      runtimeStatus: await projectRuntimeStatus(project)
+      runtimeStatus: await projectRuntimeStatus(project),
+      deploymentProgress: projectDeploymentProgress(state.jobs, project.slug)
     })));
   }
 
@@ -2615,6 +2616,13 @@ function publicProject(project) {
 function githubRepositoryName(repository) {
   const match = String(repository ?? '').match(/^(?:https:\/\/github\.com\/|git@github\.com:)([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+?)(?:\.git)?\/?$/i);
   return match?.[1].toLowerCase() ?? null;
+}
+
+function projectDeploymentProgress(jobs, slug) {
+  const job = jobs.findLast((item) => item.projectSlug === slug);
+  if (!job) return null;
+  const event = job.events?.at(-1);
+  return { id: job.id, status: job.status, phase: event?.phase || null, phaseStatus: event?.status || null, updatedAt: event?.at || job.createdAt };
 }
 
 function publicJob(job) {

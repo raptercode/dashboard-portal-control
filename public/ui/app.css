@@ -1531,3 +1531,10 @@ body[data-page="invite"] .auth-screen { min-height: 100vh; }
   .member-fields { grid-template-columns: 1fr; }
   .member-inline-form button, .organization-row button { align-self: start; }
 }
+
+.project-deployment-progress { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; margin-top: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; }
+.project-deployment-phase { font-weight: 600; }
+.project-deployment-progress.is-active { border-color: var(--accent); }
+.project-deployment-progress.is-active::before { content: ''; width: 10px; height: 10px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: page-spin 1s linear infinite; }
+.project-deployment-progress.is-failed { color: var(--danger); }
+@media (prefers-reduced-motion: reduce) { .project-deployment-progress.is-active::before { animation: none; } }

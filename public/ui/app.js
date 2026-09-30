@@ -49,6 +49,8 @@ const state = {
   slugManual: false,
   deployStep: 1
 };
+let projectProgressTimer = null;
+let projectProgressPolling = false;
 let deploymentProgressTimer = null;
 let deploymentProgressGeneration = 0;
 
@@ -395,6 +397,7 @@ function projectDisplayStatus(project) {
   const deployment = project.deployment || {};
   const sync = project.sync || {};
   const latestRelease = deployment.releases?.[0];
+  if (['queued', 'running'].includes(project.deploymentProgress?.status)) return { key: 'deploying', tone: 'building', label: projectDeploymentLabel(project.deploymentProgress) };
   if (project.runtimeStatus?.state === 'down' || ['failed', 'needs_ssh_key'].includes(sync.status) || latestRelease?.status === 'failed' || deployment.state === 'failed') return { key: 'attention', tone: 'error', label: 'Needs attention' };
   if (['deploying', 'rolling_back', 'awaiting_activation'].includes(deployment.state)) return { key: 'deploying', tone: 'building', label: 'Deploying…' };
   if (deployment.state === 'active' && deployment.activeReleaseId) return { key: 'released', tone: 'success', label: 'Released' };
@@ -636,7 +639,7 @@ async function refresh() {
     await loadMetrics(state.metricsRange);
   }
   if (page === 'setup') renderSetup();
-  if (view === 'projects') renderProjects();
+  if (view === 'projects') { renderProjects(); scheduleProjectProgress(); }
   if (page === 'credentials') renderCredentials();
   if (page === 'databases' && view !== 'database-console') await renderDatabases();
   if (view === 'database-console') await renderDatabaseConsole();
@@ -976,6 +979,7 @@ function projectRow(project) {
   const sync = project.sync || { status: 'unknown', detail: 'ยังไม่มีข้อมูลการ sync' };
   const deployment = project.deployment || { state: 'idle', activeReleaseId: null, previousReleaseId: null, releases: [] };
   const row = element('article', 'project-row project-card');
+  row.dataset.projectSlug = project.slug;
   const copy = element('div', 'project-copy');
   const headline = element('div', 'card-head project-headline');
   const cardTitle = element('div', 'card-title');
@@ -1059,6 +1063,8 @@ function projectRow(project) {
   source.append(repository, meta);
   secondary.append(stateLabel, domains);
   copy.append(headline, source, secondary, details);
+  const progress = projectDeploymentCard(project);
+  if (progress) source.append(progress);
   const actions = element('div', 'card-actions project-actions');
   const primaryAction = element('button', 'btn btn-primary btn-sm', displayStatus.key === 'deploying' ? 'Deploying…' : (displayStatus.key === 'attention' && deployment.previousReleaseId ? 'Rollback' : 'Deploy'));
   primaryAction.type = 'button';
@@ -1191,7 +1197,7 @@ async function syncExistingProject(project, button) {
     toast(result.project?.sync?.status === 'synced' ? `Synced latest ${payload.branch}${revision ? ` · ${revision.slice(0, 12)}` : ''}` : (result.project?.sync?.detail || 'Project sync queued.'));
     if (result.job?.id) {
       toast(result.activation === 'queued' ? 'จัดคิว auto deploy แล้ว' : 'Auto deploy สำเร็จ');
-      if (can('logs.read', project)) showDeploymentProgress(project, result.job);
+      await trackProjectDeployment(project, result.job);
       return;
     }
     if (result.activation === 'complete') toast('Auto deploy สำเร็จ');
@@ -2713,7 +2719,7 @@ async function rollbackProject(project, button) {
   try {
     const result = await api(`/api/projects/${encodeURIComponent(project.slug)}/rollback`, { method: 'POST', body: {} });
     toast(result.activation === 'queued' || result.activation === 'pending' ? 'จัดคิว rollback แล้ว' : 'rollback สำเร็จ');
-    if (result.job?.id && can('logs.read', project)) showDeploymentProgress(project, result.job);
+    if (result.job?.id) await trackProjectDeployment(project, result.job);
     else await refresh();
   } catch (error) { showError(error); }
   finally { button.disabled = false; }
@@ -2733,7 +2739,7 @@ async function startProjectDeploy(project, button) {
 async function deployExistingProject(project) {
   const result = await api(`/api/projects/${encodeURIComponent(project.slug)}/deploy`, { method: 'POST', body: {} });
   toast(result.activation === 'queued' ? 'จัดคิว deploy แล้ว' : 'สร้าง release แล้ว');
-  if (result.job?.id && can('logs.read', project)) showDeploymentProgress(project, result.job);
+  if (result.job?.id) await trackProjectDeployment(project, result.job);
   else await refresh();
 }
 
@@ -2971,7 +2977,7 @@ async function submitDeploy(event) {
     const result = await api(`/api/projects/${encodeURIComponent(project.slug)}/deploy`, { method: 'POST', body: {} });
     await closeDeployDialog();
     toast(result.activation === 'queued' ? 'จัดคิว deploy แล้ว' : 'สร้าง release แล้ว');
-    if (result.job?.id && can('logs.read', project)) showDeploymentProgress(project, result.job);
+    if (result.job?.id) await trackProjectDeployment(project, result.job);
     else await refresh();
   } catch (error) { showError(error); }
   finally { submit.disabled = false; }
@@ -3077,6 +3083,83 @@ async function hydrateProjectLogs() {
   $('#log-refresh-now').addEventListener('click', loadRuntimeLog);
   await loadRuntimeLog();
   schedule();
+}
+
+function projectDeploymentLabel(progress) {
+  const terminal = { succeeded: 'Deploy สำเร็จ', failed: 'Deploy ล้มเหลว', cancelled: 'ยกเลิก deploy', interrupted: 'Deploy ถูกขัดจังหวะ' };
+  if (terminal[progress.status]) return terminal[progress.status];
+  if (progress.status === 'queued') return 'รอคิว deploy';
+  const phases = { source_copy: 'เตรียม source', dependencies: 'ติดตั้ง dependencies', install: 'ติดตั้ง dependencies', build: 'กำลัง build', candidate_health: 'ตรวจสุขภาพ candidate', docker_preflight: 'ตรวจ Docker Compose', health_check: 'ตรวจสุขภาพ', health: 'ตรวจสุขภาพ', host_activation: 'เปิดใช้งานบน host', activation: 'เปิดใช้งาน release', start: 'เริ่ม service' };
+  const label = phases[progress.phase] || (progress.phase ? progress.phase.replaceAll('_', ' ') : 'เตรียม deploy');
+  if (progress.phaseStatus === 'skipped') return label + ' · ข้ามขั้นตอน';
+  return progress.phaseStatus === 'passed' ? label + ' · ผ่านแล้ว' : label;
+}
+
+function projectDeploymentCard(project) {
+  const progress = project.deploymentProgress;
+  if (!progress) return null;
+  const active = ['queued', 'running'].includes(progress.status);
+  const box = element('div', 'project-deployment-progress' + (active ? ' is-active' : '') + (['failed', 'interrupted'].includes(progress.status) ? ' is-failed' : ''));
+  box.setAttribute('role', 'status');
+  box.append(element('span', 'project-deployment-phase', projectDeploymentLabel(progress)));
+  if (active) box.append(element('span', 'muted', 'อัปเดตอัตโนมัติ'));
+  if (can('logs.read', project)) {
+    const logs = element('button', 'btn btn-ghost btn-sm', 'ดูรายละเอียด');
+    logs.type = 'button';
+    logs.addEventListener('click', () => showDeploymentProgress(project, progress));
+    box.append(logs);
+  }
+  return box;
+}
+
+async function trackProjectDeployment(project, job) {
+  const saved = state.projects.find((item) => item.slug === project.slug);
+  if (saved) {
+    const event = job.events?.at(-1);
+    saved.deploymentProgress = { id: job.id, status: job.status, phase: event?.phase, phaseStatus: event?.status };
+    if (view === 'projects') renderProjects();
+  }
+  await pollProjectProgress();
+}
+
+function renderLiveProjects() {
+  const opened = $$('.project-card details[open]').map((node) => ({ slug: node.closest('.project-card').dataset.projectSlug, className: node.className }));
+  const focused = document.activeElement;
+  const focusedCard = focused?.closest('.project-card');
+  const focus = focusedCard ? { slug: focusedCard.dataset.projectSlug, tag: focused.tagName, text: focused.textContent, className: focused.className } : null;
+  renderProjects();
+  for (const card of $$('.project-card')) {
+    for (const entry of opened.filter((item) => item.slug === card.dataset.projectSlug)) {
+      const details = $$('details', card).find((node) => node.className === entry.className);
+      if (details) details.open = true;
+    }
+    if (focus?.slug === card.dataset.projectSlug) {
+      const target = $$('button, a, summary', card).find((node) => node.tagName === focus.tag && node.className === focus.className && node.textContent === focus.text);
+      target?.focus({ preventScroll: true });
+    }
+  }
+}
+
+function scheduleProjectProgress() {
+  clearTimeout(projectProgressTimer);
+  if (view !== 'projects') return;
+  const active = state.projects.some((project) => ['queued', 'running'].includes(project.deploymentProgress?.status));
+  projectProgressTimer = setTimeout(pollProjectProgress, active ? 1500 : 5000);
+}
+
+async function pollProjectProgress() {
+  if (projectProgressPolling) return;
+  clearTimeout(projectProgressTimer);
+  projectProgressPolling = true;
+  try {
+    if (document.hidden) return;
+    const { projects = [] } = await api('/api/projects');
+    if (JSON.stringify(state.projects) !== JSON.stringify(projects)) {
+      state.projects = projects;
+      if (view === 'projects') renderLiveProjects();
+    }
+  } catch { /* Retry quietly: a temporary network failure must not interrupt a deployment. */ }
+  finally { projectProgressPolling = false; scheduleProjectProgress(); }
 }
 
 function showDeploymentProgress(project, initialJob) {

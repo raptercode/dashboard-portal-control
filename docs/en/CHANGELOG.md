@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.8.4 — 2026-09-30
+
+### Changed
+
+- Sync, deploy, deployment wizard and rollback show progress on project cards without automatically opening a log dialog.
+- Project cards refresh every 1.5 seconds during deployment and every 5 seconds while idle, including automatically triggered jobs. Hidden tabs pause requests.
+- Cards show preparation, dependency installation, build, health checks, activation and the final result. Deployment logs remain available through an explicit details action.
+- Automatic card updates preserve open menus/details and keyboard focus. Deployment summaries respect project access and exclude log messages and private failure details.
+
+### Validation boundary
+
+- Automated tests cover polling, concurrent project updates, terminal states, transient errors, focus preservation and scoped API summaries.
+- Interactive browser and production-host acceptance remain unverified; publishing this release does not update an installed host.
+
 ## 0.8.3 — 2026-09-30
 
 ### Added

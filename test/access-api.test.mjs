@@ -260,3 +260,24 @@ test('Master and User persisted sessions retain their own identities after an ap
   assert.equal(memberAccess.body.user.role, 'user');
   assert.deepEqual((await request(restarted.base, '/api/projects', member)).body.projects.map((project) => project.slug), ['alpha']);
 });
+
+test('project viewers receive current deployment phase without logs or another organization jobs', async (t) => {
+  const { app, base, member } = await fixture(t, ['project.view']);
+  await app.store.update((state) => {
+    state.jobs.push(
+      { id: randomUUID(), projectSlug: 'alpha', status: 'running', createdAt: new Date().toISOString(), failureLog: 'private build output', events: [{ at: '2026-09-30T00:00:00.000Z', phase: 'build', status: 'started', message: 'private command detail' }] },
+      { id: randomUUID(), projectSlug: 'bravo', status: 'running', createdAt: new Date().toISOString(), events: [{ phase: 'source_copy', status: 'started', message: 'other organization' }] }
+    );
+  });
+  const response = await request(base, '/api/projects', member);
+  assert.equal(response.status, 200);
+  assert.equal(response.body.projects.length, 1);
+  const progress = response.body.projects[0].deploymentProgress;
+  assert.equal(progress.status, 'running');
+  assert.equal(progress.phase, 'build');
+  assert.equal(progress.phaseStatus, 'started');
+  assert.equal(progress.events, undefined);
+  assert.equal(progress.failureLog, undefined);
+  assert.equal(JSON.stringify(response.body).includes('private command detail'), false);
+  assert.equal(JSON.stringify(response.body).includes('other organization'), false);
+});
