@@ -14,7 +14,7 @@ Portal รองรับ Node.js **20.20.2+, 22.13+, 24.x และ 26.x** ต�
 | 24 (ค่าเริ่มต้น) | 24.18.0 | node:sqlite |
 | 26 | 26.10.0 | node:sqlite |
 
-Installer ตรวจ SHA-256 และเก็บแต่ละเวอร์ชันไว้ที่ `/opt/node-v<version>` โดยติดตั้งทั้งสี่ major เพื่อให้เลือกต่อแอปได้ จึงต้องมีพื้นที่และการเชื่อมต่อสำหรับดาวน์โหลดทุก runtime
+Installer ตรวจ SHA-256 และเก็บ runtime ที่เลือกไว้ที่ `/opt/node-v<version>` โดยเตรียมเฉพาะ major ของ Portal ไม่ติดตั้ง major ที่ไม่ได้ใช้ Runtime ของ project ที่มีอยู่ยังคงไว้ หาก project ต้องใช้ major อื่น ต้องเตรียม runtime นั้นแยกก่อน deploy
 
 Node 20 สิ้นสุดการสนับสนุนจาก Node.js แล้ว คงไว้เพื่อความเข้ากันได้กับระบบเดิม สำหรับการติดตั้งใหม่แนะนำ Node 24 ตรวจสถานะ lifecycle ได้ที่ [Node.js releases](https://nodejs.org/en/about/previous-releases)
 
@@ -22,9 +22,9 @@ Node 20 สิ้นสุดการสนับสนุนจาก Node.js 
 
 คำสั่งเดียวใน [คู่มือติดตั้ง](production-install.md) ใช้ Node 24 สำหรับ Portal หากต้องการ major อื่น bootstrap มี advanced option `--node-major` รองรับ `20`, `22`, `24` หรือ `26`
 
-ตัว Portal, helper และคำสั่งดูแลระบบใช้ absolute path ของ Node ที่เลือก ส่วน global `/usr/local/bin/node` และ `npm` ยังชี้ Node 24 สำหรับแอปเดิม
+ตัว Portal, helper และคำสั่งดูแลระบบใช้ absolute path ของ Node ที่เลือก Global `node`, `npm`, `npx` ชี้ runtime เดียวกัน และ link corepack เมื่อ distribution มีให้
 
-Signed updater ส่งต่อ `HOSTMGR_NODE_MAJOR` จาก config จึงคงเวอร์ชันเดิมไว้ หากต้องการเปลี่ยน Node ของ Portal ภายหลัง ให้สำรอง state พร้อม encryption key แล้วใช้ advanced option ของ bootstrap หากไม่ระบุจะใช้ 24
+Signed updater ส่งต่อ `HOSTMGR_NODE_MAJOR` จาก config จึงคง major เดิม เครื่องเก่าที่ไม่มีค่าใช้ major ของ runtime ปัจจุบันแทนการบังคับ 24 Installer ที่ได้รับจาก updater รุ่นเก่าซึ่งไม่ส่ง major จะตรวจ runtime ของ service เดิมด้วย Fresh install จึงค่อยใช้ default 24 เมื่อเลือก 26 จะเตรียม libatomic1 ด้วย หากต้องการเปลี่ยน major ให้สำรอง state พร้อม encryption key แล้วเลือกอย่างชัดเจน
 
 ตรวจบน host:
 

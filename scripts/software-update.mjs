@@ -3,6 +3,12 @@ import { readFile } from 'node:fs/promises';
 
 const VERSION_PATTERN = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 
+export function portalNodeMajor(config = {}, runtimeVersion = process.versions.node) {
+  const selected = config.HOSTMGR_NODE_MAJOR ?? String(runtimeVersion).split('.')[0];
+  if (!/^(20|22|24|26)$/.test(String(selected))) throw new Error('Current Portal Node.js major must be 20, 22, 24 or 26.');
+  return String(selected);
+}
+
 export function updateConfiguration(input = process.env) {
   const manifestUrl = input.HOSTMGR_UPDATE_MANIFEST_URL ?? input.manifestUrl ?? '';
   const publicKeyPath = input.HOSTMGR_UPDATE_PUBLIC_KEY_PATH ?? input.publicKeyPath ?? '';

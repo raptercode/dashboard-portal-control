@@ -9,6 +9,8 @@ The current installer accepts Ubuntu 24.04 or 25.04, amd64. Use root or a sudo-c
 
 ## Install
 
+After installation, `dashboard-portal -h` or `--help` lists all CLI commands. Use `dashboard-portal -v` or `--versions` for installed Portal and runtime versions. These informational commands do not require sudo. `dashboard-portal update --help` also shows the command reference; update, configuration changes and password reset still require sudo.
+
 ```bash
 curl -fsSL https://dashboard-portal.cloud/install.sh | bash
 ```
@@ -38,7 +40,7 @@ TLS email cannot be blank. It is separate from the login email configured during
 
 The bootstrap downloads the release archive and its SHA-256 file over HTTPS, verifies the requested archive, extracts it into a private temporary directory and invokes the host installer. Failed downloads/checksums stop installation. Initial bootstrap trusts the HTTPS/GitHub release source; subsequent signed updates also verify Ed25519.
 
-The installer provisions pinned Node runtimes and Bun/Go, Ubuntu Python/venv, Git, Nginx and Certbot. It runs the Portal at `127.0.0.1:3100`, requires TLS, enables HTTPS redirects/HSTS and verifies HTTPS health. Choose an initial password of at least 12 characters and finish account bootstrap in the browser. Check runtime readiness in Setup/Doctor before deploying apps.
+The installer provisions the selected pinned Portal Node runtime, Bun, Git, Nginx and Certbot. It does not install unused Node majors or remove existing project runtimes; prepare additional project runtimes separately and check Setup/Doctor before deployment. It runs the Portal at `127.0.0.1:3100`, requires TLS, enables HTTPS redirects/HSTS and verifies HTTPS health. Choose an initial password of at least 12 characters and finish account bootstrap in the browser.
 
 ## Managed files and services
 

@@ -5,7 +5,7 @@ import { dirname, join, resolve } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
 import { spawn } from 'node:child_process';
-import { compareVersions, fetchVerifiedManifest, sha256File, softwareUpdateStatus, updateConfiguration } from './software-update.mjs';
+import { compareVersions, fetchVerifiedManifest, portalNodeMajor, sha256File, softwareUpdateStatus, updateConfiguration } from './software-update.mjs';
 
 const CONFIG_FILE = '/etc/dashboard-portal/dashboard-portal.env';
 const PUBLIC_KEY_FILE = '/etc/dashboard-portal/update-public-key.pem';
@@ -58,6 +58,7 @@ async function update(values) {
     return;
   }
   if (comparison < 0) fatal(`Refusing to downgrade from ${currentVersion} to ${manifest.version}.`);
+  const nodeMajor = portalNodeMajor(config);
   const stage = await mkdtemp('/tmp/dashboard-portal-update-');
   try {
     const archive = join(stage, 'release.tar.gz');
@@ -70,7 +71,7 @@ async function update(values) {
     await run('/bin/tar', ['--extract', '--gzip', '--file', archive, '--directory', extracted, '--no-same-owner', '--no-same-permissions']);
     const releaseRoot = await releaseDirectory(extracted);
     console.log('Checksum and signature verified. Installing staged release...');
-    await run('/usr/bin/bash', [join(releaseRoot, 'dashboard-portal.sh'), `--domain=${config.HOSTMGR_PORTAL_DOMAIN ?? ''}`, `--email=${config.HOSTMGR_ACME_EMAIL ?? ''}`, `--node-major=${config.HOSTMGR_NODE_MAJOR ?? '24'}`], { cwd: releaseRoot, inherit: true });
+    await run('/usr/bin/bash', [join(releaseRoot, 'dashboard-portal.sh'), `--domain=${config.HOSTMGR_PORTAL_DOMAIN ?? ''}`, `--email=${config.HOSTMGR_ACME_EMAIL ?? ''}`, `--node-major=${nodeMajor}`], { cwd: releaseRoot, inherit: true });
     console.log(`Dashboard Portal updated to ${manifest.version}.`);
   } finally {
     await rm(stage, { recursive: true, force: true });

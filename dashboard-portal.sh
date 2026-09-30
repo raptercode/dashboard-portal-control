@@ -8,7 +8,7 @@ umask 077
 
 DOMAIN=''
 EMAIL=''
-PORTAL_NODE_MAJOR='24'
+PORTAL_NODE_MAJOR=''
 for arg in "$@"; do
   case "$arg" in
     --domain=*) DOMAIN="${arg#*=}" ;;
@@ -31,6 +31,8 @@ PASSWORD_SCRIPT='/usr/local/lib/dashboard-portal/password-config.mjs'
 UPDATE_SCRIPT='/usr/local/lib/dashboard-portal/dashboard-portal-update.mjs'
 UPDATE_LIBRARY='/usr/local/lib/dashboard-portal/software-update.mjs'
 UPDATE_COMMAND='/usr/local/sbin/dashboard-portal'
+CLI_INFO_ROOT='/usr/local/share/dashboard-portal'
+CLI_INFO_SCRIPT='/usr/local/share/dashboard-portal/cli-info.mjs'
 UPDATE_PUBLIC_KEY_SOURCE='scripts/dashboard-portal-update-public.pem'
 UPDATE_PUBLIC_KEY_FILE='/etc/dashboard-portal/update-public-key.pem'
 DEFAULT_UPDATE_MANIFEST_URL='https://github.com/raptercode/dashboard-portal-control/releases/latest/download/stable.json'
@@ -119,6 +121,20 @@ rollback() {
 trap rollback ERR INT TERM
 
 [[ $EUID -eq 0 ]] || die 'Run with sudo.'
+if [[ -z "$PORTAL_NODE_MAJOR" ]]; then
+  if [[ -f "$CONFIG_ROOT/dashboard-portal.env" ]]; then
+    PORTAL_NODE_MAJOR="$(sed -n 's/^HOSTMGR_NODE_MAJOR=//p' "$CONFIG_ROOT/dashboard-portal.env")"
+  fi
+  if [[ -z "$PORTAL_NODE_MAJOR" && -f "$APP_ROOT/package.json" ]]; then
+    portal_pid="$(systemctl show dashboard-portal.service --property=MainPID --value 2>/dev/null || true)"
+    current_node='/usr/local/bin/node'
+    if [[ "$portal_pid" =~ ^[1-9][0-9]*$ && -x "/proc/$portal_pid/exe" ]]; then current_node="/proc/$portal_pid/exe"; fi
+    current_version="$("$current_node" --version)" || die 'Cannot detect the installed Portal Node.js major. Specify --node-major explicitly.'
+    [[ "$current_version" =~ ^v([0-9]+)\. ]] || die 'Cannot parse the installed Portal Node.js version.'
+    PORTAL_NODE_MAJOR="${BASH_REMATCH[1]}"
+  fi
+  PORTAL_NODE_MAJOR="${PORTAL_NODE_MAJOR:-24}"
+fi
 [[ "$PORTAL_NODE_MAJOR" =~ ^(20|22|24|26)$ ]] || die 'Portal Node.js major must be 20, 22, 24 or 26.'
 [[ -n "$DOMAIN" && "$DOMAIN" =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$ ]] || die 'A lower-case FQDN is required in --domain.'
 [[ -n "$EMAIL" && "$EMAIL" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]] || die 'A valid --email is required. HTTPS is mandatory for a public login.'
@@ -160,6 +176,7 @@ chmod 1777 /tmp
 apt-get update
 apt-get install -y --no-install-recommends nginx certbot python3-certbot-nginx curl ca-certificates xz-utils unzip git
 if [[ "$PORTAL_NODE_MAJOR" == '20' ]]; then apt-get install -y --no-install-recommends build-essential python3; fi
+if [[ "$PORTAL_NODE_MAJOR" == '26' ]]; then apt-get install -y --no-install-recommends libatomic1; fi
 
 if ! id -u "$APP_USER" >/dev/null 2>&1; then
   useradd --system --create-home --home-dir "$DATA_ROOT" --shell /usr/sbin/nologin "$APP_USER"
@@ -185,7 +202,7 @@ install_node_version() {
   "$target/bin/node" --version | grep -qx "v${version}" || die "Node.js ${version} installation is incomplete."
   [[ -x "$target/bin/npm" ]] || die "Node.js ${version} installation is missing npm."
 }
-for major in 20 22 24 26; do install_node_version "$major"; done
+install_node_version "$PORTAL_NODE_MAJOR"
 case "$PORTAL_NODE_MAJOR" in
   20) PORTAL_NODE='/opt/node-v20.20.2/bin/node'; PORTAL_NPM='/opt/node-v20.20.2/bin/npm' ;;
   22) PORTAL_NODE='/opt/node-v22.23.3/bin/node'; PORTAL_NPM='/opt/node-v22.23.3/bin/npm' ;;
@@ -194,11 +211,12 @@ case "$PORTAL_NODE_MAJOR" in
 esac
 # Keep the complete pinned Node distribution on PATH. A node-only symlink
 # cannot execute the reproducible npm-based project deployment contract.
-for node_tool in node npm npx corepack; do
-  [[ -x "/opt/node-v${NODE_VERSION}/bin/${node_tool}" ]] || die "Pinned Node.js distribution is missing ${node_tool}."
-  ln -sfn "/opt/node-v${NODE_VERSION}/bin/${node_tool}" "/usr/local/bin/${node_tool}"
+for node_tool in node npm npx; do
+  [[ -x "$(dirname "$PORTAL_NODE")/${node_tool}" ]] || die "Selected Node.js distribution is missing ${node_tool}."
+  ln -sfn "$(dirname "$PORTAL_NODE")/${node_tool}" "/usr/local/bin/${node_tool}"
 done
-"/usr/local/bin/node" --version | grep -qx "v${NODE_VERSION}" || die 'Installed Node.js version did not match the pinned release.'
+if [[ -x "$(dirname "$PORTAL_NODE")/corepack" ]]; then ln -sfn "$(dirname "$PORTAL_NODE")/corepack" /usr/local/bin/corepack; fi
+[[ "$(/usr/local/bin/node --version)" == "$("$PORTAL_NODE" --version)" ]] || die 'Installed Node.js version did not match the selected runtime.'
 "/usr/local/bin/npm" --version >/dev/null || die 'Installed Node.js npm runtime could not be executed.'
 
 # Bun is a project runtime, not a dependency of Dashboard Portal itself. Pin
@@ -251,8 +269,16 @@ install -m 0750 -o root -g root "$APP_ROOT/scripts/nginx-edge.mjs" "$HELPER_ROOT
 install -m 0750 -o root -g root "$APP_ROOT/scripts/password-config.mjs" "$PASSWORD_SCRIPT"
 install -m 0750 -o root -g root "$APP_ROOT/scripts/dashboard-portal-update.mjs" "$UPDATE_SCRIPT"
 install -m 0644 -o root -g root "$APP_ROOT/scripts/software-update.mjs" "$UPDATE_LIBRARY"
+install -d -m 0755 -o root -g root "$CLI_INFO_ROOT"
+install -m 0644 -o root -g root "$APP_ROOT/scripts/cli-info.mjs" "$CLI_INFO_SCRIPT"
+install -m 0644 -o root -g root "$APP_ROOT/scripts/node-versions.mjs" "$CLI_INFO_ROOT/node-versions.mjs"
 cat > "$UPDATE_COMMAND" <<EOF
 #!/usr/bin/env bash
+case "\${1:-}" in
+  ''|-h|--help|-v|--version|--versions) exec ${PORTAL_NODE} ${CLI_INFO_SCRIPT} "\$@" ;;
+  update|configure-update|--reset-pwd)
+    if [[ "\${2:-}" == '-h' || "\${2:-}" == '--help' ]]; then exec ${PORTAL_NODE} ${CLI_INFO_SCRIPT} "\$@"; fi ;;
+esac
 if [[ "\${1:-}" == '--reset-pwd' ]]; then
   shift
   exec ${PORTAL_NODE} ${PASSWORD_SCRIPT} --reset-pwd "\$@"
@@ -260,7 +286,7 @@ fi
 exec ${PORTAL_NODE} ${UPDATE_SCRIPT} "\$@"
 EOF
 chown root:root "$UPDATE_COMMAND"
-chmod 0750 "$UPDATE_COMMAND"
+chmod 0755 "$UPDATE_COMMAND"
 
 install -d -m 0700 -o "$APP_USER" -g "$APP_USER" "$DATA_ROOT" "$DATA_ROOT/projects"
 install -d -m 0750 -o root -g "$APP_USER" "$CONFIG_ROOT"

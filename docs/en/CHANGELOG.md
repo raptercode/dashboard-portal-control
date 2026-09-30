@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.5 — 2026-09-30
+
+- CLI `-h`/`--help` lists commands and options; `-v`/`--versions`/`--version` reports Portal and runtime versions without sudo. Command-specific help is available before privileged actions.
+- Portal updates preserve the configured Node major, detecting the current runtime on legacy installations without a saved major.
+- The installer prepares only the selected Portal Node major and links global Node/npm/npx to it. Unused Node 26 no longer blocks Node 20/22/24 updates; Node 26 selection prepares libatomic1.
+- Older updaters that pass no major are supported through installer detection of the existing configuration or service runtime. Fresh installations still default to 24; existing project runtimes are retained.
+
 ## 0.8.4 — 2026-09-30
 
 ### Changed

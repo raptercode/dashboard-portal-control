@@ -2,6 +2,12 @@
 
 [English](../en/CHANGELOG.md)
 
+## 0.8.5 — 2026-09-30
+
+เพิ่ม CLI `-h`/`--help` แสดงคำสั่งและ options ทั้งหมด และ `-v`/`--versions`/`--version` แสดง Portal/runtime versions โดยไม่ต้อง sudo ดู help ของแต่ละคำสั่งได้ก่อน mutation
+
+Updater คง Node major จาก config หรือ runtime ปัจจุบันของเครื่องเก่า Installer เตรียมเฉพาะ major ที่เลือกและชี้ global node/npm/npx ให้ตรงกัน Node 26 ที่ไม่ได้ใช้ไม่บล็อก update ของ Node 20/22/24 อีก เมื่อเลือก 26 จึงติดตั้ง libatomic1 รองรับ updater เก่าที่ไม่ส่ง major โดยตรวจ config/service เดิม Fresh install ยัง default 24 และไม่ลบ runtime ของ project ที่มีอยู่
+
 ## 0.8.4 — 2026-09-30
 
 - Sync, Deploy, wizard และ Rollback แสดง progress บนการ์ด Projects โดยไม่เปิด popup log อัตโนมัติ

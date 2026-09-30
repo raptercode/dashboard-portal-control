@@ -2,6 +2,8 @@
 
 [English](../../en/how-to/production-install.md)
 
+หลังติดตั้งใช้ `dashboard-portal -h` หรือ `--help` ดูคำสั่ง CLI ทั้งหมด และ `dashboard-portal -v` หรือ `--versions` ดู Portal/runtime versions โดยไม่ต้อง sudo ใช้ `dashboard-portal update --help` ดูคู่มือได้เช่นกัน ส่วน update, configure-update และ reset password ยังต้อง sudo
+
 
 คู่มือนี้ใช้กับ **Ubuntu Server 24.04 หรือ 25.04, amd64** ที่ผ่านเงื่อนไข installer การติดตั้งจริงใช้ systemd และ Nginx; Docker Compose ใน repository ใช้ทดลองบนเครื่องพัฒนา
 
@@ -11,7 +13,7 @@
 - ตั้ง A/AAAA ให้ถูกต้อง แล้วตรวจจาก host ด้วย `getent ahosts portal.example.com`
 - เปิด TCP 80 และ 443; Let's Encrypt ใช้ HTTP-01 challenge
 - หากใช้ CDN ให้ใช้ DNS only ระหว่างออก certificate ครั้งแรก ตรวจ origin HTTPS ให้ผ่านก่อนเปิด proxy แบบ Full (strict)
-- พอร์ต loopback 3100 ต้องว่าง และมีพื้นที่สำหรับ Node ทั้งสี่เวอร์ชัน, Bun, source และ backup
+- พอร์ต loopback 3100 ต้องว่าง และมีพื้นที่สำหรับ Node major ที่เลือก, Bun, source และ backup
 - สำรอง Nginx และบริการเดิมก่อนเริ่ม ใช้ staging host สำหรับทดสอบการติดตั้งครั้งแรก
 
 Installer จัดการไฟล์ Nginx ของ Portal และ managed projects รวมถึงแทนที่ symlink ของ Ubuntu default site เมื่อยังชี้ default เดิม เพื่อใช้ reject catch-all ไม่แก้ virtual host อื่น
@@ -49,7 +51,7 @@ curl -fsSL https://dashboard-portal.cloud/install.sh | bash -s -- --version v0.8
 
 Bootstrap ดาวน์โหลด archive และ checksum ของ release จาก GitHub ผ่าน HTTPS ตรวจ SHA-256 แล้วเรียก installer จาก directory ชั่วคราว หยุดเมื่อดาวน์โหลดหรือ checksum ไม่ผ่าน การตรวจ checksum ของ bootstrap อาศัยความเชื่อถือใน HTTPS/GitHub; signed updater หลังติดตั้งตรวจ Ed25519 เพิ่มด้วย
 
-ติดตั้ง Node ทั้งสี่ major ที่ pin และ Bun, Go, Python/venv, Nginx, Certbot, Git ตาม installer ตรวจเครื่องมือที่พร้อมจริงอีกครั้งใน Setup/Doctor และอ่าน [Node versions](node-versions.md) สำหรับ runtime และ nvm
+Installer เตรียม Node major ที่เลือกพร้อมตรวจ checksum โดยไม่ติดตั้ง major ที่ไม่ได้ใช้ Runtime ของ project ที่มีอยู่ยังคงไว้ ตรวจเครื่องมือที่พร้อมจริงอีกครั้งใน Setup/Doctor และอ่าน [Node versions](node-versions.md) สำหรับ runtime และ nvm
 
 การติดตั้งแรกถามรหัสผ่านอย่างน้อย 12 ตัวอักษรผ่าน terminal เก็บใน password manager จากนั้นตั้ง Portal ที่ `127.0.0.1:3100`, ออก certificate, บังคับ HTTPS/HSTS และตรวจ HTTPS health ก่อนรายงานสำเร็จ เปิด domain แล้วสร้างบัญชีแรก
 

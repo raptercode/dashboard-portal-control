@@ -12,11 +12,11 @@ Supported majors follow [package.json](../../../package.json): 20.20.2+, 22.13+,
 | 24 (default) | 24.18.0 | node:sqlite |
 | 26 | 26.10.0 | node:sqlite |
 
-All four official Linux x64 binaries are checksum-verified and installed under `/opt/node-v<version>`. Allow disk space and downloads for each. Node 20 is retained as a compatibility option; prefer 24 for new installations.
+The selected Portal Linux x64 runtime is checksum-verified and installed under `/opt/node-v<version>`. Installation and updates do not provision unused Node majors. Existing project runtimes are retained; another project major must be provisioned separately before deploying that project. Node 20 is retained as a compatibility option; prefer 24 for new installations.
 
 ## Select a Portal runtime
 
-The single command in [production installation](production-install.md) uses Node 24 for the Portal. The bootstrap's advanced `--node-major` option supports 20/22/24/26 when a specific Portal runtime is required. Services and helper commands use explicit paths to that runtime; global `/usr/local/bin/node`, `npm`, `npx` and `corepack` remain on 24. Signed updates preserve `HOSTMGR_NODE_MAJOR`. Back up state/key before changing the Portal runtime.
+Fresh installation defaults to Node 24. The bootstrap's advanced `--node-major` option supports 20/22/24/26 when a specific Portal runtime is required. Services, helper commands and global `node`, `npm` and `npx` use the selected runtime; bundled corepack is linked when present. Signed updates preserve `HOSTMGR_NODE_MAJOR`; legacy installations without that setting detect the current runtime instead of forcing 24. The staged installer also detects the existing service runtime when an older updater passes no major. Node 26 selection installs its libatomic1 dependency. Back up state/key before explicitly changing the Portal runtime.
 
 ```bash
 /opt/node-v20.20.2/bin/node --version

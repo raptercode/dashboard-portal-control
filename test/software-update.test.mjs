@@ -4,7 +4,7 @@ import { createPublicKey, generateKeyPairSync, sign } from 'node:crypto';
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { canonicalJson, compareVersions, parseSignedManifest, softwareUpdateStatus, updateConfiguration } from '../scripts/software-update.mjs';
+import { canonicalJson, compareVersions, parseSignedManifest, portalNodeMajor, softwareUpdateStatus, updateConfiguration } from '../scripts/software-update.mjs';
 import { createApplication } from '../src/server.mjs';
 
 function signedManifest(privateKey, version = '0.2.1') {
@@ -18,6 +18,15 @@ function signedManifest(privateKey, version = '0.2.1') {
   };
   return { payload, signature: sign(null, Buffer.from(canonicalJson(payload)), privateKey).toString('base64') };
 }
+
+test('updates retain configured Node majors and detect legacy updater runtime without forcing 24', () => {
+  for (const major of [20, 22, 24, 26]) {
+    assert.equal(portalNodeMajor({}, `${major}.99.0`), String(major));
+    assert.equal(portalNodeMajor({ HOSTMGR_NODE_MAJOR: String(major) }, '24.18.0'), String(major));
+  }
+  for (const value of ['25', '', '26;echo unsafe']) assert.throws(() => portalNodeMajor({ HOSTMGR_NODE_MAJOR: value }, '24.18.0'), /major/);
+  assert.throws(() => portalNodeMajor({}, '28.0.0'), /major/);
+});
 
 test('signed update manifests verify and compare semantic versions', () => {
   const { privateKey, publicKey } = generateKeyPairSync('ed25519');
