@@ -2,6 +2,14 @@
 
 [English](../en/CHANGELOG.md)
 
+## 0.8.6 — 2026-10-06
+
+- เพิ่ม pnpm แบบทางเลือกในหน้า Setup การติดตั้งและอัปเดต Portal ไม่ติดตั้ง pnpm อัตโนมัติ
+- โปรเจกต์ Node เลือก npm/pnpm จาก packageManager และ lockfile หากยังไม่มี pnpm หรือเวอร์ชันไม่ตรงจะแจ้งให้ติดตั้งก่อน โดยไม่ดาวน์โหลดหรือสลับรุ่นเอง
+- ใช้ pnpm ในขั้นตอน install, build, health check, service และ rollback ตาม Node runtime ของโปรเจกต์ ตรวจ frozen lockfile และรักษา relative symlink เมื่อ activate
+- แสดง error ต้นทางจากการติดตั้ง dependencies ใน deploy log พร้อมปกปิด secrets
+- ดู [โปรเจกต์ pnpm](how-to/pnpm-projects.md) สำหรับวิธีติดตั้งและข้อกำหนด
+
 ## 0.8.5 — 2026-09-30
 
 เพิ่ม CLI `-h`/`--help` แสดงคำสั่งและ options ทั้งหมด และ `-v`/`--versions`/`--version` แสดง Portal/runtime versions โดยไม่ต้อง sudo ดู help ของแต่ละคำสั่งได้ก่อน mutation

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.6 — 2026-10-06
+
+- Add optional pnpm installation in Setup. Portal installation and updates never install pnpm automatically.
+- Node projects select npm/pnpm from packageManager and lockfiles. Missing or mismatched pnpm fails with actionable guidance; project operations never download or switch the manager.
+- Use pnpm for install, build, health checks, host startup and rollback with the selected Node runtime. Frozen pnpm lockfiles are enforced and relative dependency symlinks survive activation.
+- Preserve redacted dependency-install errors in deployment logs instead of hiding the npm/pnpm root cause.
+- See [pnpm projects](how-to/pnpm-projects.md) for setup, supported versions and project settings.
+
 ## 0.8.5 — 2026-09-30
 
 - CLI `-h`/`--help` lists commands and options; `-v`/`--versions`/`--version` reports Portal and runtime versions without sudo. Command-specific help is available before privileged actions.

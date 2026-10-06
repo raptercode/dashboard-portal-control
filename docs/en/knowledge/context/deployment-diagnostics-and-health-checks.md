@@ -40,7 +40,11 @@ candidate uses `npm ci` for a clean, locked install. If the lockfile is absent
 or npm reports that it is incompatible, the Portal retries `npm install` only
 in that isolated candidate. It does not write, commit, or push a replacement
 lockfile to the synced Git checkout. The dependency phase records which path
-was used without retaining raw npm output.
+was used. Failures retain bounded output with project and registry secrets redacted.
+
+Node projects can also use optional pnpm. It must already be installed; Portal
+updates do not install it. See [pnpm projects](../../how-to/pnpm-projects.md) for
+manager selection, frozen-lockfile behavior and startup requirements.
 
 ## Health-check configuration
 

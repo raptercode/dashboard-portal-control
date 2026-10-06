@@ -14,6 +14,7 @@ export const TOOLS = {
   nginx: { label: 'Nginx', package: 'nginx', required: true, purpose: 'Reverse proxy และรับ traffic จาก domain' },
   certbot: { label: 'Certbot', package: 'certbot', required: true, purpose: 'ออกและต่ออายุ Let’s Encrypt certificate' },
   git: { label: 'Git', package: 'git', required: true, purpose: 'Clone และ pull source code' },
+  pnpm: { label: 'pnpm', package: 'pnpm@11.19.0', required: false, purpose: 'ทางเลือกสำหรับ Node.js — ติดตั้งก่อน deploy โปรเจกต์ที่ใช้ pnpm; Portal ไม่ติดตั้งให้อัตโนมัติ' },
   docker: { label: 'Docker Engine + Compose', package: 'docker.io docker-compose-v2', required: false, purpose: 'ใช้งาน Docker mode' },
   go: { label: 'Go compiler', package: 'Go compiler', required: false, installable: false, purpose: 'Optional — ติดตั้ง Go บน host ก่อนจึงจะสร้าง Go project ได้' },
   python: { label: 'Python + venv', package: 'python3 python3-venv', required: false, installable: false, purpose: 'Optional — ติดตั้ง Python และ venv บน host ก่อนจึงจะสร้าง Python project ได้' },

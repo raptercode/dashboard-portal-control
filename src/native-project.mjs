@@ -3,6 +3,7 @@ import { phpExecutable, phpStartArgs } from '../scripts/php-project.mjs';
 import { projectServiceUser } from '../scripts/project-service-user.mjs';
 import { randomUUID } from 'node:crypto';
 import { nodeBin, nodeMajorForProject } from '../scripts/node-versions.mjs';
+import { pnpmServiceStart } from '../scripts/node-package-manager.mjs';
 import { InputError, validateProject, validateGoPackage, validatePythonProjectSettings, validatePhpProjectSettings } from './core.mjs';
 
 export function validateNativeProject(input) {
@@ -51,7 +52,9 @@ export function renderSystemdUnit(input) {
       ? `${phpExecutable()} ${phpStartArgs(project, project.port).join(' ')}`
       : project.runtime === 'go'
         ? `${identity.root}/current/hostmgr-app`
-        : project.runtime === 'node' && project.nodeMajor !== 24
+        : project.runtime === 'node' && project.packageManager?.name === 'pnpm'
+          ? pnpmServiceStart(project)
+          : project.runtime === 'node' && project.nodeMajor !== 24
           ? `/usr/bin/env PATH=${nodeBin(project.nodeMajor)}:/usr/local/bin:/usr/bin:/bin ${nodeBin(project.nodeMajor)}/npm run ${project.startScript}`
           : `${runtimeExecutable(project.runtime)} run ${project.startScript}`;
   return `[Unit]\nDescription=Host Manager project ${project.slug}\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nUser=${identity.user}\nGroup=${identity.user}\nWorkingDirectory=${identity.root}/current\nEnvironmentFile=${identity.environmentFile}\nEnvironment=PORT=${project.port}\nExecStart=${start}\nRestart=on-failure\nRestartSec=5\nNoNewPrivileges=true\nPrivateTmp=true\nProtectHome=true\nProtectSystem=strict\nReadWritePaths=${identity.root}\n\n[Install]\nWantedBy=multi-user.target\n`;

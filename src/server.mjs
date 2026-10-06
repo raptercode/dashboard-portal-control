@@ -11,6 +11,7 @@ import { assertPythonSource, pythonSettings, pythonStartArgs } from '../scripts/
 import { assertPhpSource, phpSettings, phpStartArgs } from '../scripts/php-project.mjs';
 import { StateStore, TOOLS, SUPPORTED_NODE_MAJOR, SecretVault, appendAudit, initialMailState, validateDomain, validateEnvironmentContent, validateEnvironmentVariables, validateGitBranchRequest, validateGitIdentity, validateNotificationHook, validatePasswordChange, validateProjectDomains, validateProjectRuntimeDetection, validateProjectSync, validateTool, InputError } from './core.mjs';
 import { NODE_VERSIONS, nodeBin, nodeRuntimeEnvironment } from '../scripts/node-versions.mjs';
+import { readNodePackageManager, assertPnpmAvailable, pnpmCommand, PNPM_PATH } from '../scripts/node-package-manager.mjs';
 import { checkDomainDns } from './dns-check.mjs';
 import { activateRelease, appendReleaseEvent, beginDeployment, beginRollback, createRelease, defaultCandidatePort, failRelease, initialDeployment, markReleaseHealthy, markReleasePendingActivation, projectIdentity, pruneInactiveReleases, validateDockerComposeProject, validateNativeProject, validatePackageScripts } from './native-project.mjs';
 import { callHostHelper } from './helper-client.mjs';
@@ -64,6 +65,7 @@ const pageTitles = {
 const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
 const MONITOR_TOKEN_PREFIX = 'dpm_';
 const HOST_TOOL_COMMANDS = {
+  pnpm: [[PNPM_PATH, ['--config.manage-package-manager-versions=false', '--config.pm-on-fail=error', '--config.verify-deps-before-run=false', '--version']]],
   nginx: [['/usr/sbin/nginx', ['-v']]],
   certbot: [['/usr/bin/certbot', ['--version']]],
   git: [['/usr/bin/git', ['--version']]],
@@ -931,6 +933,7 @@ export async function createApplication(options = {}) {
     if (mode !== 'host') throw new InputError('Manual SSH certification is available only on a real host installation.');
     const [observed] = await toolProbe([store.snapshot().tools[tool]]);
     if (observed?.status !== 'Installed') {
+      if (tool === 'pnpm') throw new InputError('Portal could not verify pnpm at /usr/local/bin/pnpm. Install it from Setup or over SSH before deploying a pnpm project.');
       throw new InputError(`Portal could not verify ${TOOLS[tool].label}. Install it over SSH first: sudo apt-get update && sudo apt-get install -y --no-install-recommends ${TOOLS[tool].package}`);
     }
     await store.update((state) => {
@@ -2192,7 +2195,7 @@ export async function prepareGoRelease(projectInput, release, storedProject, vau
   }
 }
 
-async function prepareNativeRelease(project, release, storedProject, vault, projectRoot, reportPhase = async () => {}) {
+export async function prepareNativeRelease(project, release, storedProject, vault, projectRoot, reportPhase = async () => {}) {
   const source = repositoryDirectory(project, projectRoot);
   const destination = join(projectRoot, project.slug, 'releases', release.id);
   const packagePath = join(source, 'package.json');
@@ -2201,7 +2204,9 @@ async function prepareNativeRelease(project, release, storedProject, vault, proj
   let packageJson;
   try { packageJson = JSON.parse(await readFile(packagePath, 'utf8')); } catch { throw new InputError('The synced repository has no valid package.json.'); }
   validatePackageScripts(packageJson, project);
-  const hasLockfile = await hasRuntimeLockfile(source, project.runtime);
+  if (project.runtime === 'node') project.packageManager = await readNodePackageManager(source, project.nodeMajor || 24);
+  const manager = project.packageManager?.name || project.runtime;
+  const hasLockfile = await hasRuntimeLockfile(source, manager);
   try {
     await reportPhase('source_copy', 'started', 'Copying the synced repository into an isolated candidate release.');
     await mkdir(join(projectRoot, project.slug, 'releases'), { recursive: true, mode: 0o750 });
@@ -2213,10 +2218,22 @@ async function prepareNativeRelease(project, release, storedProject, vault, proj
       await writeFile(join(destination, '.env'), environmentContent, { mode: 0o600 });
     }
     await runCandidateRuntime(project, ['--version'], {}, `The host ${runtimeLabel(project.runtime)} runtime is missing. Re-run the Dashboard Portal installer.`);
+    if (manager === 'pnpm') {
+      await reportPhase('dependencies', 'started', 'Checking the optional host pnpm installation.');
+      try {
+        const version = await assertPnpmAvailable(project, run, {
+          timeout: 10_000, env: nodeRuntimeEnvironment(project.nodeMajor || 24)
+        });
+        await reportPhase('dependencies', 'started', `Using installed pnpm ${version}.`);
+      } catch (error) {
+        throw new DeploymentFailure(error.message, redactBuildOutput(error.commandOutput || error.message, environmentContent));
+      }
+    }
     await installCandidateDependencies({
       hasLockfile,
-      runtime: project.runtime,
-      runNpm: (args, options) => run(runtimeExecutable(project), args, options),
+      runtime: manager,
+      environmentContent,
+      runNpm: (args, options) => runProjectPackageCommand(project, args, options),
       options: { cwd: destination, timeout: 300_000, ...(project.runtime === 'node' ? { env: nodeRuntimeEnvironment(project.nodeMajor || 24) } : {}) },
       reportPhase
     });
@@ -2239,6 +2256,7 @@ async function prepareNativeRelease(project, release, storedProject, vault, proj
 export async function copyCandidateSource(source, destination, { python = false, php = false } = {}) {
   await cp(source, destination, {
     recursive: true,
+    verbatimSymlinks: true,
     filter: (path) => !['.git', 'node_modules', ...(python ? ['.venv', 'venv', '__pycache__', '.hostmgr-python-ready'] : []), ...(php ? ['vendor', '.composer', '.hostmgr-php-ready'] : [])].includes(basename(path))
   });
 }
@@ -2286,8 +2304,9 @@ export async function healthCheckCandidate(cwd, project, storedProject, vault, r
     candidatePort: project.candidatePort
   });
   if (project.runtime === 'node') environment = nodeRuntimeEnvironment(project.nodeMajor || 24, environment);
-  const command = project.runtime === 'go' ? join(cwd, goBinaryName()) : runtimeExecutable(project);
-  const args = project.runtime === 'go' ? [] : ['run', project.startScript];
+  const pnpm = project.packageManager?.name === 'pnpm' ? pnpmCommand(project, ['run', project.startScript]) : null;
+  const command = project.runtime === 'go' ? join(cwd, goBinaryName()) : pnpm?.command || runtimeExecutable(project);
+  const args = project.runtime === 'go' ? [] : pnpm?.args || ['run', project.startScript];
   const candidate = spawn(command, args, { cwd, env: environment, shell: false, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] });
   let candidateOutput = '';
   let startupError = null;
@@ -2325,27 +2344,40 @@ function stopCandidate(candidate, signal) {
 async function runCandidateRuntime(runtimeInput, args, options, failure, environmentContent = '') {
   try {
     const runtime = typeof runtimeInput === 'string' ? runtimeInput : runtimeInput.runtime;
-    return await run(runtimeExecutable(runtimeInput), args, runtime === 'node' ? { ...options, env: nodeRuntimeEnvironment(runtimeInput.nodeMajor || 24, options.env) } : options);
+    const runtimeOptions = runtime === 'node' ? { ...options, env: nodeRuntimeEnvironment(runtimeInput.nodeMajor || 24, options.env) } : options;
+    return await runProjectPackageCommand(runtimeInput, args, runtimeOptions);
   } catch (error) {
     throw new DeploymentFailure(failure, redactBuildOutput(error?.commandOutput, environmentContent));
   }
 }
 
+function runProjectPackageCommand(project, args, options) {
+  // Probe Node/npm separately; project install/build/start use the selected manager.
+  if (project.packageManager?.name === 'pnpm' && options.cwd) {
+    const invocation = pnpmCommand(project, args);
+    return run(invocation.command, invocation.args, options);
+  }
+  return run(runtimeExecutable(project), args, options);
+}
+
 /**
  * Install dependencies for an isolated candidate without modifying the synced
  * Git checkout. A healthy lockfile uses the selected package manager's frozen
- * install; an absent or stale lockfile falls back to an unlocked install only
- * inside this candidate, so a future sync is
- * still wholly determined by the selected branch.
+ * install. npm/Bun retain their legacy stale-lock fallback; pnpm fails closed
+ * on a stale lock. An absent lock resolves only inside the candidate, leaving
+ * the synced Git checkout unchanged.
  */
-export async function installCandidateDependencies({ hasLockfile, runtime = 'node', runNpm, options, reportPhase = async () => {} }) {
+export async function installCandidateDependencies({ hasLockfile, runtime = 'node', runNpm, options, environmentContent = '', reportPhase = async () => {} }) {
   const bun = runtime === 'bun';
-  const manager = bun ? 'Bun' : 'npm';
-  const frozenArgs = bun ? ['install', '--frozen-lockfile'] : ['ci'];
-  const installArgs = ['install'];
+  const pnpm = runtime === 'pnpm';
+  const manager = pnpm ? 'pnpm' : bun ? 'Bun' : 'npm';
+  const lockfile = pnpm ? 'pnpm-lock.yaml' : bun ? 'bun.lock' : 'package-lock.json';
+  const pnpmOptions = ['--prod=false', '--virtual-store-dir=node_modules/.pnpm', '--config.enable-global-virtual-store=false'];
+  const frozenArgs = pnpm ? ['install', '--frozen-lockfile', ...pnpmOptions] : bun ? ['install', '--frozen-lockfile'] : ['ci'];
+  const installArgs = pnpm ? ['install', '--no-frozen-lockfile', ...pnpmOptions] : ['install'];
   if (!hasLockfile) {
-    await reportPhase('dependencies', 'started', `No ${bun ? 'bun.lock' : 'package-lock.json'} was found. Installing dependencies with ${manager} for this candidate.`);
-    return installUnlockedCandidateDependencies(runNpm, options, reportPhase, manager, installArgs);
+    await reportPhase('dependencies', 'started', `No ${lockfile} was found. Installing dependencies with ${manager} for this candidate.`);
+    return installUnlockedCandidateDependencies(runNpm, options, reportPhase, manager, installArgs, environmentContent);
   }
 
   await reportPhase('dependencies', 'started', `Installing locked dependencies with ${manager}.`);
@@ -2354,19 +2386,20 @@ export async function installCandidateDependencies({ hasLockfile, runtime = 'nod
     await reportPhase('dependencies', 'passed', `Locked dependencies installed with ${manager}.`);
     return 'locked';
   } catch (error) {
-    if (!isLockfileFailure(error, runtime)) throw new DeploymentFailure(`Candidate dependency installation failed. Check ${bun ? 'bun.lock' : 'package-lock.json'} and package dependencies.`);
+    // A pnpm lock mismatch must be fixed in Git; do not silently change its tree.
+    if (pnpm || !isLockfileFailure(error, runtime)) throw new DeploymentFailure(`Candidate dependency installation failed. Check ${lockfile} and package dependencies.`, redactBuildOutput(error.commandOutput || error.message, environmentContent));
     await reportPhase('dependencies', 'started', `The lockfile is incompatible with package.json. Retrying ${manager} install for this candidate.`);
-    return installUnlockedCandidateDependencies(runNpm, options, reportPhase, manager, installArgs);
+    return installUnlockedCandidateDependencies(runNpm, options, reportPhase, manager, installArgs, environmentContent);
   }
 }
 
-async function installUnlockedCandidateDependencies(runNpm, options, reportPhase, manager = 'npm', installArgs = ['install']) {
+async function installUnlockedCandidateDependencies(runNpm, options, reportPhase, manager = 'npm', installArgs = ['install'], environmentContent = '') {
   try {
     await runNpm(installArgs, options);
     await reportPhase('dependencies', 'passed', `Dependencies installed with ${manager} for this candidate; the synced Git checkout was not changed.`);
     return 'unlocked';
-  } catch {
-    throw new DeploymentFailure('Candidate dependency installation failed. Check package.json and package dependencies.');
+  } catch (error) {
+    throw new DeploymentFailure('Candidate dependency installation failed. Check package.json and package dependencies.', redactBuildOutput(error.commandOutput || error.message, environmentContent));
   }
 }
 
@@ -2377,7 +2410,7 @@ function isLockfileFailure(error, runtime) {
 }
 
 async function hasRuntimeLockfile(source, runtime) {
-  const names = runtime === 'bun' ? ['bun.lock', 'bun.lockb'] : ['package-lock.json'];
+  const names = runtime === 'pnpm' ? ['pnpm-lock.yaml'] : runtime === 'bun' ? ['bun.lock', 'bun.lockb'] : ['package-lock.json'];
   return (await Promise.all(names.map((name) => stat(join(source, name)).then((item) => item.isFile()).catch(() => false)))).some(Boolean);
 }
 
@@ -2739,6 +2772,8 @@ export function redactBuildOutput(output, environmentContent = '') {
     .sort((left, right) => right.length - left.length);
   for (const value of new Set(values)) safe = safe.split(value).join('<redacted>');
   safe = safe
+    .replace(/(https?:\/\/)[^\s/@]+:[^\s/@]+@/gi, '$1<redacted>@')
+    .replace(/((?:_authToken|_auth|password)\s*[=:]\s*)[^\s'"\\]+/gi, '$1<redacted>')
     .replace(/\b(authorization\s*:\s*(?:bearer\s+)?)[^\s'"\\]+/gi, '$1<redacted>')
     .replace(/\b([A-Z][A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|API_KEY|PRIVATE_KEY)[A-Z0-9_]*)\s*([=:])\s*([^\s'"\\]+)/g, '$1$2<redacted>');
   if (Buffer.byteLength(safe, 'utf8') > MAX_BUILD_LOG_BYTES) {

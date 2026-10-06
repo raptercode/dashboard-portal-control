@@ -42,6 +42,7 @@ if (!args.length || (args.length === 1 && ['-h', '--help'].includes(args[0])) ||
   for (const [label, command, commandArgs] of [
     ...Object.entries(NODE_VERSIONS).map(([major, version]) => [`Node ${major}`, `/opt/node-v${version}/bin/node`, ['--version']]),
     ['Bun', '/usr/local/bin/bun', ['--version']],
+    ['pnpm (optional)', '/usr/local/bin/pnpm', ['--config.manage-package-manager-versions=false', '--config.pm-on-fail=error', '--config.verify-deps-before-run=false', '--version']],
     ['Go', '/usr/local/go/bin/go', ['version']],
     ['Python', '/usr/bin/python3', ['--version']],
     ['PHP', '/usr/bin/php', ['--version']],

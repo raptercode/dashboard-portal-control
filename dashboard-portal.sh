@@ -260,6 +260,7 @@ install -d -m 0750 -o root -g root "$HELPER_ROOT"
 install -m 0750 -o root -g root "$APP_ROOT/scripts/hostmgr-deploy-helper.mjs" "$HELPER_SCRIPT"
 install -m 0644 -o root -g root "$APP_ROOT/scripts/sqlite.mjs" "$HELPER_ROOT/sqlite.mjs"
 install -m 0644 -o root -g root "$APP_ROOT/scripts/node-versions.mjs" "$HELPER_ROOT/node-versions.mjs"
+install -m 0644 -o root -g root "$APP_ROOT/scripts/node-package-manager.mjs" "$HELPER_ROOT/node-package-manager.mjs"
 if [[ "$PORTAL_NODE_MAJOR" == '20' ]]; then ln -sfn "$APP_ROOT/node_modules" "$HELPER_ROOT/node_modules"; fi
 install -m 0750 -o root -g root "$APP_ROOT/scripts/python-project.mjs" "$HELPER_ROOT/python-project.mjs"
 install -m 0750 -o root -g root "$APP_ROOT/scripts/php-project.mjs" "$HELPER_ROOT/php-project.mjs"

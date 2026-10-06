@@ -23,7 +23,7 @@ export async function scanProjectRuntimeDirectory(repositoryRoot, directory = '/
   const appRoot = await realpath(target).catch(() => null);
   if (!appRoot || !inside(root, appRoot)) throw new InputError('The selected directory was not found inside the repository.');
 
-  const [packageText, packageLock, bunLock, bunConfig, dockerfile, goMod, requirements, pyproject, pythonMain, managePy, composerText, artisan, spark, ...composeTexts] = await Promise.all([
+  const [packageText, packageLock, bunLock, bunConfig, dockerfile, goMod, requirements, pyproject, pythonMain, managePy, composerText, artisan, spark, pnpmLock, ...composeTexts] = await Promise.all([
     safeRead(root, appRoot, 'package.json'),
     safeRead(root, appRoot, 'package-lock.json'),
     safeRead(root, appRoot, 'bun.lock'),
@@ -37,6 +37,7 @@ export async function scanProjectRuntimeDirectory(repositoryRoot, directory = '/
     safeRead(root, appRoot, 'composer.json'),
     safeRead(root, appRoot, 'artisan'),
     safeRead(root, appRoot, 'spark'),
+    safeRead(root, appRoot, 'pnpm-lock.yaml'),
     ...COMPOSE_FILES.map((file) => safeRead(root, appRoot, file))
   ]);
 
@@ -71,6 +72,7 @@ export async function scanProjectRuntimeDirectory(repositoryRoot, directory = '/
     ...(composeFile ? [{ kind: 'compose', path: composeFile, label: 'Docker Compose' }] : []),
     ...(dockerfile ? [{ kind: 'dockerfile', path: 'Dockerfile', label: 'Dockerfile' }] : []),
     ...(packageJson ? [{ kind: 'package', path: 'package.json', label: 'Node package' }] : []),
+    ...(pnpmLock ? [{ kind: 'pnpm-lock', path: 'pnpm-lock.yaml', label: 'pnpm lockfile — ต้องติดตั้ง pnpm ก่อน deploy' }] : []),
     ...(bunLock ? [{ kind: 'bun-lock', path: 'bun.lock', label: 'Bun lockfile' }] : []),
     ...(bunConfig ? [{ kind: 'bun-config', path: 'bunfig.toml', label: 'Bun configuration' }] : []),
     ...(packageLock ? [{ kind: 'node-lock', path: 'package-lock.json', label: 'npm lockfile' }] : [])
@@ -170,7 +172,7 @@ export async function scanProjectRuntimeDirectory(repositoryRoot, directory = '/
       composeService: null,
       composeServices: [],
       ...scripts,
-      notice: packageWarning ?? (framework
+      notice: packageWarning ?? ((packageManager.startsWith('pnpm@') || (!packageManager && pnpmLock)) ? 'พบ Node.js project ที่ใช้ pnpm — ติดตั้ง pnpm จาก Setup หรือ SSH ก่อน deploy' : framework
         ? `พบ ${frameworkLabel(framework)} จาก package metadata`
         : (dockerfile
           ? 'พบ Dockerfile ด้วย แต่ไม่มี Compose file; เลือก Node จาก package metadata'

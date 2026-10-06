@@ -8,7 +8,8 @@ import { access, chmod, chown, copyFile, cp, lstat, mkdir, readFile, readdir, re
 import { basename, join } from 'node:path';
 import { createDecipheriv } from 'node:crypto';
 import { DatabaseSync } from './sqlite.mjs';
-import { nodeBin, nodeMajorForProject } from './node-versions.mjs';
+import { nodeBin, nodeMajorForProject, nodeRuntimeEnvironment } from './node-versions.mjs';
+import { readNodePackageManager, assertPnpmAvailable, pnpmServiceStart, PNPM_PATH, PNPM_VERSION } from './node-package-manager.mjs';
 import { updateStoredPassword } from './password-config.mjs';
 import { buildEdgeEvaluation, probeLoopbackHttp, publicEdgeResult, renderUnmatchedNginx } from './nginx-edge.mjs';
 import { buildMailPortPlan, renderDkimTables, renderDovecotConfiguration, renderMap, renderOpenDkimConfiguration, renderPostfixMain, renderPostfixMaster } from './mail-host-config.mjs';
@@ -140,6 +141,14 @@ async function setAdminPassword(password) {
 }
 
 async function installTool(tool) {
+  if (tool === 'pnpm') {
+    // Only an explicit Setup install request enters this branch. The Portal
+    // installer, updater and project deploy never install a package manager.
+    await run(NPM, ['install', '--global', '--prefix', '/usr/local', '--ignore-scripts', '--engine-strict', '--no-audit', '--no-fund', `pnpm@${PNPM_VERSION}`], { cwd: '/tmp', timeout: 300_000, failure: 'pnpm installation failed. pnpm 11 requires Node 22.13 or newer.' });
+    const version = await run(PNPM_PATH, ['--config.manage-package-manager-versions=false', '--config.pm-on-fail=error', '--config.verify-deps-before-run=false', '--version'], { cwd: '/tmp' });
+    if (version.trim() !== PNPM_VERSION) throw new HelperError('Installed pnpm version did not match the requested version.');
+    return { version: version.trim() };
+  }
   const packages = { nginx: ['nginx'], certbot: ['certbot', 'python3-certbot-nginx'], git: ['git'], docker: ['docker.io', 'docker-compose-v2'], mail: ['postfix', 'dovecot-imapd', 'dovecot-lmtpd', 'opendkim', 'opendkim-tools'] };
   if (!Object.hasOwn(packages, tool)) throw new HelperError('Unsupported tool installation request.');
   if (tool === 'mail' && !await exists(MAIL_INSTALL_MARKER) && (await exists('/etc/postfix/main.cf') || await exists('/etc/dovecot'))) {
@@ -619,7 +628,7 @@ async function prepareProjectRelease(project, releaseId) {
   if (!(await exists(destination))) {
     const staging = join(identity.root, `.release-${releaseId}.staging`);
     await rm(staging, { recursive: true, force: true });
-    await cp(source, staging, { recursive: true, dereference: false, filter: (entry) => !['.git', ...(project.runtime === 'python' ? ['.venv', 'venv', '__pycache__', '.hostmgr-python-ready'] : []), ...(project.runtime === 'php' ? ['vendor', '.composer', '.hostmgr-php-ready'] : [])].includes(basename(entry)) });
+    await cp(source, staging, { recursive: true, dereference: false, verbatimSymlinks: true, filter: (entry) => !['.git', ...(project.runtime === 'python' ? ['.venv', 'venv', '__pycache__', '.hostmgr-python-ready'] : []), ...(project.runtime === 'php' ? ['vendor', '.composer', '.hostmgr-php-ready'] : [])].includes(basename(entry)) });
     await run('/usr/bin/chown', ['-R', '--no-dereference', `${identity.user}:${identity.user}`, staging]);
     await rename(staging, destination);
   }
@@ -649,6 +658,13 @@ async function prepareProjectRelease(project, releaseId) {
     } catch (error) {
       const environment = await readFile(join(destination, '.env'), 'utf8').catch(() => '');
       throw new HelperError('PHP Composer installation failed before activation. Check project files, dependencies and PHP/Composer on the host.', redactBuildOutput(error?.commandOutput || `${error?.name || 'Error'}: ${error?.message || 'PHP preparation failed.'}`, environment));
+    }
+  }
+  if (project.runtime === 'node') {
+    project.packageManager = await readNodePackageManager(destination, project.nodeMajor || 24);
+    if (project.packageManager.name === 'pnpm') {
+      // Project config is untrusted code; never run pnpm as the root helper.
+      await assertPnpmAvailable(project, run, { cwd: destination, uid: identity.uid, gid: identity.gid, timeout: 10_000, env: nodeRuntimeEnvironment(project.nodeMajor, { ...process.env, HOME: identity.root }) });
     }
   }
   const environmentSource = join(destination, '.env');
@@ -991,7 +1007,9 @@ function renderProjectUnit(project, identity) {
       ? `${phpExecutable()} ${phpStartArgs(project, project.port).join(' ')}`
       : project.runtime === 'go'
         ? `${identity.current}/hostmgr-app`
-        : project.runtime === 'node' && project.nodeMajor !== 24
+        : project.runtime === 'node' && project.packageManager?.name === 'pnpm'
+          ? pnpmServiceStart(project)
+          : project.runtime === 'node' && project.nodeMajor !== 24
           ? `/usr/bin/env PATH=${nodeBin(project.nodeMajor)}:/usr/local/bin:/usr/bin:/bin ${nodeBin(project.nodeMajor)}/npm run ${project.startScript}`
           : `${project.runtime === 'bun' ? BUN : NPM} run ${project.startScript}`;
   const bunRuntime = project.runtime === 'bun';

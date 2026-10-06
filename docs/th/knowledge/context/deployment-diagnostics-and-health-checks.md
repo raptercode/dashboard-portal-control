@@ -25,3 +25,10 @@ Domains dialog ตรวจ managed file, enabled symlink, `nginx -T` server_nam
 ## หลัง update
 
 ต้อง daemon-reload และ restart helper/Portal `enable --now` ไม่ restart process ที่ active อยู่ ตรวจ PID/start timestamp, `/api/health` และ static page ด้วย เพราะ API อาจ healthy แต่ permissions ทำหน้าเว็บ 500 ดู [ติดตั้งและตรวจ host](../../how-to/production-install.md)
+
+## pnpm แบบทางเลือก
+
+โปรเจกต์ Node รองรับ pnpm ที่ลูกค้าติดตั้งก่อนใช้งาน Portal ไม่ติดตั้ง pnpm
+ระหว่าง install/update/deploy ตรวจเวอร์ชันตาม packageManager และรักษา frozen
+lockfile หากติดตั้งไม่ผ่านจะเก็บ error ที่ปกปิด secrets ใน deploy log
+ดู [โปรเจกต์ pnpm](../../how-to/pnpm-projects.md) สำหรับขั้นตอนและข้อกำหนด

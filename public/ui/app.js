@@ -123,7 +123,7 @@ const runtimeLogoPaths = Object.freeze({
 });
 
 const projectRuntimes = Object.freeze({
-  node: { label: 'Node.js', detail: 'build และ run ด้วย npm script ใน systemd', icon: 'node' },
+  node: { label: 'Node.js', detail: 'ใช้ npm หรือ pnpm ตามโปรเจกต์; pnpm ต้องติดตั้งก่อนใช้งาน', icon: 'node' },
   bun: { label: 'Bun', detail: 'ติดตั้ง dependencies และ run package script ด้วย Bun ใน systemd', icon: 'bun' },
   go: { label: 'Go', detail: 'build เป็น binary และรันด้วย systemd', icon: 'go' },
   python: { label: 'Python', detail: 'ติดตั้งและรันใน .venv ด้วย user ของโปรเจกต์', icon: 'python' },
