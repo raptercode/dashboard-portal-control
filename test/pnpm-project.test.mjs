@@ -26,7 +26,7 @@ test('pnpm is optional and doctor observes its actual presence', async () => {
   const missing = await probeHostTools(tools, async () => ({ ok: false }));
   assert.equal(missing[0].status, 'Missing');
   const installed = await probeHostTools(tools, async (command, args) => {
-    assert.equal(command, PNPM_PATH);
+    assert.ok(command.endsWith('/pnpm'));
     assert.ok(args.includes('--config.pm-on-fail=error'));
     return { ok: true, output: '11.19.0' };
   });
@@ -38,7 +38,7 @@ test('deploy only probes pnpm and never installs or switches a missing or mismat
   const calls = [];
   const run = async (command, args) => { calls.push([command, args]); throw new Error('ENOENT'); };
   await assert.rejects(assertPnpmAvailable(project, run), /Install pnpm in Setup or over SSH/);
-  assert.equal(calls.length, 1);
+  assert.ok(calls.length >= 1);
   assert.ok(calls[0][1].includes('--version'));
   await assert.rejects(assertPnpmAvailable(project, async () => '10.0.0'), /will not download or switch/);
   assert.equal(await assertPnpmAvailable(project, async () => '11.19.0\n'), '11.19.0');
@@ -126,19 +126,20 @@ test('activation copies preserve relative pnpm links after the candidate is remo
 });
 
 test('real pnpm candidate installs, builds and passes HTTP health with the selected manager', { skip: !process.env.HOSTMGR_PNPM_SMOKE }, async t => {
+  const version = process.env.HOSTMGR_PNPM_SMOKE_VERSION || '11.19.0';
   const root = await mkdtemp(join(tmpdir(), 'pnpm-candidate-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const repo = join(root, 'fixture/repository');
   await mkdir(repo, { recursive: true });
-  await writeFile(join(repo, 'package.json'), JSON.stringify({ name: 'pnpm-fixture', version: '1.0.0', packageManager: 'pnpm@11.19.0', dependencies: { 'is-number': '7.0.0' }, scripts: { build: 'node build.cjs', start: 'node server.cjs' } }));
-  await writeFile(join(repo, 'build.cjs'), `if (!process.env.npm_config_user_agent.startsWith('pnpm/11.19.0')) throw Error('wrong manager'); require('node:fs').writeFileSync('built.txt', String(require('is-number')(42)));`);
-  await writeFile(join(repo, 'server.cjs'), `if (!process.env.npm_config_user_agent.startsWith('pnpm/11.19.0')) throw Error('wrong manager'); require('node:http').createServer((q,s)=>s.end('ok')).listen(Number(process.env.PORT), '127.0.0.1');`);
+  await writeFile(join(repo, 'package.json'), JSON.stringify({ name: 'pnpm-fixture', version: '1.0.0', packageManager: 'pnpm@' + version, dependencies: { 'is-number': '7.0.0' }, scripts: { build: 'node build.cjs', start: 'node server.cjs' } }));
+  await writeFile(join(repo, 'build.cjs'), `if (!process.env.npm_config_user_agent.startsWith('pnpm/${version}')) throw Error('wrong manager'); require('node:fs').writeFileSync('built.txt', String(require('is-number')(42)));`);
+  await writeFile(join(repo, 'server.cjs'), `if (!process.env.npm_config_user_agent.startsWith('pnpm/${version}')) throw Error('wrong manager'); require('node:http').createServer((q,s)=>s.end('ok')).listen(Number(process.env.PORT), '127.0.0.1');`);
   const project = { name: 'pnpm fixture', slug: 'fixture', repository: 'https://github.com/example/fixture.git', branch: 'main', protocol: 'https', port: 49413, directory: '/', runtime: 'node', nodeMajor: 24, buildScript: 'build', startScript: 'start', healthCheckEnabled: true, candidatePort: 59413, healthCheckPath: '/', healthCheckTimeoutMs: 10000 };
   const events = [];
   await prepareNativeRelease(project, { id: 'release' }, { environment: { encryptedContent: 'fixture' } }, { decrypt: () => 'NODE_ENV=production\n' }, root, (...args) => events.push(args));
   assert.equal(await readFile(join(root, 'fixture/releases/release/built.txt'), 'utf8'), 'true');
-  assert.ok(events.some(e => /installed pnpm 11.19.0/.test(e[2])));
-  assert.deepEqual(await readNodePackageManager(repo), { name: 'pnpm', version: '11.19.0' });
+  assert.ok(events.some(e => e[2].includes('installed pnpm ' + version)));
+  assert.deepEqual(await readNodePackageManager(repo), { name: 'pnpm', version });
   await assert.rejects(readFile(join(repo, 'pnpm-lock.yaml')));
   await copyFile(join(root, 'fixture/releases/release/pnpm-lock.yaml'), join(repo, 'pnpm-lock.yaml'));
   // pnpm 11 can create workspace settings during the initial install.
@@ -151,4 +152,16 @@ test('real pnpm candidate installs, builds and passes HTTP health with the selec
   await writeFile(join(repo, 'package.json'), JSON.stringify(manifest));
   await assert.rejects(prepareNativeRelease({ ...project, healthCheckEnabled: false }, { id: 'stale' }, { environment: {} }, null, root), error => /ERR_PNPM_OUTDATED_LOCKFILE/.test(error.failureLog));
   await assert.rejects(stat(join(root, 'fixture/releases/stale')));
+});
+
+test('pnpm 12 installed beside selected Node is resolved and reused by service startup', async () => {
+  const project = { nodeMajor: 24, startScript: 'start:prod', packageManager: selectNodePackageManager({ packageManager: 'pnpm@12.9.1' }, true) };
+  const path = '/opt/node-v24.18.0/bin/pnpm';
+  const version = await assertPnpmAvailable(project, async command => {
+    if (command !== path) throw new Error('ENOENT');
+    return '12.9.1';
+  });
+  assert.equal(version, '12.9.1');
+  assert.equal(project.packageManager.executable, path);
+  assert.match(pnpmServiceStart(project), /\/opt\/node-v24\.18\.0\/bin\/pnpm /);
 });

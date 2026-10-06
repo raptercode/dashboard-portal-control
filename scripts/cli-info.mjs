@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { NODE_VERSIONS } from './node-versions.mjs';
+import { pnpmPaths } from './node-package-manager.mjs';
 
 const help = `Dashboard Portal CLI
 
@@ -52,7 +53,14 @@ if (!args.length || (args.length === 1 && ['-h', '--help'].includes(args[0])) ||
     ['Certbot', '/usr/bin/certbot', ['--version']]
   ]) {
     try {
-      const { stdout, stderr } = await run(command, commandArgs, { timeout: 3000, maxBuffer: 8192 });
+      let result;
+      let failure;
+      for (const path of label === 'pnpm (optional)' ? pnpmPaths(Number(process.versions.node.split('.')[0])) : [command]) {
+        try { result = await run(path, commandArgs, { timeout: 3000, maxBuffer: 8192 }); break; }
+        catch (error) { failure = error; }
+      }
+      if (!result) throw failure;
+      const { stdout, stderr } = result;
       console.log(`${label}: ${(stdout || stderr).trim().split(/\r?\n/)[0]}`);
     } catch (error) {
       console.log(`${label}: ${error.code === 'ENOENT' ? 'not installed' : 'unavailable (runtime probe failed)'}`);

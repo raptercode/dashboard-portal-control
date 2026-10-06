@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.7 — 2026-10-06
+
+- Detect Prisma in Node/Bun projects and generate the installed client before build, with the project environment. No extra build script is required; no automatic migrations, seeding or CLI downloads.
+- Support pnpm 12 and discover pnpm beside the selected Node runtime as well as global system locations. Setup installation remains optional.
+- Show the detected npm/pnpm commands and lockfile in deployment configuration.
+
 ## 0.8.6 — 2026-10-06
 
 - Add optional pnpm installation in Setup. Portal installation and updates never install pnpm automatically.

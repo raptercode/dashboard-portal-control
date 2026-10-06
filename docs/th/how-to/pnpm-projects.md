@@ -5,8 +5,8 @@
 pnpm เป็นเครื่องมือทางเลือก การติดตั้งหรืออัปเดต Dashboard Portal **ไม่ติดตั้ง
 pnpm อัตโนมัติ** โปรเจกต์ npm และ Bun เดิมไม่จำเป็นต้องมี pnpm เจ้าของระบบเลือก
 กดติดตั้ง pnpm 11.19.0 ในหน้า **Setup** หรือเตรียมเองผ่าน SSH ก่อนใช้งานได้
-ปุ่ม Setup ต้องใช้ Node 22.13 ขึ้นไป และต้องมี executable ที่
-`/usr/local/bin/pnpm` ซึ่ง user ของ Portal และโปรเจกต์เรียกได้
+ปุ่ม Setup ต้องใช้ Node 22.13 ขึ้นไป ระบบค้นหา pnpm ข้าง Node runtime ที่เลือก แล้วตรวจ
+`/usr/local/bin/pnpm` และ `/usr/bin/pnpm` ซึ่ง user ของ Portal และโปรเจกต์ต้องเรียกได้
 
 ```bash
 sudo /usr/local/bin/npm install --global --prefix /usr/local --ignore-scripts pnpm@11.19.0
@@ -27,7 +27,7 @@ sudo /usr/local/bin/npm install --global --prefix /usr/local --ignore-scripts pn
 ระบบอ่านไฟล์ใน directory ที่เลือกของโปรเจกต์ หากเป็น workspace ให้เลือก root
 ที่มี lockfile และ workspace settings
 
-pnpm บน host ต้องตรงกับ pin รูปแบบ `pnpm@major.minor.patch` รองรับ pnpm 8–11
+pnpm บน host ต้องตรงกับ pin รูปแบบ `pnpm@major.minor.patch` รองรับ pnpm 8–12
 โดย pnpm 11 ต้องใช้ Node 22/24/26 ของโปรเจกต์ รูปแบบอื่น เช่น tag, range หรือ
 Corepack integrity suffix จะแจ้ง error ให้แก้ก่อนใช้งาน ถ้าไม่ pin จะใช้รุ่น
 ที่รองรับซึ่งติดตั้งอยู่ ทุกแอปใช้ pnpm ของ host ร่วมกัน จึงควรตรวจแอปอื่นก่อน
@@ -49,3 +49,16 @@ service จริงและ rollback ใช้ pnpm ที่ติดตั�
 หากแจ้งว่า pnpm หายหรือเวอร์ชันไม่ตรง ให้ติดตั้งเวอร์ชันที่แอปต้องการแล้วลองใหม่
 การอัปเดต Portal ไม่ได้แก้ dependency conflict ของแอป ควรตรวจ build, tests และ
 health endpoint ที่มีความหมายก่อนเปิดใช้งานจริง
+
+## Generate Prisma อัตโนมัติ
+
+โปรเจกต์ Node/Bun จะตรวจ Prisma จาก dependencies, ค่า schema ใน package.json,
+ไฟล์ schema มาตรฐาน หรือ Prisma config ใน directory ที่เลือก เมื่อติดตั้ง dependencies
+เสร็จจะเรียก Prisma CLI ของโปรเจกต์ด้วย `generate` ก่อน build รวมถึงกรณีปิด build
+โดยส่ง environment ของโปรเจกต์ให้ด้วย Prisma จะอ่าน schema/config เอง ไม่ต้องเพิ่ม script
+
+โปรเจกต์ต้องประกาศ `prisma` ใน dependencies หรือ devDependencies และ commit lockfile
+Portal ไม่ดาวน์โหลด CLI หรือ client ที่ขาด หากผิดพลาดจะหยุด candidate และแสดง log
+ที่ปกปิด secrets กรณี schema อยู่ตำแหน่งพิเศษให้ระบุผ่าน Prisma config ของโปรเจกต์
+Workspace ต้องเลือก directory ที่เป็นเจ้าของ schema/config และ CLI
+ระบบไม่รัน migration, reset หรือ seed ฐานข้อมูลอัตโนมัติ

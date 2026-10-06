@@ -5,8 +5,9 @@
 pnpm is optional. Installing or updating Dashboard Portal does not install it.
 Existing npm and Bun projects do not require pnpm. In **Setup**, the owner can
 explicitly install pnpm 11.19.0, or prepare a compatible installation over SSH.
-The Setup action requires Node 22.13 or newer. The executable must be available
-at `/usr/local/bin/pnpm` to the Portal and project service users.
+The Setup action requires Node 22.13 or newer. Portal checks pnpm beside the selected Node executable, then
+`/usr/local/bin/pnpm` and `/usr/bin/pnpm`; it must be executable by the Portal
+and project service users.
 
 ```bash
 sudo /usr/local/bin/npm install --global --prefix /usr/local --ignore-scripts pnpm@11.19.0
@@ -29,11 +30,10 @@ continue to use npm. Detection is relative to the selected project directory:
 select the workspace root when the lockfile and workspace settings live there.
 
 The host pnpm version must match an exact `pnpm@major.minor.patch` declaration.
-Portal supports pnpm 8–11; pnpm 11 requires the project's Node 22/24/26 runtime.
+Portal supports pnpm 8–12; pnpm 11 requires the project's Node 22/24/26 runtime.
 Other pins, including tags, ranges and Corepack integrity suffixes, produce an
 actionable error rather than selecting an arbitrary package manager version.
-Without a pin, the installed supported version is used. There is one shared
-host installation, so coordinate upgrades across apps. Portal never installs
+Without a pin, the installed supported version is used. Host installations may be shared by several apps, so coordinate upgrades. Portal never installs
 or switches pnpm during deployment, build, startup or rollback.
 
 When a lockfile exists, deployment runs a frozen install including development
@@ -54,3 +54,17 @@ If deployment reports a missing or mismatched pnpm installation, install the
 required version explicitly and retry. Updating Portal alone does not resolve
 application dependency conflicts. Verify build, tests and a meaningful health
 endpoint before activating an application.
+
+## Automatic Prisma generation
+
+For Node and Bun projects, Portal detects Prisma from dependencies, a package.json
+Prisma schema setting, standard schema files, or Prisma config files in the selected
+project directory. After dependency installation and before build (also when build
+is disabled), it runs the installed local Prisma CLI with `generate` and the project
+environment. Prisma resolves its own schema/config. No extra build script is needed.
+
+Declare `prisma` in dependencies or devDependencies and commit its lockfile. Portal
+does not download a missing CLI or client. Errors stop the candidate with redacted
+logs. Custom schema paths should use the project Prisma config. Workspace apps must
+select the directory that owns their schema/config and CLI. Database migrations,
+reset and seed are never run automatically.

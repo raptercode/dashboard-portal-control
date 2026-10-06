@@ -11,7 +11,8 @@ import { assertPythonSource, pythonSettings, pythonStartArgs } from '../scripts/
 import { assertPhpSource, phpSettings, phpStartArgs } from '../scripts/php-project.mjs';
 import { StateStore, TOOLS, SUPPORTED_NODE_MAJOR, SecretVault, appendAudit, initialMailState, validateDomain, validateEnvironmentContent, validateEnvironmentVariables, validateGitBranchRequest, validateGitIdentity, validateNotificationHook, validatePasswordChange, validateProjectDomains, validateProjectRuntimeDetection, validateProjectSync, validateTool, InputError } from './core.mjs';
 import { NODE_VERSIONS, nodeBin, nodeRuntimeEnvironment } from '../scripts/node-versions.mjs';
-import { readNodePackageManager, assertPnpmAvailable, pnpmCommand, PNPM_PATH } from '../scripts/node-package-manager.mjs';
+import { readNodePackageManager, assertPnpmAvailable, pnpmCommand, pnpmPaths, PNPM_PATH } from '../scripts/node-package-manager.mjs';
+import { detectPrismaProject } from '../scripts/prisma-project.mjs';
 import { checkDomainDns } from './dns-check.mjs';
 import { activateRelease, appendReleaseEvent, beginDeployment, beginRollback, createRelease, defaultCandidatePort, failRelease, initialDeployment, markReleaseHealthy, markReleasePendingActivation, projectIdentity, pruneInactiveReleases, validateDockerComposeProject, validateNativeProject, validatePackageScripts } from './native-project.mjs';
 import { callHostHelper } from './helper-client.mjs';
@@ -1752,13 +1753,18 @@ export async function createApplication(options = {}) {
       });
     }
     const bun = project.runtime === 'bun';
-    const lockfile = await hasRuntimeLockfile(repositoryDirectory(project, projectRoot), project.runtime);
-    const command = bun ? 'bun run' : 'npm run';
+    const manager = bun ? { name: 'bun' } : await readNodePackageManager(repositoryDirectory(project, projectRoot), project.nodeMajor || 24).catch(error => {
+      if (error.code === 'ENOENT') return { name: 'npm' };
+      throw new InputError(error.message);
+    });
+    const pnpm = manager.name === 'pnpm';
+    const lockfile = await hasRuntimeLockfile(repositoryDirectory(project, projectRoot), manager.name);
+    const command = `${manager.name} run`;
     return sendJson(response, 200, {
       configuration: {
         runtime: bun ? 'Bun' : 'Node.js',
-        packageManager: lockfile ? (bun ? 'bun install --frozen-lockfile' : 'npm ci') : 'npm install',
-        lockfile: { name: bun ? 'bun.lock' : 'package-lock.json', valid: lockfile },
+        packageManager: pnpm ? `pnpm${manager.version ? ` ${manager.version}` : ''} install${lockfile ? ' --frozen-lockfile' : ''}` : lockfile ? (bun ? 'bun install --frozen-lockfile' : 'npm ci') : bun ? 'bun install' : 'npm install',
+        lockfile: { name: pnpm ? 'pnpm-lock.yaml' : bun ? 'bun.lock' : 'package-lock.json', valid: lockfile },
         nodeVersion: bun ? 'Bun runtime' : NODE_VERSIONS[project.nodeMajor || 24],
         buildScript: project.buildScript ? `${command} ${project.buildScript}` : 'Skip build step',
         startScript: `${command} ${project.startScript || 'start'}`,
@@ -2204,7 +2210,10 @@ export async function prepareNativeRelease(project, release, storedProject, vaul
   let packageJson;
   try { packageJson = JSON.parse(await readFile(packagePath, 'utf8')); } catch { throw new InputError('The synced repository has no valid package.json.'); }
   validatePackageScripts(packageJson, project);
-  if (project.runtime === 'node') project.packageManager = await readNodePackageManager(source, project.nodeMajor || 24);
+  if (project.runtime === 'node') {
+    try { project.packageManager = await readNodePackageManager(source, project.nodeMajor || 24); }
+    catch (error) { throw new InputError(error.message); }
+  }
   const manager = project.packageManager?.name || project.runtime;
   const hasLockfile = await hasRuntimeLockfile(source, manager);
   try {
@@ -2237,8 +2246,9 @@ export async function prepareNativeRelease(project, release, storedProject, vaul
       options: { cwd: destination, timeout: 300_000, ...(project.runtime === 'node' ? { env: nodeRuntimeEnvironment(project.nodeMajor || 24) } : {}) },
       reportPhase
     });
+    await generateCandidatePrisma(project, destination, packageJson, environmentContent, reportPhase);
     if (project.buildScript) {
-      await reportPhase('build', 'started', `Running ${runtimeLabel(project.runtime)} script "${project.buildScript}".`);
+      await reportPhase('build', 'started', `Running ${manager === 'pnpm' ? 'pnpm' : runtimeLabel(project.runtime)} script "${project.buildScript}".`);
       await runCandidateRuntime(project, ['run', project.buildScript], { cwd: destination, timeout: 300_000 }, `Candidate build script "${project.buildScript}" failed.`, environmentContent);
       await reportPhase('build', 'passed', `Build script "${project.buildScript}" passed.`);
     } else {
@@ -2249,6 +2259,24 @@ export async function prepareNativeRelease(project, release, storedProject, vaul
     await rm(destination, { recursive: true, force: true });
     throw error;
   }
+}
+
+export async function generateCandidatePrisma(project, directory, manifest, environmentContent, reportPhase = async () => {}, execute = run) {
+  let prisma;
+  try { prisma = await detectPrismaProject(directory, manifest); }
+  catch (error) { throw new DeploymentFailure(error.message, redactBuildOutput(error.message, environmentContent)); }
+  if (!prisma) return;
+  await reportPhase('build', 'started', 'Prisma detected. Generating the client before build.');
+  let env = candidateRuntimeEnvironment({ environmentContent, candidatePort: project.candidatePort });
+  if (project.runtime === 'node') env = nodeRuntimeEnvironment(project.nodeMajor || 24, env);
+  env.PRISMA_GENERATE_SKIP_AUTOINSTALL = '1';
+  const command = project.runtime === 'bun' ? runtimeExecutable(project) : `${nodeBin(project.nodeMajor || 24)}/node`;
+  try {
+    await execute(command, [prisma.cli, ...prisma.args], { cwd: directory, env, timeout: 300_000 });
+  } catch (error) {
+    throw new DeploymentFailure('Prisma client generation failed. Check the Prisma schema, config and deployment environment.', redactBuildOutput(error.commandOutput || error.message, environmentContent));
+  }
+  await reportPhase('build', 'passed', 'Prisma client generated. Database migrations are not run automatically.');
 }
 
 // fs.cp() accepts numeric copy-file flags for `mode`; passing the string
@@ -2717,7 +2745,15 @@ export async function probeHostTools(storedTools, execute = probeExecutable) {
   return Promise.all(storedTools.map(async (tool) => {
     const commands = HOST_TOOL_COMMANDS[tool.id];
     if (!commands) return { ...tool, simulated: false, observedAt: new Date().toISOString() };
-    const results = await Promise.all(commands.map(([command, args]) => execute(command, args)));
+    let results;
+    if (tool.id === 'pnpm') {
+      let observed = { ok: false, output: '' };
+      for (const path of pnpmPaths(Number(process.versions.node.split('.')[0]))) {
+        observed = await execute(path, commands[0][1]);
+        if (observed.ok) break;
+      }
+      results = [observed];
+    } else results = await Promise.all(commands.map(([command, args]) => execute(command, args)));
     let extra = [];
     if (tool.id === 'php') {
       const composerPaths = process.env.HOSTMGR_COMPOSER_PATH ? [process.env.HOSTMGR_COMPOSER_PATH] : ['/usr/local/bin/composer', '/usr/bin/composer'];

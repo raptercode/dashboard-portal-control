@@ -2,6 +2,12 @@
 
 [English](../en/CHANGELOG.md)
 
+## 0.8.7 — 2026-10-06
+
+- ตรวจหา Prisma ในโปรเจกต์ Node/Bun และ generate client ก่อน build โดยใช้ environment ของโปรเจกต์ ไม่ต้องเพิ่ม build script และไม่รัน migration, seed หรือดาวน์โหลด CLI อัตโนมัติ
+- รองรับ pnpm 12 และค้นหา pnpm ที่ติดตั้งข้าง Node runtime รวมถึงตำแหน่ง global การติดตั้งผ่าน Setup ยังเป็นทางเลือก
+- แสดงคำสั่ง npm/pnpm และ lockfile ตามที่ตรวจพบในหน้าตรวจการตั้งค่า deploy
+
 ## 0.8.6 — 2026-10-06
 
 - เพิ่ม pnpm แบบทางเลือกในหน้า Setup การติดตั้งและอัปเดต Portal ไม่ติดตั้ง pnpm อัตโนมัติ

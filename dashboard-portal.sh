@@ -273,6 +273,7 @@ install -m 0644 -o root -g root "$APP_ROOT/scripts/software-update.mjs" "$UPDATE
 install -d -m 0755 -o root -g root "$CLI_INFO_ROOT"
 install -m 0644 -o root -g root "$APP_ROOT/scripts/cli-info.mjs" "$CLI_INFO_SCRIPT"
 install -m 0644 -o root -g root "$APP_ROOT/scripts/node-versions.mjs" "$CLI_INFO_ROOT/node-versions.mjs"
+install -m 0644 -o root -g root "$APP_ROOT/scripts/node-package-manager.mjs" "$CLI_INFO_ROOT/node-package-manager.mjs"
 cat > "$UPDATE_COMMAND" <<EOF
 #!/usr/bin/env bash
 case "\${1:-}" in
