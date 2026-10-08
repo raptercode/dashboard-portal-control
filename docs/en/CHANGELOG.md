@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.8 — 2026-10-09
+
+- Restrict Monitor token deployment responses to explicit job, release-health, and event fields. Build/startup `failureLog` and private stored job metadata no longer reach the Monitor API; authorized Portal log readers retain their detailed diagnostics.
+- Add a current Monitor API reference for AI clients and a proposed, separately versioned `dashboard-portal-client` plan. The client and its ENV-writing APIs are not part of this release.
+
 ## 0.8.7 — 2026-10-06
 
 - Detect Prisma in Node/Bun projects and generate the installed client before build, with the project environment. No extra build script is required; no automatic migrations, seeding or CLI downloads.

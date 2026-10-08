@@ -1631,7 +1631,7 @@ export async function createApplication(options = {}) {
       const stored = (next.monitorTokens ?? []).find((item) => item.id === matching.id);
       if (stored) stored.lastUsedAt = new Date().toISOString();
     });
-    return sendJson(response, 200, { project: publicMonitorProject(project), jobs: state.jobs.filter((item) => item.projectSlug === slug).slice(-25).reverse().map(publicJob) });
+    return sendJson(response, 200, { project: publicMonitorProject(project), jobs: state.jobs.filter((item) => item.projectSlug === slug).slice(-25).reverse().map(publicMonitorJob) });
   }
 
   async function handleNotificationHookCreate(request, response) {
@@ -2621,6 +2621,15 @@ function publicMonitorToken(token) {
   return safe;
 }
 
+function publicMonitorEvent(event) {
+  return {
+    at: event.at,
+    phase: event.phase ?? null,
+    status: event.status,
+    message: typeof event.message === 'string' ? event.message.slice(0, 240) : 'Deployment event recorded.'
+  };
+}
+
 function publicMonitorProject(project) {
   const deployment = project.deployment ?? initialDeployment();
   return {
@@ -2639,10 +2648,32 @@ function publicMonitorProject(project) {
         createdAt: release.createdAt,
         activatedAt: release.activatedAt ?? null,
         failure: release.failure ?? null,
-        health: release.health,
-        events: release.events ?? []
+        health: release.health ? {
+          enabled: release.health.enabled,
+          path: release.health.path ?? null,
+          port: release.health.port ?? null,
+          timeoutMs: release.health.timeoutMs ?? null,
+          checkedAt: release.health.checkedAt ?? null,
+          status: release.health.status
+        } : null,
+        events: (release.events ?? []).map(publicMonitorEvent)
       }))
     }
+  };
+}
+
+function publicMonitorJob(job) {
+  return {
+    id: job.id,
+    kind: job.kind,
+    projectSlug: job.projectSlug,
+    releaseId: job.releaseId ?? null,
+    status: job.status,
+    createdAt: job.createdAt,
+    startedAt: job.startedAt ?? null,
+    finishedAt: job.finishedAt ?? null,
+    failure: job.failure ?? null,
+    events: (job.events ?? []).map(publicMonitorEvent)
   };
 }
 

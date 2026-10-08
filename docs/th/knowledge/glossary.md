@@ -24,7 +24,7 @@
 | Mail readiness | แยก SMTP egress กับ local inbound policy ไม่พิสูจน์ provider firewall |
 | Mail hostname | Hostname DNS-only สำหรับ HELO/PTR/mail TLS เช่น mail.example.com |
 | Native mode | รันแอปบน host ผ่าน systemd |
-| Monitor Logs Token | Project bearer token อ่าน safe deploy status ไม่อ่าน runtime logs/secrets/repository URLs |
+| Monitor Logs Token | Project bearer token อ่านสถานะและเหตุการณ์ deploy โดยไม่ส่ง runtime logs, build output, ENV/credential ที่เก็บไว้ หรือ repository URLs แต่ยังเห็นข้อความ diagnostics |
 | Notification hook | Encrypted HTTPS endpoint รับ deployment result การส่งไม่เปลี่ยน deploy state |
 | Owned file | ไฟล์ที่ระบบสร้างและมีสิทธิ์แก้ภายใน ownership boundary |
 | Privileged helper | Service แยกสำหรับ validated allowlisted privileged operations |

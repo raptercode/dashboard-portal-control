@@ -24,7 +24,7 @@
 | Mail readiness | Separate evidence for SMTP egress and local inbound firewall policy. It does not prove that a cloud-provider firewall permits inbound mail from the Internet. |
 | Mail hostname | The DNS-only hostname used for SMTP HELO, PTR, and mail TLS, normally `mail.example.com`. |
 | Native mode | Running the application on the host under systemd, not in a Docker container |
-| Monitor Logs Token | Project-scoped bearer token that reads safe deployment status only; it cannot read runtime logs, secrets, or repository URLs. |
+| Monitor Logs Token | Project-scoped bearer token for deployment status and events; the monitor response excludes runtime logs, build output, stored environment/credential fields, and repository URLs. Diagnostic text remains visible. |
 | Notification hook | Encrypted HTTPS destination that receives a provider-aware deployment success/failure payload; delivery never changes deployment state. |
 | Owned file | A file Host Manager creates and is allowed to modify, within the ownership boundary |
 | Privileged helper | A separate service that performs allowlisted high-privilege operations after validating input |

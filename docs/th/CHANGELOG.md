@@ -2,6 +2,11 @@
 
 [English](../en/CHANGELOG.md)
 
+## 0.8.8 — 2026-10-09
+
+- จำกัด response ของ Monitor token ให้ส่งเฉพาะฟิลด์ job, health และ event ที่กำหนดไว้ ไม่ส่ง build/startup `failureLog` หรือ metadata ภายในของ job ส่วนผู้มีสิทธิ์อ่าน log ใน Portal ยังเห็น diagnostics ตามเดิม
+- เพิ่มเอกสาร Monitor API สำหรับ AI และแผน `dashboard-portal-client` แบบแยกรุ่น ตัว client และ API สำหรับเขียน ENV ยังไม่อยู่ใน release นี้
+
 ## 0.8.7 — 2026-10-06
 
 - ตรวจหา Prisma ในโปรเจกต์ Node/Bun และ generate client ก่อน build โดยใช้ environment ของโปรเจกต์ ไม่ต้องเพิ่ม build script และไม่รัน migration, seed หรือดาวน์โหลด CLI อัตโนมัติ

@@ -39,7 +39,7 @@
     <article class="setting-row master-only" hidden>
       <div>
         <h2>Monitor Logs Token</h2>
-        <p>Token แบบอ่านอย่างเดียวสำหรับให้ระบบภายนอกดูสถานะ deploy ของโปรเจคเดียว ไม่เปิดเผย runtime log, secrets หรือ URL ของ repository ยกเลิกได้ทุกเมื่อด้วยปุ่ม Revoke</p>
+        <p>Token แบบอ่านอย่างเดียวสำหรับให้ระบบภายนอกดูสถานะ deploy ของโปรเจคเดียว ไม่ส่ง runtime log, build output, ค่า ENV/credential ที่เก็บไว้ หรือ URL ของ repository แต่ยังมีข้อความสรุปและเหตุการณ์ของ deploy ยกเลิกได้ทุกเมื่อด้วยปุ่ม Revoke</p>
         <p id="monitor-token-value" class="token-reveal" hidden></p>
         <div id="monitor-token-list" class="env-key-list"></div>
       </div>

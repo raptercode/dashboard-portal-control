@@ -7,6 +7,7 @@ How-to contains procedures; knowledge holds architecture/context, ADRs, designs 
 ## How-to guides
 
 - [Members, organizations, and permissions](how-to/access-control.md)
+- [Monitor API reference for AI clients](how-to/monitor-api.md)
 - [Publish the bootstrap URL](how-to/bootstrap-hosting.md)
 - [Deploy a Go project](how-to/go-projects.md)
 - [Portal and application Node.js versions](how-to/node-versions.md)
@@ -18,6 +19,7 @@ How-to contains procedures; knowledge holds architecture/context, ADRs, designs 
 
 ## Knowledge and further development
 
+- [dashboard-portal-client plan](knowledge/plans/dashboard-portal-client.md)
 - [ADR 0001: Ubuntu 24.04 LTS is the supported host](knowledge/adr/0001-ubuntu-24-04-is-the-supported-host.md)
 - [ADR 0002: Native mode supports one Node.js major version](knowledge/adr/0002-one-supported-nodejs-major.md)
 - [ADR 0003: Nginx is managed through owned files only](knowledge/adr/0003-nginx-managed-files-only.md)

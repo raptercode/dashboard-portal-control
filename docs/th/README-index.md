@@ -7,6 +7,7 @@
 ## คู่มือทำงาน
 
 - [สมาชิก องค์กร และสิทธิ์](how-to/access-control.md)
+- [Monitor API สำหรับ AI (reference ภาษาอังกฤษ)](how-to/monitor-api.md)
 - [เผยแพร่ bootstrap URL](how-to/bootstrap-hosting.md)
 - [Deploy โปรเจกต์ Go](how-to/go-projects.md)
 - [Node.js ของ Portal และแอป](how-to/node-versions.md)
@@ -18,6 +19,7 @@
 
 ## ความรู้และงานพัฒนาต่อ
 
+- [แผน dashboard-portal-client](knowledge/plans/dashboard-portal-client.md)
 - [ADR 0001: Ubuntu 24.04 เป็น baseline](knowledge/adr/0001-ubuntu-24-04-is-the-supported-host.md)
 - [ADR 0002: Native ใช้ Node major เดียวในระยะแรก](knowledge/adr/0002-one-supported-nodejs-major.md)
 - [ADR 0003: จัดการเฉพาะ Nginx files ที่ระบบเป็นเจ้าของ](knowledge/adr/0003-nginx-managed-files-only.md)
