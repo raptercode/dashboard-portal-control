@@ -2,6 +2,12 @@
 
 [English](../en/CHANGELOG.md)
 
+## 0.8.9 — 2026-10-10
+
+- อ่านตำแหน่ง Prisma CLI จาก bin ของแพ็กเกจที่ติดตั้งจริง รองรับ `dist/prisma.js` ของ Prisma 8
+- ใช้ `contract emit` สำหรับ Prisma 8 ก่อน build คง `generate` สำหรับ Prisma 2–7 และข้ามแอปที่ไม่ใช้ Prisma
+- แยก error กรณีแพ็กเกจหาย, CLI entry ผิด และ contract ล้มเหลว พร้อม diagnostics ที่ปกปิด secrets ไม่มี database operations อัตโนมัติ
+
 ## 0.8.8 — 2026-10-09
 
 - จำกัด response ของ Monitor token ให้ส่งเฉพาะฟิลด์ job, health และ event ที่กำหนดไว้ ไม่ส่ง build/startup `failureLog` หรือ metadata ภายในของ job ส่วนผู้มีสิทธิ์อ่าน log ใน Portal ยังเห็น diagnostics ตามเดิม

@@ -2266,7 +2266,8 @@ export async function generateCandidatePrisma(project, directory, manifest, envi
   try { prisma = await detectPrismaProject(directory, manifest); }
   catch (error) { throw new DeploymentFailure(error.message, redactBuildOutput(error.message, environmentContent)); }
   if (!prisma) return;
-  await reportPhase('build', 'started', 'Prisma detected. Generating the client before build.');
+  const contract = prisma.args[0] === 'contract';
+  await reportPhase('build', 'started', contract ? 'Prisma 8 detected. Emitting the contract before build.' : 'Prisma detected. Generating the client before build.');
   let env = candidateRuntimeEnvironment({ environmentContent, candidatePort: project.candidatePort });
   if (project.runtime === 'node') env = nodeRuntimeEnvironment(project.nodeMajor || 24, env);
   env.PRISMA_GENERATE_SKIP_AUTOINSTALL = '1';
@@ -2274,9 +2275,9 @@ export async function generateCandidatePrisma(project, directory, manifest, envi
   try {
     await execute(command, [prisma.cli, ...prisma.args], { cwd: directory, env, timeout: 300_000 });
   } catch (error) {
-    throw new DeploymentFailure('Prisma client generation failed. Check the Prisma schema, config and deployment environment.', redactBuildOutput(error.commandOutput || error.message, environmentContent));
+    throw new DeploymentFailure(contract ? 'Prisma contract emission failed. Check the contract, Prisma config and deployment environment.' : 'Prisma client generation failed. Check the Prisma schema, config and deployment environment.', redactBuildOutput(error.commandOutput || error.message, environmentContent));
   }
-  await reportPhase('build', 'passed', 'Prisma client generated. Database migrations are not run automatically.');
+  await reportPhase('build', 'passed', contract ? 'Prisma contract emitted. Database migrations are not run automatically.' : 'Prisma client generated. Database migrations are not run automatically.');
 }
 
 // fs.cp() accepts numeric copy-file flags for `mode`; passing the string

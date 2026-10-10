@@ -55,16 +55,27 @@ required version explicitly and retry. Updating Portal alone does not resolve
 application dependency conflicts. Verify build, tests and a meaningful health
 endpoint before activating an application.
 
-## Automatic Prisma generation
+## Prisma preparation before build
 
 For Node and Bun projects, Portal detects Prisma from dependencies, a package.json
 Prisma schema setting, standard schema files, or Prisma config files in the selected
 project directory. After dependency installation and before build (also when build
-is disabled), it runs the installed local Prisma CLI with `generate` and the project
-environment. Prisma resolves its own schema/config. No extra build script is needed.
+is disabled), it reads the installed Prisma package version and `bin` entry. Prisma
+2–7 runs `generate`; Prisma 8 (including release candidates) runs `contract emit`.
+The project environment is passed to the CLI, which resolves its own schema/config.
+Apps without Prisma indicators skip this step. No extra build script is needed.
 
 Declare `prisma` in dependencies or devDependencies and commit its lockfile. Portal
 does not download a missing CLI or client. Errors stop the candidate with redacted
 logs. Custom schema paths should use the project Prisma config. Workspace apps must
 select the directory that owns their schema/config and CLI. Database migrations,
-reset and seed are never run automatically.
+reset and seed are never run automatically. Prisma 8 database `init`, `update` and
+`sign` commands are not automatic either.
+
+If Prisma is already installed, inspect its version and `bin` before adding it
+again or rewriting config. Missing packages, invalid/missing CLI entry points,
+unsupported versions and contract/client errors have separate diagnostics.
+Prisma 8 config describes a contract and uses imports compatible with that CLI
+and runtime version; do not replace it with Prisma 7 client-generator config.
+An explicit `contract:emit` build script remains supported, though automatic
+preparation already emits the contract before that script.

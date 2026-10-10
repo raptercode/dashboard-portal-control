@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.9 — 2026-10-10
+
+- Resolve the Prisma CLI from installed package bin metadata, including Prisma 8 `dist/prisma.js`.
+- Run Prisma 8 `contract emit` before build; retain `generate` for Prisma 2–7 and skip ordinary apps.
+- Distinguish missing packages, invalid CLI entry points and contract errors, with redacted diagnostics. No database operations run automatically.
+
 ## 0.8.8 — 2026-10-09
 
 - Restrict Monitor token deployment responses to explicit job, release-health, and event fields. Build/startup `failureLog` and private stored job metadata no longer reach the Monitor API; authorized Portal log readers retain their detailed diagnostics.

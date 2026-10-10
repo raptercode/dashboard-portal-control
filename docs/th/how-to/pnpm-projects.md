@@ -50,15 +50,25 @@ service จริงและ rollback ใช้ pnpm ที่ติดตั�
 การอัปเดต Portal ไม่ได้แก้ dependency conflict ของแอป ควรตรวจ build, tests และ
 health endpoint ที่มีความหมายก่อนเปิดใช้งานจริง
 
-## Generate Prisma อัตโนมัติ
+## เตรียม Prisma ก่อน build
 
 โปรเจกต์ Node/Bun จะตรวจ Prisma จาก dependencies, ค่า schema ใน package.json,
 ไฟล์ schema มาตรฐาน หรือ Prisma config ใน directory ที่เลือก เมื่อติดตั้ง dependencies
-เสร็จจะเรียก Prisma CLI ของโปรเจกต์ด้วย `generate` ก่อน build รวมถึงกรณีปิด build
-โดยส่ง environment ของโปรเจกต์ให้ด้วย Prisma จะอ่าน schema/config เอง ไม่ต้องเพิ่ม script
+เสร็จจะอ่าน version และ `bin` ของแพ็กเกจ Prisma ที่ติดตั้งจริง Prisma 2–7 ใช้ `generate`
+ส่วน Prisma 8 รวม release candidates ใช้ `contract emit` ก่อน build รวมถึงกรณีปิด build
+ส่ง environment ของโปรเจกต์ให้ CLI อ่าน schema/config เอง ไม่ต้องเพิ่ม script
+โปรเจกต์ที่ไม่มีตัวบ่งชี้ Prisma จะข้ามขั้นตอนนี้
 
 โปรเจกต์ต้องประกาศ `prisma` ใน dependencies หรือ devDependencies และ commit lockfile
 Portal ไม่ดาวน์โหลด CLI หรือ client ที่ขาด หากผิดพลาดจะหยุด candidate และแสดง log
 ที่ปกปิด secrets กรณี schema อยู่ตำแหน่งพิเศษให้ระบุผ่าน Prisma config ของโปรเจกต์
 Workspace ต้องเลือก directory ที่เป็นเจ้าของ schema/config และ CLI
-ระบบไม่รัน migration, reset หรือ seed ฐานข้อมูลอัตโนมัติ
+ระบบไม่รัน migration, reset หรือ seed ฐานข้อมูลอัตโนมัติ รวมถึง `init`, `update`
+และ `sign` ของ Prisma 8
+
+หากมี Prisma ติดตั้งแล้ว ให้ตรวจ version และ `bin` ก่อนเพิ่ม dependency หรือเขียน
+config ใหม่ Error แยกกรณีแพ็กเกจหาย, CLI entry ผิด/หาย, version ไม่รองรับ และ
+คำสั่งเตรียม client/contract ล้มเหลว พร้อม diagnostics ที่ปกปิด secrets
+Prisma 8 ใช้ contract configuration และ imports ที่ตรงกับ CLI/runtime ที่ติดตั้ง
+ไม่ควรแทนด้วย client-generator config ของ Prisma 7 สามารถเก็บ build script
+`contract:emit` เดิมได้ แต่ automatic preparation จะ emit contract ให้ก่อนแล้ว
