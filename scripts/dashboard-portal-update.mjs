@@ -6,6 +6,7 @@ import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
 import { spawn } from 'node:child_process';
 import { compareVersions, fetchVerifiedManifest, portalNodeMajor, sha256File, softwareUpdateStatus, updateConfiguration } from './software-update.mjs';
+import { withMaintenanceLease } from './maintenance-lock.mjs';
 
 const CONFIG_FILE = '/etc/dashboard-portal/dashboard-portal.env';
 const PUBLIC_KEY_FILE = '/etc/dashboard-portal/update-public-key.pem';
@@ -28,16 +29,18 @@ async function configureUpdate(values) {
   if (!sourceInfo?.isFile()) fatal('The update public key file was not found.');
   const key = await readFile(source, 'utf8');
   if (!key.includes('BEGIN PUBLIC KEY')) fatal('The update key must be a PEM public key.');
-  await copyFile(source, PUBLIC_KEY_FILE);
-  await chmod(PUBLIC_KEY_FILE, 0o644);
-  const config = await readConfig();
-  config.HOSTMGR_UPDATE_MANIFEST_URL = options.manifest;
-  config.HOSTMGR_UPDATE_PUBLIC_KEY_PATH = PUBLIC_KEY_FILE;
-  config.HOSTMGR_UPDATE_CHANNEL = options.channel ?? 'stable';
-  await writeConfig(config);
-  const status = await softwareUpdateStatus({ config: updateConfiguration(config), currentVersion: await installedVersion() });
-  if (!status.configured || status.status === 'unavailable') fatal('Configuration was saved, but the signed manifest could not be verified. Check the URL and public key.');
-  console.log(`Software updates configured for ${status.channel}. Current version: ${status.currentVersion}.`);
+  await withMaintenanceLease(async () => {
+    await copyFile(source, PUBLIC_KEY_FILE);
+    await chmod(PUBLIC_KEY_FILE, 0o644);
+    const config = await readConfig();
+    config.HOSTMGR_UPDATE_MANIFEST_URL = options.manifest;
+    config.HOSTMGR_UPDATE_PUBLIC_KEY_PATH = PUBLIC_KEY_FILE;
+    config.HOSTMGR_UPDATE_CHANNEL = options.channel ?? 'stable';
+    await writeConfig(config);
+    const status = await softwareUpdateStatus({ config: updateConfiguration(config), currentVersion: await installedVersion() });
+    if (!status.configured || status.status === 'unavailable') fatal('Configuration was saved, but the signed manifest could not be verified. Check the URL and public key.');
+    console.log(`Software updates configured for ${status.channel}. Current version: ${status.currentVersion}.`);
+  });
 }
 
 async function update(values) {

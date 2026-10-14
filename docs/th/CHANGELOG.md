@@ -2,6 +2,16 @@
 
 [English](../en/CHANGELOG.md)
 
+## 1.0.0 — 2026-10-15
+
+- Stable release สำหรับ Ubuntu amd64 host เดียวและ trusted repositories การ publish ไม่อัปเดตเครื่องที่ติดตั้งอยู่
+- Web/API deploy โดยไม่ผูกโดเมนได้ เพิ่ม Worker แบบ Node.js, Bun, Go และ Python script ที่รันต่อเนื่อง ไม่มีพอร์ต/HTTP health check ที่ Portal กำหนด และ ENV ว่างได้ Build ไม่เริ่ม candidate consumer; หยุดบริการเดิมก่อนสลับ ตรวจ process และพยายามกู้คืนเมื่อ activation ล้ม
+- Installer/update/helper/CLI ใช้ maintenance leases ร่วมกัน เก็บ state snapshot ให้ consistent และกู้คืนเมื่อเปลี่ยน installation ไม่สำเร็จ Monitor usage writes ตรวจ maintenance exclusion ด้วย
+- เมนูแยกหมวดงาน และ Settings แยกบัญชี/อัปเดต/Monitor integration พร้อมปรับ keyboard/focus ของมือถือ
+- รักษา pnpm/Prisma fixes ของ v0.8.6–0.8.9, การคง Node major และ Monitor field allowlist โปรเจคเดิมเป็น Web; มี release แล้วเปลี่ยนประเภทหรือ runtime ของ Worker ไม่ได้
+- Mail operational และ remote `dpctl` เลื่อน ยังไม่รองรับ Worker แบบ PHP/Compose/ASGI/WSGI และ one-shot; process stability ไม่ยืนยันว่างาน queue สำเร็จหรือ exactly-once
+- ใช้ผล local/Docker และ fixtures; clean-host install, helper/systemd/Nginx/TLS จริง, reboot และ whole-host restore ยังไม่ยืนยัน ดู [acceptance record](knowledge/plans/v1-acceptance-record.md) ไม่รับรอง hostile-tenant isolation
+
 ## 0.8.9 — 2026-10-10
 
 - อ่านตำแหน่ง Prisma CLI จาก bin ของแพ็กเกจที่ติดตั้งจริง รองรับ `dist/prisma.js` ของ Prisma 8

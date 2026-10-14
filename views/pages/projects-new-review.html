@@ -19,8 +19,8 @@
       <p>ตรวจค่าด้านล่างอีกครั้ง ถ้าต้องแก้ให้กด "ย้อนกลับ" ค่าที่แสดงยังไม่ถูกบันทึกบน host</p>
     </header>
     <dl id="project-review" class="detail-list"></dl>
-    <aside class="notice"><svg class="icon" aria-hidden="true"><use href="#icon-info"></use></svg><div><strong>เมื่อกด "บันทึกและ sync source" ระบบจะ</strong><p>บันทึกการตั้งค่าโปรเจคและพอร์ตที่กันไว้ แล้ว clone หรือ sync source จาก branch ที่เลือกมาไว้บน host ขั้นนี้ยังไม่ build ไม่สร้าง release และยังไม่รันแอป</p></div></aside>
-    <aside class="notice"><svg class="icon" aria-hidden="true"><use href="#icon-zap"></use></svg><div><strong>ขั้นถัดไปหลัง sync สำเร็จ</strong><p>เปิดเมนู Deploy ของโปรเจค บันทึก <code>.env</code> อย่างน้อยหนึ่งค่า แล้วจึงสร้าง candidate release แรกได้</p></div></aside>
+    <aside class="notice"><svg class="icon" aria-hidden="true"><use href="#icon-info"></use></svg><div><strong>เมื่อกด "บันทึกและ sync source" ระบบจะ</strong><p>บันทึกการตั้งค่าโปรเจค แล้ว clone หรือ sync source จาก branch ที่เลือกมาไว้บน host เฉพาะ Web จะกันพอร์ตภายในเครื่อง ขั้นนี้ยังไม่ build ไม่สร้าง release และยังไม่เริ่ม service</p></div></aside>
+    <aside class="notice"><svg class="icon" aria-hidden="true"><use href="#icon-zap"></use></svg><div><strong>ขั้นถัดไปหลัง sync สำเร็จ</strong><p>เปิดเมนู Deploy ของโปรเจคเพื่อสร้าง release แรก Web ต้องมี <code>.env</code> อย่างน้อยหนึ่งค่า ส่วน Worker เว้น ENV ว่างได้หากแอปไม่ใช้</p></div></aside>
     <form id="project-review-form" class="form-grid">
       <div class="form-actions">
         <a id="flow-back" class="secondary button" href="/projects/new/repository">ย้อนกลับ</a>

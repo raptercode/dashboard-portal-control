@@ -18,6 +18,7 @@ export function pageForPathname(pathname) {
   if (pathname.startsWith('/projects/')) return 'projects';
   if (pathname.startsWith('/databases/')) return 'databases';
   if (pathname.startsWith('/mail/')) return 'mail';
+  if (/^\/settings\/(?:account|updates|monitor)$/.test(pathname)) return 'settings';
   return 'overview';
 }
 

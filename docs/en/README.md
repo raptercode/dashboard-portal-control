@@ -68,7 +68,7 @@ To pin a published release, use `curl -fsSL https://dashboard-portal.cloud/insta
 
 Run on the server in an interactive SSH terminal as root or a sudo-capable user. The bootstrap asks for the Portal domain and TLS email, uses Node 24 by default, downloads the release, verifies SHA-256 and invokes the host installer. See the [installation guide](../th/how-to/production-install.md) for preparation, backup and recovery.
 
-The installer provisions Nginx, Certbot, Git, Bun, and checksum-verified Node runtimes for all four supported majors. It serves the Portal at `127.0.0.1:3100` behind Nginx and HTTPS. The bootstrap uses Node 24 for the Portal by default; each Node application can select its own version.
+The installer provisions Nginx, Certbot, Git, Bun, and the checksum-verified Node runtime selected for the Portal. It serves the Portal at `127.0.0.1:3100` behind Nginx and HTTPS. The bootstrap defaults to Node 24 and updates preserve the configured major. Each Node application can select its own major, which must already be provisioned on the host.
 
 Check the availability of additional tools such as Go, Python, PHP, and Docker in **Setup/Doctor** before deploying applications. See the runtime guides in the [documentation table](#documentation).
 

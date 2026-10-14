@@ -38,9 +38,14 @@ UPDATE_PUBLIC_KEY_FILE='/etc/dashboard-portal/update-public-key.pem'
 DEFAULT_UPDATE_MANIFEST_URL='https://github.com/raptercode/dashboard-portal-control/releases/latest/download/stable.json'
 DEFAULT_UPDATE_CHANNEL='stable'
 HELPER_SOCKET='/run/dashboard-portal/deploy-helper.sock'
+MAINTENANCE_ROOT='/run/dashboard-portal-maintenance'
+MAINTENANCE_LOCK='/run/dashboard-portal-maintenance/operations.lock'
+MAINTENANCE_TMPFILES='/etc/tmpfiles.d/dashboard-portal-maintenance.conf'
 NGINX_SITE='/etc/nginx/sites-available/dashboard-portal'
 NGINX_ENABLED='/etc/nginx/sites-enabled/dashboard-portal'
 NGINX_DEFAULT_ENABLED='/etc/nginx/sites-enabled/default'
+NGINX_CATCHALL_SITE='/etc/nginx/sites-available/hostmgr-unmatched.conf'
+NGINX_CATCHALL_ENABLED='/etc/nginx/sites-enabled/hostmgr-unmatched.conf'
 PORT='3100'
 NODE_VERSION='24.18.0'
 NODE_SHA256='55aa7153f9d88f28d765fcdad5ae6945b5c0f98a36881703817e4c450fa76742'
@@ -52,8 +57,11 @@ GO_SHA256='63d339f0da5ab53635a56f2490a7984dfe12dfcff22ad749f63edaf590168445'
 TMP_DIR=''
 BACKUP_DIR=''
 ROLLBACK_ARMED=false
+SNAPSHOTS_READY=false
 PREVIOUS_SERVICE_ACTIVE=false
 PREVIOUS_SERVICE_ENABLED=false
+PREVIOUS_HELPER_ACTIVE=false
+PREVIOUS_HELPER_ENABLED=false
 
 die() { echo "ERROR: $*" >&2; exit 1; }
 
@@ -67,20 +75,23 @@ set_config_value() {
 }
 
 cleanup() {
-  [[ -n "$TMP_DIR" && -d "$TMP_DIR" ]] && rm -rf -- "$TMP_DIR"
+  if [[ -n "$TMP_DIR" && -d "$TMP_DIR" ]]; then rm -rf -- "$TMP_DIR"; fi
 }
 
 backup_item() {
   local label="$1" path="$2"
+  mkdir -p "$BACKUP_DIR/$label"
   if [[ -e "$path" || -L "$path" ]]; then
     mkdir -p "$BACKUP_DIR/$label"
     cp -a --no-dereference "$path" "$BACKUP_DIR/$label/original"
     : > "$BACKUP_DIR/$label/present"
   fi
+  : > "$BACKUP_DIR/$label/complete"
 }
 
 restore_item() {
   local label="$1" path="$2"
+  [[ -f "$BACKUP_DIR/$label/complete" ]] || return 0
   rm -rf -- "$path"
   if [[ -f "$BACKUP_DIR/$label/present" ]]; then
     cp -a --no-dereference "$BACKUP_DIR/$label/original" "$path"
@@ -88,24 +99,38 @@ restore_item() {
 }
 
 rollback() {
-  local code="$?"
-  if [[ "$ROLLBACK_ARMED" == true ]]; then
+  local code="$1"
+  trap - EXIT ERR INT TERM
+  set +e
+  if [[ "$code" -ne 0 && "$ROLLBACK_ARMED" == true ]]; then
     echo "Installation failed; restoring Dashboard Portal files from $BACKUP_DIR" >&2
     systemctl disable --now dashboard-portal.service >/dev/null 2>&1 || true
     systemctl disable --now hostmgr-deploy-helper.service >/dev/null 2>&1 || true
+    if [[ "$SNAPSHOTS_READY" == true ]]; then
     restore_item service "$SERVICE_FILE"
     restore_item helper-service "$HELPER_SERVICE_FILE"
+    restore_item maintenance-tmpfiles "$MAINTENANCE_TMPFILES"
     restore_item helper-root "$HELPER_ROOT"
+    restore_item cli-info-root "$CLI_INFO_ROOT"
     restore_item update-command "$UPDATE_COMMAND"
     restore_item nginx-site "$NGINX_SITE"
     restore_item nginx-enabled "$NGINX_ENABLED"
     restore_item nginx-default-enabled "$NGINX_DEFAULT_ENABLED"
+    restore_item nginx-catchall-site "$NGINX_CATCHALL_SITE"
+    restore_item nginx-catchall-enabled "$NGINX_CATCHALL_ENABLED"
     restore_item app-root "$APP_ROOT"
     restore_item config "$CONFIG_ROOT"
     restore_item state-db "$DATA_ROOT/state.sqlite"
     restore_item state-db-wal "$DATA_ROOT/state.sqlite-wal"
     restore_item state-db-shm "$DATA_ROOT/state.sqlite-shm"
+    fi
     systemctl daemon-reload >/dev/null 2>&1 || true
+    if [[ "$PREVIOUS_HELPER_ENABLED" == true ]]; then
+      systemctl enable hostmgr-deploy-helper.service >/dev/null 2>&1 || true
+    fi
+    if [[ "$PREVIOUS_HELPER_ACTIVE" == true ]]; then
+      systemctl restart hostmgr-deploy-helper.service >/dev/null 2>&1 || true
+    fi
     if [[ "$PREVIOUS_SERVICE_ENABLED" == true ]]; then
       systemctl enable dashboard-portal.service >/dev/null 2>&1 || true
     fi
@@ -118,7 +143,9 @@ rollback() {
   cleanup
   exit "$code"
 }
-trap rollback ERR INT TERM
+trap 'rollback "$?"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 [[ $EUID -eq 0 ]] || die 'Run with sudo.'
 if [[ -z "$PORTAL_NODE_MAJOR" ]]; then
@@ -138,7 +165,7 @@ fi
 [[ "$PORTAL_NODE_MAJOR" =~ ^(20|22|24|26)$ ]] || die 'Portal Node.js major must be 20, 22, 24 or 26.'
 [[ -n "$DOMAIN" && "$DOMAIN" =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$ ]] || die 'A lower-case FQDN is required in --domain.'
 [[ -n "$EMAIL" && "$EMAIL" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]] || die 'A valid --email is required. HTTPS is mandatory for a public login.'
-[[ -f package.json && -f package-lock.json && -d src && -d public && -f scripts/hostmgr-deploy-helper.mjs && -f scripts/sqlite.mjs && -f scripts/node-versions.mjs && -f scripts/mail-host-config.mjs && -f scripts/nginx-edge.mjs && -f scripts/password-config.mjs && -f scripts/dashboard-portal-update.mjs && -f scripts/software-update.mjs && -f "$UPDATE_PUBLIC_KEY_SOURCE" ]] || die 'Run this script from an extracted dashboard-portal release directory.'
+[[ -f package.json && -f package-lock.json && -d src && -d public && -f scripts/hostmgr-deploy-helper.mjs && -f scripts/sqlite.mjs && -f scripts/node-versions.mjs && -f scripts/maintenance-lock.mjs && -f scripts/worker-health.mjs && -f scripts/worker-activation.mjs && -f scripts/mail-host-config.mjs && -f scripts/nginx-edge.mjs && -f scripts/password-config.mjs && -f scripts/dashboard-portal-update.mjs && -f scripts/software-update.mjs && -f "$UPDATE_PUBLIC_KEY_SOURCE" ]] || die 'Run this script from an extracted dashboard-portal release directory.'
 source /etc/os-release
 [[ "${ID:-}" == 'ubuntu' && ( "${VERSION_ID:-}" == '24.04' || "${VERSION_ID:-}" == '25.04' ) ]] || die 'This installer supports Ubuntu 24.04 or 25.04 only.'
 [[ "$(dpkg --print-architecture)" == 'amd64' ]] || die 'This release currently supports amd64 only.'
@@ -152,21 +179,66 @@ printf 'DNS preflight: %s resolves to %s\n' "$DOMAIN" "${DNS_ADDRESSES[*]}"
 TMP_DIR="$(mktemp -d /tmp/dashboard-portal.XXXXXX)"
 BACKUP_DIR="${BACKUP_ROOT}/install-$(date -u +%Y%m%dT%H%M%SZ)"
 install -d -m 0700 -o root -g root "$BACKUP_DIR"
+# Use a stable inode outside the helper RuntimeDirectory, which disappears when
+# that service stops. Existing participating operations hold shared leases.
+if ! id -u "$APP_USER" >/dev/null 2>&1; then
+  useradd --system --create-home --home-dir "$DATA_ROOT" --shell /usr/sbin/nologin "$APP_USER"
+fi
+command -v flock >/dev/null || die 'flock is required for installer maintenance exclusion.'
+[[ ! -L "$MAINTENANCE_ROOT" && ! -L "$MAINTENANCE_LOCK" ]] || die 'Maintenance paths must not be symbolic links.'
+if [[ -e "$MAINTENANCE_ROOT" ]]; then
+  [[ -d "$MAINTENANCE_ROOT" && "$(stat -c %u "$MAINTENANCE_ROOT")" == 0 ]] || die 'Maintenance directory must be root-owned.'
+  (( (8#$(stat -c %a "$MAINTENANCE_ROOT") & 8#022) == 0 )) || die 'Maintenance directory must not be writable by group or others.'
+fi
+install -d -m 0750 -o root -g "$APP_USER" "$MAINTENANCE_ROOT"
+if [[ -e "$MAINTENANCE_LOCK" ]]; then
+  [[ -f "$MAINTENANCE_LOCK" && "$(stat -c %u "$MAINTENANCE_LOCK")" == 0 && "$(stat -c %h "$MAINTENANCE_LOCK")" == 1 ]] || die 'Maintenance lock must be a root-owned regular file without hard links.'
+  (( (8#$(stat -c %a "$MAINTENANCE_LOCK") & 8#007) == 0 )) || die 'Maintenance lock must not be accessible to unrelated users.'
+else
+  (set -o noclobber; : > "$MAINTENANCE_LOCK")
+fi
+chown "root:$APP_USER" "$MAINTENANCE_LOCK"
+chmod 0660 "$MAINTENANCE_LOCK"
+exec 9<>"$MAINTENANCE_LOCK"
+flock --exclusive --nonblock 9 || die 'Portal host operations are active; retry installation after they finish.'
 if systemctl is-active --quiet dashboard-portal.service; then PREVIOUS_SERVICE_ACTIVE=true; fi
 if systemctl is-enabled --quiet dashboard-portal.service; then PREVIOUS_SERVICE_ENABLED=true; fi
+if systemctl is-active --quiet hostmgr-deploy-helper.service; then PREVIOUS_HELPER_ACTIVE=true; fi
+if systemctl is-enabled --quiet hostmgr-deploy-helper.service; then PREVIOUS_HELPER_ENABLED=true; fi
+ROLLBACK_ARMED=true
+# Maintenance must begin with no in-flight deploy/tool/mail operations. Stopping
+# services prevents new writers, but is not a drain protocol for existing work.
+# Snapshot SQLite only after both services have stopped successfully.
+if [[ "$PREVIOUS_SERVICE_ACTIVE" == true || -f "$SERVICE_FILE" ]]; then systemctl stop dashboard-portal.service; fi
+if [[ "$PREVIOUS_HELPER_ACTIVE" == true || -f "$HELPER_SERVICE_FILE" ]]; then systemctl stop hostmgr-deploy-helper.service; fi
+if systemctl is-active --quiet dashboard-portal.service || systemctl is-active --quiet hostmgr-deploy-helper.service; then
+  die 'Portal and helper must be stopped before taking the state snapshot.'
+fi
 backup_item service "$SERVICE_FILE"
 backup_item helper-service "$HELPER_SERVICE_FILE"
+backup_item maintenance-tmpfiles "$MAINTENANCE_TMPFILES"
 backup_item helper-root "$HELPER_ROOT"
+backup_item cli-info-root "$CLI_INFO_ROOT"
 backup_item update-command "$UPDATE_COMMAND"
 backup_item nginx-site "$NGINX_SITE"
 backup_item nginx-enabled "$NGINX_ENABLED"
 backup_item nginx-default-enabled "$NGINX_DEFAULT_ENABLED"
+backup_item nginx-catchall-site "$NGINX_CATCHALL_SITE"
+backup_item nginx-catchall-enabled "$NGINX_CATCHALL_ENABLED"
 backup_item app-root "$APP_ROOT"
 backup_item config "$CONFIG_ROOT"
 backup_item state-db "$DATA_ROOT/state.sqlite"
 backup_item state-db-wal "$DATA_ROOT/state.sqlite-wal"
 backup_item state-db-shm "$DATA_ROOT/state.sqlite-shm"
-ROLLBACK_ARMED=true
+SNAPSHOTS_READY=true
+
+# /run is cleared at boot. tmpfiles creates the lock without truncating an
+# existing inode; never replace or remove this inode while leases may exist.
+install -d -m 0755 -o root -g root /etc/tmpfiles.d
+printf 'd %s 0750 root %s -\nf %s 0660 root %s -\n' "$MAINTENANCE_ROOT" "$APP_USER" "$MAINTENANCE_LOCK" "$APP_USER" > "$MAINTENANCE_TMPFILES"
+chown root:root "$MAINTENANCE_TMPFILES"
+chmod 0644 "$MAINTENANCE_TMPFILES"
+systemd-tmpfiles --create "$MAINTENANCE_TMPFILES"
 
 export DEBIAN_FRONTEND=noninteractive
 # apt drops signature verification to the unprivileged `_apt` user and needs a
@@ -177,10 +249,6 @@ apt-get update
 apt-get install -y --no-install-recommends nginx certbot python3-certbot-nginx curl ca-certificates xz-utils unzip git
 if [[ "$PORTAL_NODE_MAJOR" == '20' ]]; then apt-get install -y --no-install-recommends build-essential python3; fi
 if [[ "$PORTAL_NODE_MAJOR" == '26' ]]; then apt-get install -y --no-install-recommends libatomic1; fi
-
-if ! id -u "$APP_USER" >/dev/null 2>&1; then
-  useradd --system --create-home --home-dir "$DATA_ROOT" --shell /usr/sbin/nologin "$APP_USER"
-fi
 
 install_node_version() {
   local major="$1" version sha archive target
@@ -261,6 +329,9 @@ install -m 0750 -o root -g root "$APP_ROOT/scripts/hostmgr-deploy-helper.mjs" "$
 install -m 0644 -o root -g root "$APP_ROOT/scripts/sqlite.mjs" "$HELPER_ROOT/sqlite.mjs"
 install -m 0644 -o root -g root "$APP_ROOT/scripts/node-versions.mjs" "$HELPER_ROOT/node-versions.mjs"
 install -m 0644 -o root -g root "$APP_ROOT/scripts/node-package-manager.mjs" "$HELPER_ROOT/node-package-manager.mjs"
+install -m 0644 -o root -g root "$APP_ROOT/scripts/maintenance-lock.mjs" "$HELPER_ROOT/maintenance-lock.mjs"
+install -m 0750 -o root -g root "$APP_ROOT/scripts/worker-health.mjs" "$HELPER_ROOT/worker-health.mjs"
+install -m 0750 -o root -g root "$APP_ROOT/scripts/worker-activation.mjs" "$HELPER_ROOT/worker-activation.mjs"
 if [[ "$PORTAL_NODE_MAJOR" == '20' ]]; then ln -sfn "$APP_ROOT/node_modules" "$HELPER_ROOT/node_modules"; fi
 install -m 0750 -o root -g root "$APP_ROOT/scripts/python-project.mjs" "$HELPER_ROOT/python-project.mjs"
 install -m 0750 -o root -g root "$APP_ROOT/scripts/php-project.mjs" "$HELPER_ROOT/php-project.mjs"
@@ -341,6 +412,7 @@ cat > "$SERVICE_FILE" <<EOF
 [Unit]
 Description=Dashboard Portal
 After=network-online.target
+After=systemd-tmpfiles-setup.service
 Wants=network-online.target
 Wants=hostmgr-deploy-helper.service
 After=hostmgr-deploy-helper.service
@@ -379,6 +451,7 @@ cat > "$HELPER_SERVICE_FILE" <<EOF
 [Unit]
 Description=Dashboard Portal privileged deployment helper
 After=network-online.target nginx.service
+After=systemd-tmpfiles-setup.service
 Wants=network-online.target
 
 [Service]
@@ -486,7 +559,7 @@ curl --fail --silent --show-error --max-time 15 "https://${DOMAIN}/api/health" >
 
 ROLLBACK_ARMED=false
 cleanup
-trap - ERR INT TERM
+trap - EXIT ERR INT TERM
 echo "Installed securely at https://${DOMAIN}"
 echo "Configuration: ${CONFIG_ROOT}/dashboard-portal.env (root:${APP_USER}, 0640)"
 echo "Rollback snapshots: ${BACKUP_ROOT}"

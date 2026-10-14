@@ -983,6 +983,20 @@ html:not([data-theme="light"]) .runtime-logo-symfony { filter: invert(1); }
 .command-block { display: block; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--code-bg); color: var(--code-text); font-family: var(--mono); font-size: 12.5px; word-break: break-all; }
 
 .settings-stack { display: grid; gap: 12px; }
+.page-eyebrow { display: block; margin-bottom: 6px; color: var(--text-3); font-size: 12px; }
+.settings-navigation { display: flex; flex-wrap: wrap; gap: 8px; padding: 6px 0 22px; }
+.settings-navigation a { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border: 1px solid var(--border); border-radius: 8px; color: var(--text-2); background: var(--surface); font-size: 13px; }
+.settings-navigation a:hover { color: var(--text); text-decoration: none; border-color: var(--accent); }
+.settings-navigation a[aria-current="page"] { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.settings-navigation a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.nav-group { display: grid; gap: 2px; }
+.nav-group + .nav-group { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--rail-border); }
+.nav-group .nav-section { padding-bottom: 9px; font-family: inherit; letter-spacing: .01em; font-size: 11px; }
+@media (max-width: 600px) {
+  .settings-navigation { display: grid; grid-template-columns: 1fr; }
+  .settings-navigation a { min-height: 44px; }
+  .setting-row { padding: 18px; }
+}
 .setting-row { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(280px, .9fr); gap: 24px; align-items: start; padding: 22px; }
 .setting-row > div:first-child { display: grid; gap: 6px; }
 .setting-row > .mode-badge { justify-self: start; }

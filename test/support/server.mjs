@@ -9,7 +9,11 @@ export async function start(options = {}) {
   const dir = await mkdtemp(join(tmpdir(), 'hostmgr-server-'));
   // Sync/deploy fixtures simulate runtimes; listening ports on the workstation
   // must not change their results. Port selection has dedicated tests below.
-  const app = await createApplication({ dataPath: join(dir, 'state.json'), password: OWNER_PASSWORD, secretKey: Buffer.alloc(32, 7).toString('base64'), mode: 'demo', sandboxClone: false, metricsEnabled: false, portAvailability: async () => true, ...options });
+  // Existing host-mode fixtures simulate the helper and do not certify Linux
+  // maintenance exclusion. Dedicated maintenance integration tests inject the
+  // real lock or a controlled blocking lease instead.
+  const acquireMaintenanceLease = async () => ({ assertHeld() {}, async release() {} });
+  const app = await createApplication({ dataPath: join(dir, 'state.json'), password: OWNER_PASSWORD, secretKey: Buffer.alloc(32, 7).toString('base64'), mode: 'demo', sandboxClone: false, metricsEnabled: false, portAvailability: async () => true, acquireMaintenanceLease, ...options });
   await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
   const address = app.server.address();
   return { app, base: `http://127.0.0.1:${address.port}`, dataPath: options.dataPath ?? join(dir, 'state.json') };

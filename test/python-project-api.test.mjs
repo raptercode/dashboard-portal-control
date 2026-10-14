@@ -18,6 +18,8 @@ test('Python API preserves entry settings and queues host venv preparation witho
   const app = await createApplication({
     dataPath: join(root, 'state.sqlite'), projectRoot, password: 'correct-horse-battery-staple', secretKey: key,
     mode: 'host', metricsEnabled: false, portAvailability: async () => true,
+    // Host operations are simulated here; real exclusion has separate coverage.
+    acquireMaintenanceLease: async () => ({ assertHeld() {}, async release() {} }),
     toolProbe: async (tools) => tools.map((tool) => ({ ...tool, status: 'Installed' })),
     projectSyncer: async () => ({ status: 'synced', at: new Date().toISOString(), revision: 'a'.repeat(40) })
   });

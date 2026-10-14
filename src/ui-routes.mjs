@@ -19,7 +19,14 @@ export const projectFlowRoutes = Object.freeze({
 
 const staticPages = new Map(Object.entries(pageRoutes).map(([page, path]) => [path, page]));
 
-export function matchUiRoute(pathname) {
+export function matchUiRoute(pathname, searchParams) {
+  const settingsSection = pathname === '/settings'
+    ? searchParams?.get('section')
+    : pathname.match(/^\/settings\/(account|updates|monitor)$/)?.[1];
+  if (['account', 'updates', 'monitor'].includes(settingsSection)) {
+    return { page: 'settings', view: `settings-${settingsSection}`, params: { section: settingsSection } };
+  }
+  if (pathname === '/settings') return { page: 'settings', view: 'settings-account', params: { section: 'account' } };
   if (staticPages.has(pathname)) {
     return { page: staticPages.get(pathname), view: staticPages.get(pathname), params: {} };
   }

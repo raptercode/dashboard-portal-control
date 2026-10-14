@@ -37,6 +37,30 @@ test('installed wrapper routes read-only flags ahead of privileged operations', 
   assert.match(source, /install -d -m 0750 -o root -g root "\$HELPER_ROOT"/);
 });
 
+test('version report probes the host Go executable used by native deployment', () => {
+  const preload = `
+    import childProcess from 'node:child_process';
+    import { syncBuiltinESMExports } from 'node:module';
+    import { promisify } from 'node:util';
+    childProcess.execFile = (command, args, options, callback) => {
+      if (command === '/usr/local/bin/go' && args.length === 1 && args[0] === 'version') {
+        callback(null, 'go version go1.27.1 linux/amd64\\n', '');
+      } else {
+        const error = new Error('fixture tool absent');
+        error.code = 'ENOENT';
+        callback(error, '', '');
+      }
+    };
+    childProcess.execFile[promisify.custom] = (command, args, options) => new Promise((resolve, reject) => {
+      childProcess.execFile(command, args, options, (error, stdout, stderr) => error ? reject(error) : resolve({ stdout, stderr }));
+    });
+    syncBuiltinESMExports();
+  `;
+  const result = spawnSync(process.execPath, ['--import', `data:text/javascript,${encodeURIComponent(preload)}`, script, '--versions'], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /^Go: go version go1\.27\.1 linux\/amd64$/m);
+});
+
 test('generated Bash wrapper dispatches help and versions without invoking updater or password reset', async (t) => {
   const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash';
   if (spawnSync(bash, ['--version']).status !== 0) return t.skip('Bash unavailable');

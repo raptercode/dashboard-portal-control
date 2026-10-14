@@ -279,6 +279,9 @@ export function validateTool(tool) {
 }
 
 export function validateProject(input) {
+  const serviceType = input.serviceType ?? 'web';
+  if (!['web', 'worker'].includes(serviceType)) throw new InputError('Service type must be web or worker.');
+  if (serviceType === 'worker' && input.port !== undefined && input.port !== null && input.port !== '') throw new InputError('Worker services must not reserve an HTTP port.');
   const project = {
     name: requiredText(input.name, 'Project name', 80),
     organization: optionalText(input.organization, 80) || 'Default',
@@ -286,12 +289,14 @@ export function validateProject(input) {
     repository: requiredText(input.repository, 'Repository URL', 500),
     branch: optionalText(input.branch, 100) || 'main',
     directory: validateRepositoryDirectory(input.directory),
+    ...(input.serviceType !== undefined ? { serviceType } : {}),
+    ...(serviceType === 'worker' ? { autoPort: false } : {}),
     // A project sync may omit the port and let the Portal reserve a unique
     // host port. Deployment validation still requires the resolved integer.
     port: input.port === undefined || input.port === null || input.port === '' ? null : Number(input.port),
     // Existing projects predate this option, so an omitted value must keep the
     // safe historical behavior of requiring a candidate and host health check.
-    healthCheckEnabled: input.healthCheckEnabled === undefined ? true : input.healthCheckEnabled === true,
+    healthCheckEnabled: serviceType === 'worker' ? false : input.healthCheckEnabled === undefined ? true : input.healthCheckEnabled === true,
     healthCheckPath: optionalText(input.healthCheckPath, 200) || '/'
   };
   if (!/^[a-z][a-z0-9-]{0,62}$/.test(project.slug)) throw new InputError('Project slug must use lowercase letters, digits, and hyphens.');
@@ -316,6 +321,8 @@ export function validateProjectSync(input) {
   if (protocol === 'https' && credentialId && !/^[a-f0-9-]{36}$/i.test(credentialId)) throw new InputError('Credential selection is invalid.');
   const runtime = input.runtime === undefined ? 'node' : input.runtime;
   if (!['node', 'bun', 'go', 'python', 'php', 'docker-compose'].includes(runtime)) throw new InputError('Project runtime is invalid.');
+  if (project.serviceType === 'worker' && !['node', 'bun', 'go', 'python'].includes(runtime)) throw new InputError('Worker services currently support Node.js, Bun, Go and Python script runtimes.');
+  if (project.serviceType === 'worker' && runtime === 'python' && (input.pythonMode ?? 'script') !== 'script') throw new InputError('Python workers must use the script run type.');
   let nodeMajor;
   if (runtime === 'node') {
     try { nodeMajor = nodeMajorForProject(input.nodeMajor); }
@@ -329,7 +336,8 @@ export function validateProjectSync(input) {
   const composeFile = runtime === 'docker-compose' ? validateComposeFile(input.composeFile) : null;
   const composeService = runtime === 'docker-compose' ? requiredText(input.composeService, 'Docker Compose service', 80) : null;
   if (composeService && !/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,79}$/.test(composeService)) throw new InputError('Docker Compose service is invalid.');
-  const domains = input.domains === undefined ? undefined : validateProjectDomains(input.domains);
+  const domains = input.domains === undefined ? (project.serviceType === 'worker' ? [] : undefined) : validateProjectDomains(input.domains, { allowEmpty: true });
+  if (project.serviceType === 'worker' && domains.length) throw new InputError('Worker services cannot have HTTP domains.');
   return {
     ...project,
     protocol,

@@ -1,4 +1,4 @@
-<aside class="sidebar" aria-label="Primary navigation">
+<aside id="portal-sidebar" class="sidebar" aria-label="Primary navigation">
   <div class="sidebar-head">
     <a class="brand" href="/" aria-label="Dashboard Portal home">
       <span class="brand-mark" aria-hidden="true">DP</span>
@@ -9,17 +9,29 @@
     </button>
   </div>
   <nav class="nav" aria-label="Portal sections">
-    <div class="nav-section">Control</div>
+    <div class="nav-group">
+    <div class="nav-section">งานและโปรเจค</div>
     <a class="nav-link" data-nav="overview" href="/" title="Dashboard"><svg class="icon" aria-hidden="true"><use href="#icon-home"></use></svg><span>Dashboard</span></a>
     <a class="nav-link" data-nav="projects" href="/projects" title="Projects"><svg class="icon" aria-hidden="true"><use href="#icon-grid"></use></svg><span>Projects</span><span id="sidebar-project-count" class="count" hidden></span></a>
     <a class="nav-link" data-nav="activity" href="/activity" title="Activity" hidden><svg class="icon" aria-hidden="true"><use href="#icon-activity"></use></svg><span>Activity</span></a>
+    </div>
+    <div class="nav-group">
+    <div class="nav-section">สมาชิกและการเข้าถึง</div>
     <a class="nav-link master-only" data-nav="members" href="/members" title="สมาชิกและองค์กร" hidden><svg class="icon" aria-hidden="true"><use href="#icon-grid"></use></svg><span>สมาชิกและองค์กร</span></a>
-    <a class="nav-link master-only" data-nav="mail" href="/mail" target="_blank" rel="noopener noreferrer" title="Open Mail in a new tab" hidden><svg class="icon" aria-hidden="true"><use href="#icon-mail"></use></svg><span>Mail</span></a>
-    <div class="nav-section">System</div>
-    <a class="nav-link master-only" data-nav="setup" href="/setup" title="Setup" hidden><svg class="icon" aria-hidden="true"><use href="#icon-sliders"></use></svg><span>Setup</span></a>
     <a class="nav-link" data-nav="credentials" href="/credentials" title="Credentials" hidden><svg class="icon" aria-hidden="true"><use href="#icon-key"></use></svg><span>Credentials</span></a>
+    </div>
+    <div class="nav-group">
+    <div class="nav-section">เครื่องมือบน host</div>
+    <a class="nav-link master-only" data-nav="setup" href="/setup" title="Setup" hidden><svg class="icon" aria-hidden="true"><use href="#icon-sliders"></use></svg><span>Setup</span></a>
     <a class="nav-link master-only" data-nav="databases" href="/databases" title="Databases" hidden><svg class="icon" aria-hidden="true"><use href="#icon-database"></use></svg><span>Databases</span></a>
-    <a class="nav-link" data-nav="settings" href="/settings" title="Settings"><svg class="icon" aria-hidden="true"><use href="#icon-settings"></use></svg><span>Settings</span></a>
+    <a class="nav-link master-only" data-nav="mail" href="/mail" target="_blank" rel="noopener noreferrer" title="Mail · เปิดแท็บใหม่" hidden><svg class="icon" aria-hidden="true"><use href="#icon-mail"></use></svg><span>Mail ↗</span></a>
+    </div>
+    <div class="nav-group">
+    <div class="nav-section">การตั้งค่า</div>
+    <a class="nav-link" data-nav="settings" data-section="account" href="/settings/account" title="บัญชีและความปลอดภัย"><svg class="icon" aria-hidden="true"><use href="#icon-key"></use></svg><span>บัญชีและความปลอดภัย</span></a>
+    <a class="nav-link master-only" data-nav="settings" data-section="updates" href="/settings/updates" title="ระบบและการอัปเดต" hidden><svg class="icon" aria-hidden="true"><use href="#icon-settings"></use></svg><span>ระบบและการอัปเดต</span></a>
+    <a class="nav-link master-only" data-nav="settings" data-section="monitor" href="/settings/monitor" title="เชื่อมต่อระบบภายนอก" hidden><svg class="icon" aria-hidden="true"><use href="#icon-activity"></use></svg><span>เชื่อมต่อระบบภายนอก</span></a>
+    </div>
   </nav>
   <div class="sidebar-bottom">
     <div class="sidebar-footer">

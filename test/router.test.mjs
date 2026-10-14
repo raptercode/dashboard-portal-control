@@ -36,3 +36,14 @@ test('member management and invitation acceptance have explicit routes', () => {
   assert.deepEqual(matchUiRoute('/invite'), { page: 'invite', view: 'invite', params: {} });
   assert.equal(pathnameForPage('members'), '/members');
 });
+
+test('Settings categories reload as distinct allowlisted views and retain legacy query links', () => {
+  for (const section of ['account', 'updates', 'monitor']) {
+    const expected = { page: 'settings', view: `settings-${section}`, params: { section } };
+    assert.deepEqual(matchUiRoute(`/settings/${section}`), expected);
+    assert.deepEqual(matchUiRoute('/settings', new URLSearchParams({ section })), expected);
+    assert.equal(pageForPathname(`/settings/${section}`), 'settings');
+  }
+  assert.deepEqual(matchUiRoute('/settings', new URLSearchParams({ section: '../../private' })), { page: 'settings', view: 'settings-account', params: { section: 'account' } });
+  assert.equal(matchUiRoute('/settings/not-a-section'), null);
+});

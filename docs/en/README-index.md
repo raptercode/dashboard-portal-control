@@ -1,5 +1,6 @@
 # Documentation index
 
+- [Domainless web services and internal workers](how-to/internal-services-and-workers.md)
 [Dashboard Portal](README.md) · [ภาษาไทย](../th/README-index.md)
 
 How-to contains procedures; knowledge holds architecture/context, ADRs, designs and plans. Check status and evidence before implementing plans. Shared knowledge remains in Git. Machine-local notes belong in ignored `docs/knowledge-local/`; keep secrets out of documentation.

@@ -21,3 +21,5 @@ Current operational decisions include [ADR 0020](0020-host-helper-keeps-shadow-u
 [ADR 0029](0029-selectable-node-runtimes-and-sqlite-adapter.md) separates Portal and application Node versions and adds a Node 20 SQLite adapter while retaining existing database files and defaults.
 
 [ADR 0030](0030-public-bootstrap-and-bilingual-documentation.md) adds the public bootstrap entry point and bilingual how-to/knowledge structure without changing the internal installer or host support boundary.
+
+[ADR 0031](0031-maintenance-exclusion-and-install-recovery.md) defines cooperative maintenance exclusion, consistent installer snapshots, service/file recovery and boot-time lock recreation.

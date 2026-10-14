@@ -24,7 +24,7 @@ export function pythonExecutable(releaseRoot, platform = process.platform) {
 
 export function pythonStartArgs(input, port) {
   const { pythonMode, pythonEntry } = pythonSettings(input);
-  if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error('Python service port is invalid.');
+  if (!(input.serviceType === 'worker' && pythonMode === 'script') && (!Number.isInteger(port) || port < 1024 || port > 65535)) throw new Error('Python service port is invalid.');
   // Ignore ambient Python paths/user-site packages while retaining the app's
   // working directory for local imports. No shell or activation script needed.
   const args = ['-E', '-s', '-u'];

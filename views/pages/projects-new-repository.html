@@ -47,9 +47,9 @@
         <section class="project-config-column project-settings-column" aria-labelledby="project-settings-heading">
           <header class="project-config-heading">
             <p>การตั้งค่าโปรเจค</p>
-            <h2 id="project-settings-heading">Port, runtime, การรัน และ health check</h2>
+            <h2 id="project-settings-heading">Runtime และการเริ่ม service</h2>
           </header>
-          <section class="block project-settings-group" aria-labelledby="project-port-group">
+          <section class="block project-settings-group" data-web-only aria-labelledby="project-port-group">
             <div class="block-head"><div><h2 id="project-port-group">Port</h2><p>พอร์ต loopback ที่กันไว้ให้โปรเจคนี้บน host ระบบส่งค่าให้แอปทาง PORT และใช้เป็นปลายทางของ reverse proxy</p></div></div>
             <div class="two-fields project-port-fields">
               <label id="project-port-row" for="project-port">Port ภายในเครื่อง<small class="field-hint">ต้องไม่ชนกับโปรเจคอื่นหรือ service บน host</small><input id="project-port" name="port" type="number" min="1024" max="65535" readonly placeholder="จะสุ่มตอนบันทึก"></label>
@@ -79,12 +79,12 @@
             </div>
           </section>
           <section class="block project-settings-group" aria-labelledby="project-run-group">
-            <div class="block-head"><div><h2 id="project-run-group">การรัน</h2><p>คำสั่งที่ระบบเรียกในโฟลเดอร์ release ใหม่ทุกครั้งที่ deploy แอปต้องอ่าน PORT จาก environment</p></div></div>
+            <div class="block-head"><div><h2 id="project-run-group">การรัน</h2><p>คำสั่งที่ระบบเรียกในโฟลเดอร์ release ใหม่ Web ต้องอ่าน PORT จาก environment ส่วน Worker รันงานต่อเนื่องโดยไม่ต้องเปิด HTTP</p></div></div>
             <label id="node-major-row" for="node-major">Node.js สำหรับแอป
               <small class="field-hint">เลือกแยกต่อโปรเจค ค่าเดิมใช้ Node 24; Node 20 สิ้นสุดการสนับสนุนแล้ว</small>
               <select id="node-major" name="nodeMajor"><option value="20">20 (legacy)</option><option value="22">22 LTS</option><option value="24" selected>24 LTS</option><option value="26">26</option></select>
             </label>
-            <label id="skip-build-row" class="check-row"><input id="skip-build" name="skipBuild" type="checkbox"><span><b>ข้ามขั้น build</b><small>ใช้เมื่อโปรเจครันได้ทันทีโดยไม่ต้อง build เช่น Bun start ระบบยังติดตั้ง dependencies และตรวจ health check ตามปกติ</small></span></label>
+            <label id="skip-build-row" class="check-row"><input id="skip-build" name="skipBuild" type="checkbox"><span><b>ข้ามขั้น build</b><small>ใช้เมื่อโปรเจครันได้ทันทีโดยไม่ต้อง build เช่น Bun start ระบบยังติดตั้ง dependencies Web ตรวจ HTTP ส่วน Worker ตรวจ process หลัง activate</small></span></label>
             <div class="two-fields">
               <label id="build-script-row" for="build-script">Build script<small class="field-hint">ชื่อ script ใน package.json เว้นว่างได้ถ้าไม่มีขั้น build</small><input id="build-script" name="buildScript" value="build" maxlength="64" pattern="[A-Za-z0-9:_-]*" placeholder="build" autocomplete="off" spellcheck="false"></label>
               <label id="start-script-row" for="start-script">Start script<small class="field-hint">ชื่อ script ที่ systemd ใช้รันแอปแบบค้างไว้</small><input id="start-script" name="startScript" value="start" maxlength="64" pattern="[A-Za-z0-9:_-]+" placeholder="start" autocomplete="off" spellcheck="false" required></label>
@@ -99,7 +99,7 @@
                 <label for="python-mode">Run type<select id="python-mode" name="pythonMode" disabled><option value="script">Python script</option><option value="asgi">ASGI (FastAPI, Starlette)</option><option value="wsgi">WSGI (Flask, Django)</option></select></label>
                 <label for="python-entry">Entry point<input id="python-entry" name="pythonEntry" value="main.py" maxlength="240" placeholder="main.py" autocomplete="off" spellcheck="false" disabled></label>
               </div>
-              <small id="python-entry-hint" class="field-hint">ไฟล์ .py เช่น main.py หรือ src/server.py แอปต้องอ่าน PORT จาก environment</small>
+              <small id="python-entry-hint" class="field-hint">ไฟล์ .py เช่น main.py หรือ src/server.py สำหรับ Worker ใช้ script ที่ทำงานต่อเนื่องโดยไม่ต้องมี HTTP endpoint</small>
               <div class="two-fields">
                 <label for="python-install">Dependencies<select id="python-install" name="pythonInstall" disabled><option value="requirements">requirements.txt</option><option value="project">Install project (pyproject.toml)</option><option value="none">ไม่มี dependencies</option></select></label>
                 <label id="python-requirements-row" for="python-requirements">Requirements file<input id="python-requirements" name="pythonRequirements" value="requirements.txt" maxlength="240" placeholder="requirements/production.txt" autocomplete="off" spellcheck="false" disabled></label>
@@ -123,7 +123,8 @@
               <label for="compose-service">Web service<small class="field-hint">ชื่อ service ใน compose file ที่รับ HTTP ของแอป</small><input id="compose-service" name="composeService" maxlength="80" placeholder="web" autocomplete="off" spellcheck="false"></label>
             </div>
           </section>
-          <section class="block project-settings-group" aria-labelledby="project-health-group">
+          <aside id="worker-startup-notice" class="notice" hidden><div><strong>Worker ไม่รัน candidate เพื่อทดสอบ</strong><p>ระบบเตรียม release ก่อน แล้วตรวจว่า process ทำงานต่อเนื่องหลัง activate เพื่อหลีกเลี่ยง consumer หรือ scheduler ทำงานซ้ำ ไม่ใช้ HTTP health check การตรวจ process ไม่ยืนยันว่างานใน queue สำเร็จ</p></div></aside>
+          <section class="block project-settings-group" data-web-only aria-labelledby="project-health-group">
             <div class="block-head"><div><h2 id="project-health-group">Health check</h2><p>ด่านสุดท้ายก่อนสลับ traffic ระบบยิง HTTP ไปที่ candidate บน loopback และจะ activate เมื่อผ่านเท่านั้น</p></div></div>
             <label class="check-row"><input id="health-check-enabled" name="healthCheckEnabled" type="checkbox" checked><span><b>ตรวจสอบ candidate ก่อน activate</b><small>ปิดเฉพาะเมื่อแอปไม่มี HTTP endpoint ให้ตรวจ เมื่อปิด release ใหม่จะ activate ทันทีโดยไม่มีการตรวจ และ release ที่เสียจะไปแทนของเดิมทันที</small></span></label>
             <div id="health-check-details">

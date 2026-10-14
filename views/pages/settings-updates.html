@@ -1,0 +1,30 @@
+<section class="page" data-page="settings">
+  <header class="page-header">
+    <div>
+      <span class="page-eyebrow">การตั้งค่า</span>
+      <h1 id="settings-title" class="page-title">ระบบและการอัปเดต</h1>
+      <p id="settings-description" class="page-subtitle">ตรวจสอบเวอร์ชัน Portal โหมดการทำงาน และขั้นตอนอัปเดตบน host</p>
+    </div>
+  </header>
+  {{> partials/settings-navigation.html}}
+  <section class="settings-stack">
+    <article class="setting-row master-only" data-settings-section="updates" hidden>
+      <div id="software-update">
+        <h2>อัปเดตซอฟต์แวร์</h2>
+        <p>กำลังตรวจสอบ release channel</p>
+      </div>
+      <div class="update-command">
+        <small class="field-hint">Portal ไม่อัปเดตตัวเองจากหน้านี้ ให้ SSH เข้า host แล้วรันคำสั่งด้านล่าง บริการจะรีสตาร์ตสั้น ๆ ระหว่างอัปเดต</small>
+        <code id="update-command" class="command-block">sudo dashboard-portal update</code>
+        <button id="copy-update-command" class="secondary btn-sm" type="button">คัดลอกคำสั่ง</button>
+      </div>
+    </article>
+    <article class="setting-row master-only" data-settings-section="updates" hidden>
+      <div>
+        <h2>โหมดการทำงาน</h2>
+        <p id="mode-description">…</p>
+      </div>
+      <span id="settings-mode" class="mode-badge">…</span>
+    </article>
+  </section>
+</section>

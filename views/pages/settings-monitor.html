@@ -1,0 +1,32 @@
+<section class="page" data-page="settings">
+  <header class="page-header">
+    <div>
+      <span class="page-eyebrow">การตั้งค่า</span>
+      <h1 id="settings-title" class="page-title">เชื่อมต่อระบบภายนอก</h1>
+      <p id="settings-description" class="page-subtitle">จัดการ token สำหรับอ่านสถานะ deploy ของแต่ละโปรเจค</p>
+    </div>
+  </header>
+  {{> partials/settings-navigation.html}}
+  <section class="settings-stack">
+    <article class="setting-row master-only" data-settings-section="monitor" hidden>
+      <div>
+        <h2>Monitor Logs Token</h2>
+        <p>Token แบบอ่านอย่างเดียวสำหรับให้ระบบภายนอกดูสถานะ deploy ของโปรเจคเดียว ไม่ส่ง runtime log, build output, ค่า ENV/credential ที่เก็บไว้ หรือ URL ของ repository แต่ยังมีข้อความสรุปและเหตุการณ์ของ deploy ยกเลิกได้ทุกเมื่อด้วยปุ่ม Revoke</p>
+        <p id="monitor-token-value" class="token-reveal" hidden></p>
+        <div id="monitor-token-list" class="env-key-list"></div>
+      </div>
+      <form id="monitor-token-form" class="form-grid compact">
+        <label for="monitor-token-name">ชื่อ token<input id="monitor-token-name" name="name" maxlength="80" placeholder="monitor-logs" pattern="[a-z][a-z0-9-]{0,79}" autocomplete="off" required><small class="field-hint">ตัวพิมพ์เล็ก a-z ตัวเลข และ - เท่านั้น ตั้งให้บอกได้ว่าใครใช้ เช่น uptime-bot</small></label>
+        <label for="monitor-token-project">โปรเจค<select id="monitor-token-project" name="projectSlug" required></select><small class="field-hint">Token หนึ่งอันอ่านได้เฉพาะโปรเจคนี้</small></label>
+        <div class="notice warn" role="note">
+          <svg class="icon" aria-hidden="true"><use href="#icon-alert"></use></svg>
+          <div>
+            <strong>Token แสดงครั้งเดียว</strong>
+            <p>ค่า token จะแสดงบนหน้านี้เพียงครั้งเดียวหลังสร้าง คัดลอกเก็บทันที ถ้าทำหาย ให้ Revoke แล้วสร้างใหม่</p>
+          </div>
+        </div>
+        <div class="form-actions"><button type="submit">สร้าง token</button></div>
+      </form>
+    </article>
+  </section>
+</section>

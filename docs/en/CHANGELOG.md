@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.0 — 2026-10-15
+
+- Stable release scope: one Ubuntu amd64 host and trusted repositories. Publication does not update an installed host.
+- Web/API projects can deploy without a domain. Long-running Node.js, Bun, Go and Python-script Workers use no Portal-assigned port or HTTP probe; empty ENV is allowed. Workers build without starting a candidate consumer, stop the old service before cutover, check process stability and attempt recovery after activation failure.
+- Installer/update/helper/CLI operations share maintenance leases, preserve consistent state snapshots and recover failed installation changes. Monitor usage writes also respect maintenance exclusion.
+- Navigation groups related tasks; Settings has separate account, update and Monitor integration pages, with mobile keyboard/focus improvements.
+- Retains v0.8.6–0.8.9 pnpm and Prisma compatibility, Node-major preservation and project-scoped Monitor field allowlists. Existing projects default to Web; service type and Worker runtime cannot change after a release exists.
+- Operational Mail and remote `dpctl` are deferred. PHP/Compose/ASGI/WSGI and one-shot Workers are unsupported. Process stability does not certify queue/job success or exactly-once delivery.
+- Validation uses local/Docker suites and fixtures. Clean-host provisioning, real helper/systemd/Nginx/TLS, reboot and whole-host restore remain unverified; see the [acceptance record](knowledge/plans/v1-acceptance-record.md). This release does not claim hostile-tenant isolation.
+
 ## 0.8.9 — 2026-10-10
 
 - Resolve the Prisma CLI from installed package bin metadata, including Prisma 8 `dist/prisma.js`.

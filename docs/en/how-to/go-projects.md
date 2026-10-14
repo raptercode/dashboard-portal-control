@@ -43,14 +43,15 @@ func main() {
 
 ## Build and host contract
 
-The installer pins Go **1.27.1** for Linux amd64 and verifies the archive SHA-256
-against the [official download metadata](https://go.dev/dl/?mode=json).
-It installs under `/opt/go1.27.1` and exposes `/usr/local/bin/go` and `gofmt`.
-Existing installations need an installer update containing this change before
-their first native Go deployment. This does not install Go on a host merely
-by selecting it in the browser. **Setup** shows the observed Go version from
-the host. If it reports that Go is missing, update or re-run the Dashboard
-Portal installer; the individual Setup tool card does not install a compiler.
+Install a Go compiler on the host before the first native Go deployment.
+The current Portal installer does not provision Go, and the Setup tool card
+cannot install it. The default host executable is `/usr/local/bin/go`; expose
+your installed compiler at that path. Choose a compiler compatible with the
+repository's `go.mod` and verify it with `/usr/local/bin/go version`.
+**Setup** and `dashboard-portal --versions` report the observed host version.
+Selecting the Go runtime or rerunning the Portal installer does not install
+a missing compiler. Follow the [official Go installation guide](https://go.dev/doc/install)
+when preparing the host.
 
 Each candidate runs fixed argument vectors without a shell:
 

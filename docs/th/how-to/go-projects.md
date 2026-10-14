@@ -14,7 +14,7 @@
 
 ## Build และ host contract
 
-Installer pin Go 1.27.1 Linux amd64 พร้อมตรวจ SHA-256 เก็บใน `/opt/go1.27.1` และเผยแพร่ `go`/`gofmt` ที่ `/usr/local/bin` Host เดิมต้อง update/rerun installer ที่มี Go support Setup รายงาน version ที่มีจริง การเลือก Runtime หรือ tool card ไม่ติดตั้ง compiler อัตโนมัติ
+ติดตั้ง Go compiler บน host ก่อน deploy แบบ Native ครั้งแรก Installer ปัจจุบันไม่ติดตั้ง Go และ Setup tool card ติดตั้งไม่ได้ ระบบใช้ executable เริ่มต้นที่ `/usr/local/bin/go` จึงต้องจัดให้ compiler ที่ติดตั้งเรียกผ่าน path นี้ได้ เลือกรุ่นที่รองรับ `go.mod` ของ repository แล้วตรวจด้วย `/usr/local/bin/go version` Setup และ `dashboard-portal --versions` รายงานรุ่นที่พบจริง การเลือก Go runtime หรือ rerun Portal installer ไม่ติดตั้ง compiler ที่ขาด ดู [คู่มือติดตั้ง Go ทางการ](https://go.dev/doc/install)
 
 ```text
 go mod download

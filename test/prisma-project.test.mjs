@@ -19,6 +19,22 @@ async function installedPrisma(directory, version = '7.0.0', bin = './build/inde
   await writeFile(join(packageDirectory, bin), '');
 }
 
+test('Prisma worker preparation preserves explicit ENV without injecting HTTP listener settings', async t => {
+  const directory = await fixture(t);
+  await installedPrisma(directory, '8.0.0', './dist/prisma.js');
+  for (const content of ['QUEUE=fixture\n', 'PORT=user-defined\nHOST=user-host\n']) {
+    let ran = false;
+    await generateCandidatePrisma({ runtime: 'node', nodeMajor: 24, serviceType: 'worker', candidatePort: null }, directory, { devDependencies: { prisma: '8' } }, content, undefined, async (_command, args, options) => {
+      ran = true;
+      assert.deepEqual(args.slice(1), ['contract', 'emit']);
+      assert.equal(options.env.PORT, content.includes('PORT=') ? 'user-defined' : undefined);
+      assert.equal(options.env.HOST, content.includes('HOST=') ? 'user-host' : undefined);
+      assert.equal(options.env.PRISMA_GENERATE_SKIP_AUTOINSTALL, '1');
+    });
+    assert.equal(ran, true);
+  }
+});
+
 test('Prisma detection skips ordinary apps and requires the installed project CLI', async t => {
   const directory = await fixture(t);
   assert.equal(await detectPrismaProject(directory, {}), null);

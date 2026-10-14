@@ -1,5 +1,6 @@
 # สารบัญเอกสาร
 
+- [Web ไม่ผูกโดเมน และ Worker ไม่มีพอร์ต](how-to/internal-services-and-workers.md)
 [Dashboard Portal](README.md) · [English](../en/README-index.md)
 
 คู่มือ how-to ใช้สำหรับขั้นตอนทำงาน ส่วน knowledge เก็บ architecture/context, ADR, design และ plans ต้องตรวจสถานะ Accepted/Proposed และหลักฐานก่อนนำไปพัฒนา Shared knowledge อยู่ใน Git; โน้ตส่วนตัวใช้ `docs/knowledge-local/` ที่ gitignore ไม่ควรเก็บ secrets ในเอกสาร

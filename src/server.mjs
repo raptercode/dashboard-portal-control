@@ -36,6 +36,7 @@ import { authorizeRequest } from './authorization.mjs';
 import { handleCredentialsApi } from './credentials.mjs';
 import { prepareGitCredentials, assertSafeGitRepositoryConfig } from './git-credentials.mjs';
 import { requestContext } from './request-context.mjs';
+import { acquireMaintenanceLease, MaintenanceLockError } from '../scripts/maintenance-lock.mjs';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const publicDir = join(here, '..', 'public');
@@ -53,6 +54,9 @@ const pageTitles = {
   databases: 'Databases',
   activity: 'กิจกรรม',
   settings: 'การตั้งค่าระบบ',
+  'settings-account': 'บัญชีและความปลอดภัย',
+  'settings-updates': 'อัปเดตและระบบ',
+  'settings-monitor': 'Monitor Logs Token',
   members: 'สมาชิกและองค์กร',
   invite: 'รับคำเชิญ',
   'projects-new': 'สร้างโปรเจค',
@@ -79,6 +83,18 @@ const HOST_TOOL_COMMANDS = {
 
 export async function createApplication(options = {}) {
   const mode = options.mode ?? process.env.HOSTMGR_MODE ?? 'demo';
+  let closing = false;
+  const acquireHostLease = options.acquireMaintenanceLease ?? (() => acquireMaintenanceLease(options.maintenanceLock));
+  const withHostLease = async (operation) => {
+    if (mode !== 'host') return operation();
+    const lease = await acquireHostLease();
+    try {
+      lease.assertHeld();
+      const result = await operation();
+      lease.assertHeld();
+      return result;
+    } finally { await lease.release(); }
+  };
   const explicitPassword = options.password;
   let legacyPassword = explicitPassword ?? passwordFromEnvironment(process.env) ?? null;
   if (legacyPassword != null && legacyPassword.length < 12) throw new Error('HOSTMGR_ADMIN_PASSWORD must be at least 12 characters.');
@@ -146,10 +162,12 @@ export async function createApplication(options = {}) {
   let metricsTimer = null;
 
   async function captureMetricSample() {
-    const sample = await collectHostMetrics();
-    store.recordMetricSample(sample);
-    store.pruneMetricSamples(Date.now() - METRIC_RETENTION_DAYS * 24 * 60 * 60 * 1000);
-    return sample;
+    return withHostLease(async () => {
+      const sample = await collectHostMetrics();
+      store.recordMetricSample(sample);
+      store.pruneMetricSamples(Date.now() - METRIC_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+      return sample;
+    });
   }
 
   if (metricsEnabled) {
@@ -205,7 +223,11 @@ export async function createApplication(options = {}) {
   }
 
   const server = createServer((request, response) => requestContext.run({ store }, async () => {
+    let maintenanceLease;
     try {
+      if (mode === 'host' && !['GET', 'HEAD'].includes(request.method)) {
+        maintenanceLease = await acquireHostLease();
+      }
       const url = new URL(request.url, 'http://hostmgr.local');
       if (request.method === 'GET' && !url.pathname.startsWith('/api/') && url.searchParams.has('password')) {
         url.searchParams.delete('password');
@@ -218,7 +240,9 @@ export async function createApplication(options = {}) {
       const actionsHookMatch = url.pathname.match(/^\/api\/webhooks\/actions\/([a-z][a-z0-9-]{0,62})$/);
       if (request.method === 'POST' && actionsHookMatch) return await handleActionsHook(request, response, actionsHookMatch[1]);
       const monitorDeploymentMatch = url.pathname.match(/^\/api\/monitor\/v1\/projects\/([a-z][a-z0-9-]{0,62})\/deployments$/);
-      if (request.method === 'GET' && monitorDeploymentMatch) return await handleMonitorDeployment(request, response, monitorDeploymentMatch[1]);
+      // Monitor reads persist lastUsedAt, so they must exclude installer state
+      // snapshots just like other host mutations despite their GET method.
+      if (request.method === 'GET' && monitorDeploymentMatch) return await withHostLease(() => handleMonitorDeployment(request, response, monitorDeploymentMatch[1]));
       if (request.method === 'GET' && url.pathname === '/api/session') {
         const session = getSession(request);
         const owner = store.snapshot().owner;
@@ -395,9 +419,12 @@ export async function createApplication(options = {}) {
       if (request.method === 'DELETE' && mailboxMatch) return await handleMailboxDelete(request, response, mailboxMatch[1]);
       if (request.method === 'POST' && url.pathname === '/api/mail/test/send') return await handleMailTestSend(request, response);
       if (url.pathname.startsWith('/api/')) return sendJson(response, 404, { error: 'API endpoint not found.' });
-      return await serveStatic(url.pathname, response);
+      return await serveStatic(url.pathname, response, url.searchParams);
     } catch (error) {
+      if (error instanceof MaintenanceLockError) return sendJson(response, 503, { error: error.message });
       return sendCaughtError(response, error);
+    } finally {
+      await maintenanceLease?.release();
     }
   }));
 
@@ -964,6 +991,8 @@ export async function createApplication(options = {}) {
     let project = validateProjectSync(body);
     const state = store.snapshot();
     const storedProject = state.projects.find((item) => item.slug === project.slug) ?? null;
+    if (storedProject?.deployment?.releases?.length && (storedProject.serviceType ?? 'web') !== (project.serviceType ?? 'web')) throw new InputError('Service type cannot change after a release exists. Create a separate project for this service type.');
+    if (storedProject?.serviceType === 'worker' && storedProject.deployment?.releases?.length && storedProject.runtime !== project.runtime) throw new InputError('Worker runtime cannot change after a release exists. Create a separate project for this runtime.');
     const selectedOrganization = body.organizationId ? state.organizations.find((item) => item.id === body.organizationId) : state.organizations.find((item) => item.name === project.organization);
     if (body.organizationId && !selectedOrganization) throw new InputError('Organization was not found.');
     project.organizationId = selectedOrganization?.id ?? null;
@@ -1120,16 +1149,12 @@ export async function createApplication(options = {}) {
   async function queueAutoDeployIfEnabled(slug, revision) {
     const project = store.snapshot().projects.find((item) => item.slug === slug);
     if (!project?.autoSync?.enabled || project.sync?.status !== 'synced') return null;
-    if (!project.environment?.keys?.length) {
+    if (project.serviceType !== 'worker' && !project.environment?.keys?.length) {
       await recordAutoSyncResult(slug, 'blocked', 'Save at least one environment variable before automatic deploy can run.');
       return { activation: 'blocked', job: null };
     }
-    if (!uiDemo && !project.domains?.hosts?.length) {
-      await recordAutoSyncResult(slug, 'blocked', 'Save at least one project domain before automatic deploy can run.');
-      return { activation: 'blocked', job: null };
-    }
     const deployProject = validateDeployProject(project);
-    if (uiDemo) {
+    if (uiDemo && project.serviceType !== 'worker') {
       const release = createRelease(deployProject, revision || project.sync?.revision || 'demo-simulated-revision');
       await store.update((state) => {
         const target = findProject(state, slug);
@@ -1165,6 +1190,12 @@ export async function createApplication(options = {}) {
   }
 
   async function pollProjectSource(slug, trigger = 'poll') {
+    if (closing) return;
+    try { return await withHostLease(() => executeProjectSourcePoll(slug, trigger)); }
+    catch (error) { if (!(error instanceof MaintenanceLockError)) throw error; }
+  }
+
+  async function executeProjectSourcePoll(slug, trigger = 'poll') {
     if (autoSyncRunning.has(slug)) {
       rememberPendingSourceCheck(slug, trigger);
       return;
@@ -1310,10 +1341,9 @@ export async function createApplication(options = {}) {
     const project = store.snapshot().projects.find((item) => item.slug === slug);
     if (!project) throw new InputError('Project was not found.');
     if (project.sync?.status !== 'synced') throw new InputError('Sync the repository successfully before deploying.');
-    if (!project.environment?.keys?.length) throw new InputError('Save at least one project environment variable before deploying.');
-    if (!uiDemo && !project.domains?.hosts?.length) throw new InputError('Save at least one project domain before deploying.');
+    if (project.serviceType !== 'worker' && !project.environment?.keys?.length) throw new InputError('Save at least one project environment variable before deploying.');
     const deployProject = validateDeployProject(project);
-    if (uiDemo) {
+    if (uiDemo && project.serviceType !== 'worker') {
       const release = createRelease(deployProject, 'demo-simulated-revision');
       await store.update((state) => {
         const target = findProject(state, slug);
@@ -1374,24 +1404,25 @@ export async function createApplication(options = {}) {
       else if (deployProject.runtime === 'php') await preparePhpRelease(deployProject, release, project, vault, projectRoot, recordPhase);
       else if (deployProject.runtime === 'go') await prepareGoRelease(deployProject, release, project, vault, projectRoot, recordPhase);
       else await prepareNativeRelease(deployProject, release, project, vault, projectRoot, recordPhase);
+      const worker = deployProject.serviceType === 'worker';
       const hostInstall = ['python', 'php'].includes(deployProject.runtime);
       await store.update((state) => {
         const target = findProject(state, job.projectSlug);
         target.deployment = markReleaseHealthy(target.deployment, release.id);
-        const healthMessage = deployProject.runtime === 'python'
+        const healthMessage = worker ? 'Worker build/source preflight passed; no candidate process was started. Process stability is checked after host activation.' : deployProject.runtime === 'python'
           ? 'Python source preflight passed; host activation creates the venv as the project user and checks the service.'
           : deployProject.runtime === 'php'
           ? 'PHP source preflight passed; host activation installs Composer dependencies as the project user and checks the service.'
           : deployProject.runtime === 'docker-compose'
           ? 'Docker Compose source preflight passed; host activation validates the configuration and performs the runtime health check.'
           : (deployProject.healthCheckEnabled ? 'Candidate health check passed.' : 'Candidate health check was skipped by project configuration.');
-        if (hostInstall && deployProject.healthCheckEnabled) {
+        if (worker || (hostInstall && deployProject.healthCheckEnabled)) {
           const candidate = target.deployment.releases.find((item) => item.id === release.id);
           candidate.health.status = 'pending';
           candidate.health.checkedAt = null;
           candidate.health.port = deployProject.port;
         }
-        target.deployment = appendReleaseEvent(target.deployment, release.id, deployProject.runtime === 'python' ? 'python_preflight' : deployProject.runtime === 'php' ? 'php_preflight' : 'candidate_health', deployProject.healthCheckEnabled ? 'passed' : 'skipped', healthMessage);
+        target.deployment = appendReleaseEvent(target.deployment, release.id, worker ? 'worker_preflight' : deployProject.runtime === 'python' ? 'python_preflight' : deployProject.runtime === 'php' ? 'php_preflight' : 'candidate_health', worker || deployProject.healthCheckEnabled ? 'passed' : 'skipped', healthMessage);
       });
       const helperSocket = process.env.HOSTMGR_DEPLOY_HELPER_SOCKET;
       if (!permissionStillValid()) throw new AccessError('Deployment permission was revoked before activation.');
@@ -1399,22 +1430,22 @@ export async function createApplication(options = {}) {
         await store.update((state) => {
           const target = findProject(state, job.projectSlug);
           target.deployment = markReleasePendingActivation(target.deployment, release.id);
-          appendAudit(state, { action: 'project.deploy', outcome: 'pending_activation', actor: 'owner', target: job.projectSlug, detail: deployProject.runtime === 'python' ? 'Python source is ready; host activation must create its venv as the project user.' : deployProject.runtime === 'php' ? 'PHP source is ready; host activation must install Composer dependencies as the project user.' : 'Candidate is healthy; a reviewed deployment helper is required to switch the systemd release.' });
+          appendAudit(state, { action: 'project.deploy', outcome: 'pending_activation', actor: 'owner', target: job.projectSlug, detail: worker ? 'Worker build/source is ready; process health remains pending until reviewed host activation.' : deployProject.runtime === 'python' ? 'Python source is ready; host activation must create its venv as the project user.' : deployProject.runtime === 'php' ? 'PHP source is ready; host activation must install Composer dependencies as the project user.' : 'Candidate is healthy; a reviewed deployment helper is required to switch the systemd release.' });
         });
-        return markJobSucceeded(jobId, deployProject.runtime === 'python' ? 'Python source awaits host venv installation and health checks.' : deployProject.runtime === 'php' ? 'PHP source awaits host Composer installation and health checks.' : 'Candidate is healthy and awaits reviewed host activation.');
+        return markJobSucceeded(jobId, worker ? 'Worker build/source awaits host activation and process stability checks.' : deployProject.runtime === 'python' ? 'Python source awaits host venv installation and health checks.' : deployProject.runtime === 'php' ? 'PHP source awaits host Composer installation and health checks.' : 'Candidate is healthy and awaits reviewed host activation.');
       }
       await recordPhase('host_activation', 'started', 'Activating the verified candidate on the host.');
       await activateOnHost(helperSocket, job.projectSlug, release.id);
       await pruneCandidateReleases(projectRoot, job.projectSlug, release.id, project.deployment?.activeReleaseId);
       await store.update((state) => {
         const target = findProject(state, job.projectSlug);
-        if (hostInstall && deployProject.healthCheckEnabled) {
+        if (worker || (hostInstall && deployProject.healthCheckEnabled)) {
           const candidate = target.deployment.releases.find((item) => item.id === release.id);
           candidate.health.status = 'passed';
           candidate.health.checkedAt = new Date().toISOString();
         }
         target.deployment = activateRelease(target.deployment, release.id);
-        target.deployment = appendReleaseEvent(target.deployment, release.id, 'host_activation', 'passed', 'Host service and domain activation completed.');
+        target.deployment = appendReleaseEvent(target.deployment, release.id, 'host_activation', 'passed', worker ? 'Worker service activation and process stability checks passed.' : target.domains?.hosts?.length ? 'Host service and domain activation completed.' : 'Internal web service activation completed without an Nginx domain.');
         target.deployment = pruneInactiveReleases(target.deployment);
         if (target.domains?.hosts?.length) target.domains.syncedAt = new Date().toISOString();
         appendAudit(state, { action: 'project.deploy', outcome: 'success', actor: 'owner', target: job.projectSlug, detail: `Activated release ${release.id}` });
@@ -1445,6 +1476,7 @@ export async function createApplication(options = {}) {
   }
 
   function scheduleDeploymentQueue() {
+    if (closing) return;
     if (deploymentQueueDraining) return;
     deploymentQueueDraining = true;
     void requestContext.run({ store }, () => drainDeploymentQueue()).finally(() => {
@@ -1458,7 +1490,17 @@ export async function createApplication(options = {}) {
   }
 
   async function drainDeploymentQueue() {
+    try { return await withHostLease(() => executeDeploymentQueue()); }
+    catch (error) {
+      if (!(error instanceof MaintenanceLockError)) throw error;
+      // Leave queued work intact until maintenance releases the exclusive lock.
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+  }
+
+  async function executeDeploymentQueue() {
     while (true) {
+      if (closing) return;
       const next = store.snapshot().jobs.find((item) => item.status === 'queued');
       if (!next) return;
       const user = next.initiatedByUserId && store.snapshot().users.find((item) => item.id === next.initiatedByUserId);
@@ -1498,6 +1540,11 @@ export async function createApplication(options = {}) {
   }
 
   async function deliverProjectNotifications(event, jobId, detail) {
+    try { return await withHostLease(() => executeProjectNotifications(event, jobId, detail)); }
+    catch (error) { if (!(error instanceof MaintenanceLockError)) throw error; }
+  }
+
+  async function executeProjectNotifications(event, jobId, detail) {
     if (!vault) return;
     const snapshot = store.snapshot();
     const job = snapshot.jobs.find((item) => item.id === jobId);
@@ -1549,11 +1596,12 @@ export async function createApplication(options = {}) {
     await store.update((state) => {
       const target = findProject(state, slug);
       rollback = beginRollback(target.deployment, requestedReleaseId);
+      if ((rollback.release.serviceType ?? 'web') !== (target.serviceType ?? 'web')) throw new InputError('Rollback release belongs to a different service type.');
       target.deployment = rollback.deployment;
       appendAudit(state, { action: 'project.rollback', outcome: 'started', actor: 'owner', target: slug, detail: `Requested rollback to ${rollback.release.id}` });
     });
     const helperSocket = process.env.HOSTMGR_DEPLOY_HELPER_SOCKET;
-    if (!helperSocket && uiDemo) {
+    if (!helperSocket && uiDemo && rollback.release.serviceType !== 'worker') {
       await store.update((state) => {
         const target = findProject(state, slug);
         target.deployment = activateRelease(target.deployment, rollback.release.id, 'rollback');
@@ -1725,7 +1773,7 @@ export async function createApplication(options = {}) {
           lockfile: { name: settings.pythonInstall === 'requirements' ? settings.pythonRequirements : settings.pythonInstall === 'project' ? 'pyproject.toml' : 'Not applicable', valid: null },
           nodeVersion: 'Host Python 3 · isolated venv',
           buildScript: 'Create .venv and install as the project user',
-          startScript: `.venv/bin/python ${pythonStartArgs(settings, project.port).join(' ')}`, skipBuild: false
+          startScript: `.venv/bin/python ${pythonStartArgs({ ...settings, serviceType: project.serviceType }, project.port).join(' ')}`, skipBuild: false
         }
       });
     }
@@ -1817,6 +1865,7 @@ export async function createApplication(options = {}) {
   async function handleProjectDomains(request, response, slug) {
     if (!requireSession(request, response, true)) return;
     const hosts = validateProjectDomains((await readJson(request)).domains, { allowEmpty: true });
+    if (findProject(store.snapshot(), slug).serviceType === 'worker' && hosts.length) throw new InputError('Worker services cannot have HTTP domains.');
     let active = false;
     await store.update((state) => {
       const project = findProject(state, slug);
@@ -1875,6 +1924,7 @@ export async function createApplication(options = {}) {
     server,
     store,
     close: () => new Promise((resolve, reject) => {
+      closing = true;
       if (metricsTimer) {
         clearInterval(metricsTimer);
         metricsTimer = null;
@@ -2055,6 +2105,7 @@ const AUTO_PORT_MAX = 45_000;
 const AUTO_PORT_ATTEMPTS = 128;
 
 export async function resolveProjectPort(project, existingProject, projects, portAvailability = isTcpPortAvailable, portRandom = randomProjectPort) {
+  if (project.serviceType === 'worker') return null;
   const reserved = reservedProjectPorts(projects, project.slug);
   const requiresCandidatePort = project.runtime !== 'docker-compose';
   const available = async (port) => {
@@ -2116,10 +2167,10 @@ export async function preparePythonRelease(projectInput, release, storedProject,
     await mkdir(join(projectRoot, project.slug, 'releases'), { recursive: true, mode: 0o750 });
     await copyCandidateSource(source, destination, { python: true });
     await assertPythonSource(destination, project);
-    const environment = content.split(/\r?\n/).filter((line) => !/^\s*(?:PORT|HOST|PATH|VIRTUAL_ENV|PYTHONHOME|PYTHONPATH)\s*=/.test(line)).join('\n');
+    const environment = content.split(/\r?\n/).filter((line) => !(project.serviceType === 'worker' ? /^\s*(?:PATH|VIRTUAL_ENV|PYTHONHOME|PYTHONPATH)\s*=/ : /^\s*(?:PORT|HOST|PATH|VIRTUAL_ENV|PYTHONHOME|PYTHONPATH)\s*=/).test(line)).join('\n');
     const venv = `${projectIdentity(project.slug).releases}/${release.id}/.venv`;
     await rm(join(destination, '.env'), { force: true });
-    await writeFile(join(destination, '.env'), `${environment}\nPORT=${project.port}\nHOST=127.0.0.1\nVIRTUAL_ENV=${venv}\nPATH=${venv}/bin:/usr/local/bin:/usr/bin:/bin\n`, { mode: 0o600 });
+    await writeFile(join(destination, '.env'), `${environment}\n${project.serviceType === 'worker' ? '' : `PORT=${project.port}\nHOST=127.0.0.1\n`}VIRTUAL_ENV=${venv}\nPATH=${venv}/bin:/usr/local/bin:/usr/bin:/bin\n`, { mode: 0o600 });
     await reportPhase('source_copy', 'passed', 'Python source is ready; the host will install and run it as the project user.');
   } catch (error) {
     await rm(destination, { recursive: true, force: true });
@@ -2170,9 +2221,9 @@ export async function prepareGoRelease(projectInput, release, storedProject, vau
     const candidateRoot = await realpath(destination);
     const packageRelative = packagePath && relative(candidateRoot, packagePath);
     if (!packagePath || packageRelative.startsWith('..') || isAbsolute(packageRelative)) throw new InputError('Go main package must stay inside the candidate release.');
-    const runtimeEnvironment = environmentContent.split(/\r?\n/).filter((line) => !/^\s*(?:PORT|HOST)\s*=/.test(line)).join('\n');
+    const runtimeEnvironment = project.serviceType === 'worker' ? environmentContent : environmentContent.split(/\r?\n/).filter((line) => !/^\s*(?:PORT|HOST)\s*=/.test(line)).join('\n');
     await rm(join(destination, '.env'), { force: true });
-    await writeFile(join(destination, '.env'), `${runtimeEnvironment}\nPORT=${project.port}\nHOST=127.0.0.1\n`, { mode: 0o600 });
+    await writeFile(join(destination, '.env'), `${runtimeEnvironment}\n${project.serviceType === 'worker' ? '' : `PORT=${project.port}\nHOST=127.0.0.1\n`}`, { mode: 0o600 });
     await reportPhase('source_copy', 'passed', 'Go candidate source was prepared.');
     // Go's default cache may live in a protected home directory under systemd.
     // Keep caches outside immutable releases and ignore ambient Go workspaces,
@@ -2182,7 +2233,7 @@ export async function prepareGoRelease(projectInput, release, storedProject, vau
     const env = goBaseEnvironment();
     Object.assign(env, { GOCACHE: join(cache, 'build'), GOMODCACHE: join(cache, 'modules'), GOPATH: join(cache, 'gopath'), GOENV: 'off', GOWORK: 'off', GOTOOLCHAIN: 'local', GOFLAGS: '-modcacherw', CGO_ENABLED: '0' });
     const options = { cwd: destination, env, timeout: 300_000 };
-    await runCandidateRuntime('go', ['version'], options, 'The host Go compiler is missing. Re-run the Dashboard Portal installer.', environmentContent);
+    await runCandidateRuntime('go', ['version'], options, 'The host Go compiler is missing. Install a compatible Go compiler at /usr/local/bin/go, then retry deployment.', environmentContent);
     await reportPhase('dependencies', 'started', 'Downloading Go module dependencies.');
     await runCandidateRuntime('go', ['mod', 'download'], options, 'Go dependency download failed. Check go.mod, module access and the required Go version.', environmentContent);
     await reportPhase('dependencies', 'passed', 'Go module dependencies downloaded.');
@@ -2194,7 +2245,8 @@ export async function prepareGoRelease(projectInput, release, storedProject, vau
     await runCandidateRuntime('go', ['build', '-mod=readonly', '-trimpath', '-o', goBinaryName(), project.goPackage], options, 'Go build failed. Check source, module checksums and the installed Go version.', environmentContent);
     await chmod(join(destination, goBinaryName()), 0o750);
     await reportPhase('build', 'passed', 'Go binary built successfully.');
-    await healthCheckCandidate(destination, project, storedProject, vault, reportPhase);
+    if (project.serviceType === 'worker') await reportPhase('candidate_health', 'skipped', 'Worker candidate execution is deferred until activation to prevent duplicate processing.');
+    else await healthCheckCandidate(destination, project, storedProject, vault, reportPhase);
   } catch (error) {
     await rm(destination, { recursive: true, force: true });
     throw error;
@@ -2222,8 +2274,8 @@ export async function prepareNativeRelease(project, release, storedProject, vaul
     await copyCandidateSource(source, destination);
     await reportPhase('source_copy', 'passed', 'Candidate source was prepared.');
     const environmentContent = storedProject.environment?.encryptedContent ? vault?.decrypt(storedProject.environment.encryptedContent) ?? '' : '';
-    if (storedProject.environment?.encryptedContent) {
-      if (!vault) throw new InputError('Credential vault is not configured.');
+    if (project.serviceType === 'worker' || storedProject.environment?.encryptedContent) {
+      if (storedProject.environment?.encryptedContent && !vault) throw new InputError('Credential vault is not configured.');
       await writeFile(join(destination, '.env'), environmentContent, { mode: 0o600 });
     }
     await runCandidateRuntime(project, ['--version'], {}, `The host ${runtimeLabel(project.runtime)} runtime is missing. Re-run the Dashboard Portal installer.`);
@@ -2254,7 +2306,8 @@ export async function prepareNativeRelease(project, release, storedProject, vaul
     } else {
       await reportPhase('build', 'skipped', 'No build script is configured for this project.');
     }
-    await healthCheckCandidate(destination, project, storedProject, vault, reportPhase);
+    if (project.serviceType === 'worker') await reportPhase('candidate_health', 'skipped', 'Worker candidate execution is deferred until activation to prevent duplicate processing.');
+    else await healthCheckCandidate(destination, project, storedProject, vault, reportPhase);
   } catch (error) {
     await rm(destination, { recursive: true, force: true });
     throw error;
@@ -2268,7 +2321,7 @@ export async function generateCandidatePrisma(project, directory, manifest, envi
   if (!prisma) return;
   const contract = prisma.args[0] === 'contract';
   await reportPhase('build', 'started', contract ? 'Prisma 8 detected. Emitting the contract before build.' : 'Prisma detected. Generating the client before build.');
-  let env = candidateRuntimeEnvironment({ environmentContent, candidatePort: project.candidatePort });
+  let env = candidateRuntimeEnvironment({ environmentContent, candidatePort: project.candidatePort, serviceType: project.serviceType });
   if (project.runtime === 'node') env = nodeRuntimeEnvironment(project.nodeMajor || 24, env);
   env.PRISMA_GENERATE_SKIP_AUTOINSTALL = '1';
   const command = project.runtime === 'bun' ? runtimeExecutable(project) : `${nodeBin(project.nodeMajor || 24)}/node`;
@@ -2321,6 +2374,7 @@ async function prepareDockerRelease(project, release, storedProject, vault, proj
 }
 
 export async function healthCheckCandidate(cwd, project, storedProject, vault, reportPhase = async () => {}) {
+  if (project.serviceType === 'worker') throw new InputError('Worker candidates must not be started before host activation.');
   if (!project.healthCheckEnabled) {
     await reportPhase('candidate_health', 'skipped', 'Candidate health check is disabled for this project.');
     return;
@@ -2467,7 +2521,11 @@ function parseEnvironment(content) {
   return Object.fromEntries(parseEnvironmentDocument(content).variables.map(({ key, value }) => [key, value]));
 }
 
-export function candidateRuntimeEnvironment({ environmentContent = '', candidatePort, baseEnvironment = process.env }) {
+export function candidateRuntimeEnvironment({ environmentContent = '', candidatePort, baseEnvironment = process.env, serviceType = 'web' }) {
+  if (serviceType === 'worker') {
+    const { PORT, HOST, ...base } = baseEnvironment;
+    return { ...base, ...parseEnvironment(environmentContent), HOSTMGR_CANDIDATE: 'true' };
+  }
   return {
     ...baseEnvironment,
     ...parseEnvironment(environmentContent),
@@ -2921,8 +2979,8 @@ async function readRawBody(request, maxBytes = 64 * 1024) {
   return Buffer.concat(chunks);
 }
 
-async function serveStatic(pathname, response) {
-  const route = matchUiRoute(pathname);
+async function serveStatic(pathname, response, searchParams) {
+  const route = matchUiRoute(pathname, searchParams);
   if (route) {
     const html = await renderView.render(route.view, {
       page: route.page,

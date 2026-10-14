@@ -10,6 +10,8 @@ export function validateNativeProject(input) {
   const project = validateProject(input);
   const runtime = input.runtime ?? 'node';
   if (!['node', 'bun', 'go', 'python', 'php'].includes(runtime)) throw new InputError('This operation requires the Node.js, Bun, Go, Python or PHP runtime.');
+  if (project.serviceType === 'worker' && runtime === 'php') throw new InputError('PHP workers are not supported.');
+  if (project.serviceType === 'worker' && runtime === 'python' && (input.pythonMode ?? 'script') !== 'script') throw new InputError('Python workers must use the script run type.');
   let nodeMajor;
   if (runtime === 'node') {
     try { nodeMajor = nodeMajorForProject(input.nodeMajor); }
@@ -21,12 +23,13 @@ export function validateNativeProject(input) {
   const startScript = ['go', 'python', 'php'].includes(runtime) ? null : validatePackageScript(input.startScript ?? 'start', 'Start script');
   const environment = validateEnvironment(input.environment ?? {});
   const healthCheckTimeoutMs = validateTimeout(input.healthCheckTimeoutMs ?? 30_000);
-  const candidatePort = validateCandidatePort(input.candidatePort ?? defaultCandidatePort(project.port), project.port);
+  const candidatePort = project.serviceType === 'worker' ? null : validateCandidatePort(input.candidatePort ?? defaultCandidatePort(project.port), project.port);
   return { ...project, runtime, ...(runtime === 'node' ? { nodeMajor } : {}), buildScript, startScript, ...(runtime === 'go' ? { goPackage: validateGoPackage(input.goPackage) } : {}), ...(runtime === 'python' ? validatePythonProjectSettings(input) : {}), ...(runtime === 'php' ? validatePhpProjectSettings(input) : {}), environment, healthCheckTimeoutMs, candidatePort };
 }
 
 export function validateDockerComposeProject(input) {
   const project = validateProject(input);
+  if (project.serviceType === 'worker') throw new InputError('Docker Compose workers are not supported.');
   if (input.runtime !== 'docker-compose') throw new InputError('This operation requires the Docker Compose runtime.');
   if (typeof input.composeFile !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._/-]{0,239}\.ya?ml$/i.test(input.composeFile) || input.composeFile.includes('..')) throw new InputError('Docker Compose file is invalid.');
   if (typeof input.composeService !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,79}$/.test(input.composeService)) throw new InputError('Docker Compose service is invalid.');
@@ -57,7 +60,7 @@ export function renderSystemdUnit(input) {
           : project.runtime === 'node' && project.nodeMajor !== 24
           ? `/usr/bin/env PATH=${nodeBin(project.nodeMajor)}:/usr/local/bin:/usr/bin:/bin ${nodeBin(project.nodeMajor)}/npm run ${project.startScript}`
           : `${runtimeExecutable(project.runtime)} run ${project.startScript}`;
-  return `[Unit]\nDescription=Host Manager project ${project.slug}\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nUser=${identity.user}\nGroup=${identity.user}\nWorkingDirectory=${identity.root}/current\nEnvironmentFile=${identity.environmentFile}\nEnvironment=PORT=${project.port}\nExecStart=${start}\nRestart=on-failure\nRestartSec=5\nNoNewPrivileges=true\nPrivateTmp=true\nProtectHome=true\nProtectSystem=strict\nReadWritePaths=${identity.root}\n\n[Install]\nWantedBy=multi-user.target\n`;
+  return `[Unit]\nDescription=Host Manager project ${project.slug}\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nUser=${identity.user}\nGroup=${identity.user}\nWorkingDirectory=${identity.root}/current\nEnvironmentFile=${identity.environmentFile}\n${project.serviceType === 'worker' ? '' : 'Environment=PORT=' + project.port + '\n'}ExecStart=${start}\nRestart=on-failure\nRestartSec=5\nNoNewPrivileges=true\nPrivateTmp=true\nProtectHome=true\nProtectSystem=strict\nReadWritePaths=${identity.root}\n\n[Install]\nWantedBy=multi-user.target\n`;
 }
 
 /**
@@ -92,18 +95,20 @@ export function createRelease(projectInput, revision = null) {
     createdAt: now,
     revision,
     runtime: project.runtime,
+    serviceType: project.serviceType ?? 'web',
     ...(project.runtime === 'node' ? { nodeMajor: project.nodeMajor } : {}),
     ...(project.runtime === 'python' ? validatePythonProjectSettings(project) : {}),
     ...(project.runtime === 'php' ? validatePhpProjectSettings(project) : {}),
     buildScript: project.buildScript ?? null,
     startScript: project.startScript ?? null,
     health: {
-      enabled: project.healthCheckEnabled,
+      enabled: project.serviceType === 'worker' ? true : project.healthCheckEnabled,
+      ...(project.serviceType === 'worker' ? { kind: 'process' } : {}),
       path: project.healthCheckEnabled ? project.healthCheckPath : null,
       port: project.candidatePort,
       timeoutMs: project.healthCheckTimeoutMs,
-      checkedAt: project.healthCheckEnabled ? null : now,
-      status: project.healthCheckEnabled ? 'pending' : 'skipped'
+      checkedAt: project.serviceType === 'worker' || project.healthCheckEnabled ? null : now,
+      status: project.serviceType === 'worker' || project.healthCheckEnabled ? 'pending' : 'skipped'
     },
     events: [{ at: now, phase: 'candidate', status: 'started', message: 'Candidate release created.' }]
   };

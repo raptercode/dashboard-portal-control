@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import os from 'node:os';
 import { join } from 'node:path';
 import { InputError, StateStore } from '../src/core.mjs';
 import { publicMetricSample, resetCpuSampleState, sampleCpuPercent, validateMetricRangeDays } from '../src/metrics.mjs';
@@ -13,7 +14,8 @@ test('metric ranges accept only the supported day windows', () => {
   assert.throws(() => validateMetricRangeDays('2'), InputError);
 });
 
-test('cpu sampler returns a bounded percent across two readings', () => {
+test('cpu sampler uses deterministic load fallback then CPU tick deltas', (t) => {
+  t.mock.method(os, 'loadavg', () => [0, 0, 0]);
   resetCpuSampleState();
   const first = [
     { times: { user: 100, nice: 0, sys: 50, idle: 850, irq: 0 } },
@@ -25,7 +27,20 @@ test('cpu sampler returns a bounded percent across two readings', () => {
   ];
   assert.equal(sampleCpuPercent(() => first), 0);
   const percent = sampleCpuPercent(() => second);
-  assert.ok(percent > 0 && percent <= 100);
+  assert.equal(percent, 75);
+});
+
+test('first CPU sample normalizes nonzero load and bounds it to 100 percent', (t) => {
+  const load = t.mock.method(os, 'loadavg', () => [1, 0, 0]);
+  const cpus = () => [
+    { times: { user: 0, nice: 0, sys: 0, idle: 100, irq: 0 } },
+    { times: { user: 0, nice: 0, sys: 0, idle: 100, irq: 0 } }
+  ];
+  resetCpuSampleState();
+  assert.equal(sampleCpuPercent(cpus), 50);
+  load.mock.mockImplementation(() => [10, 0, 0]);
+  resetCpuSampleState();
+  assert.equal(sampleCpuPercent(cpus), 100);
 });
 
 test('metric samples persist, list by range, and prune beyond retention', async () => {

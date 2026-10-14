@@ -10,6 +10,9 @@ import { createDecipheriv } from 'node:crypto';
 import { DatabaseSync } from './sqlite.mjs';
 import { nodeBin, nodeMajorForProject, nodeRuntimeEnvironment } from './node-versions.mjs';
 import { readNodePackageManager, assertPnpmAvailable, pnpmServiceStart, PNPM_PATH, PNPM_VERSION } from './node-package-manager.mjs';
+import { withMaintenanceLease } from './maintenance-lock.mjs';
+import { parseWorkerServiceState, assertWorkerStable } from './worker-health.mjs';
+import { prepareWorkerActivation } from './worker-activation.mjs';
 import { updateStoredPassword } from './password-config.mjs';
 import { buildEdgeEvaluation, probeLoopbackHttp, publicEdgeResult, renderUnmatchedNginx } from './nginx-edge.mjs';
 import { buildMailPortPlan, renderDkimTables, renderDovecotConfiguration, renderMap, renderOpenDkimConfiguration, renderPostfixMain, renderPostfixMaster } from './mail-host-config.mjs';
@@ -69,7 +72,7 @@ function handleSocket(socket) {
     handled = true;
     try {
       const request = JSON.parse(body.slice(0, boundary));
-      const result = await dispatch(request);
+      const result = await withMaintenanceLease(() => dispatch(request));
       socket.end(`${JSON.stringify({ ok: true, ...result })}\n`);
     } catch (error) {
       // Only bounded, redacted project build output may cross this boundary.
@@ -117,6 +120,10 @@ async function readProjectLog(slug, lines) {
 async function projectRuntimeStatus(slug) {
   const project = await loadProject(slug);
   const identity = projectIdentity(slug);
+  if (project.serviceType === 'worker') {
+    const state = await readWorkerState(identity);
+    return { state: state.active === 'active' && state.substate === 'running' && Number.isInteger(state.pid) && state.pid > 0 ? 'active' : 'down' };
+  }
   if (project.runtime === 'docker-compose') {
     const current = await readlink(identity.current).catch(() => null);
     if (!current) return { state: 'down' };
@@ -467,17 +474,28 @@ async function issueMailCertificate(hostname) {
 
 async function readTextOrEmpty(path) { return readFile(path, 'utf8').catch(() => ''); }
 
+async function optionalSnapshot(read) {
+  try { return await read(); }
+  catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+}
+
 async function activateProject(slug, releaseId) {
   const project = await loadProject(slug);
   validateReleaseId(releaseId);
   const release = project.deployment?.releases?.find((item) => item.id === releaseId);
   if (!release || !['candidate', 'healthy'].includes(release.status)) throw new HelperError('The requested release is not eligible for activation.');
+  if ((release.serviceType ?? 'web') !== (project.serviceType ?? 'web')) throw new HelperError('The release service type does not match this project.');
   if (project.runtime === 'node' && (!release.runtime || release.runtime === 'node')) {
     try { project.nodeMajor = nodeMajorForProject(release.nodeMajor); }
     catch (error) { throw new HelperError(error.message); }
   }
   if (project.runtime === 'python' && release.runtime === 'python') Object.assign(project, pythonSettings(release));
   if (project.runtime === 'php' && release.runtime === 'php') Object.assign(project, phpSettings(release));
+  if (project.serviceType === 'worker') {
+    if (release.runtime !== project.runtime) throw new HelperError('The worker release runtime does not match this project.');
+    if (['node', 'bun'].includes(project.runtime)) project.startScript = release.startScript;
+    validateProject(project);
+  }
   const environment = await readTextOrEmpty(join(PROJECT_ROOT, slug, 'releases', releaseId, '.env'));
   let transaction;
   try {
@@ -587,9 +605,14 @@ function readProject(slug) {
 
 function validateProject(project) {
   validateSlug(project.slug);
-  if (!Number.isInteger(project.port) || project.port < 1024 || project.port > 65535) throw new HelperError('Project port is invalid.');
+  project.serviceType ??= 'web';
+  if (!['web', 'worker'].includes(project.serviceType)) throw new HelperError('Project service type is invalid.');
+  if (project.serviceType === 'worker') {
+    if (project.port !== null || project.autoPort !== false) throw new HelperError('Workers must not reserve a project port.');
+  } else if (!Number.isInteger(project.port) || project.port < 1024 || project.port > 65535) throw new HelperError('Project port is invalid.');
   project.runtime ??= 'node';
   if (!['node', 'bun', 'go', 'python', 'php', 'docker-compose'].includes(project.runtime)) throw new HelperError('Project runtime is invalid.');
+  if (project.serviceType === 'worker' && ['php', 'docker-compose'].includes(project.runtime)) throw new HelperError('Workers currently require Node.js, Bun, Go or a Python script.');
   if (project.runtime === 'node') {
     try { project.nodeMajor = nodeMajorForProject(project.nodeMajor); }
     catch (error) { throw new HelperError(error.message); }
@@ -597,6 +620,7 @@ function validateProject(project) {
   if (project.runtime === 'python') {
     try { Object.assign(project, pythonSettings(project)); }
     catch (error) { throw new HelperError(error.message); }
+    if (project.serviceType === 'worker' && project.pythonMode !== 'script') throw new HelperError('Python workers must use script mode.');
   }
   if (project.runtime === 'php') {
     try { Object.assign(project, phpSettings(project)); }
@@ -607,8 +631,10 @@ function validateProject(project) {
     if (typeof project.composeFile !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._/-]{0,239}\.ya?ml$/i.test(project.composeFile) || project.composeFile.includes('..')) throw new HelperError('Docker Compose file is invalid.');
     if (typeof project.composeService !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,79}$/.test(project.composeService)) throw new HelperError('Docker Compose service is invalid.');
   }
-  if (project.healthCheckEnabled !== false && !/^\/(?!\/)[^\s]*$/.test(project.healthCheckPath ?? '/')) throw new HelperError('Project health-check path is invalid.');
-  if (!Array.isArray(project.domains?.hosts) || project.domains.hosts.length < 1 || project.domains.hosts.length > 10) throw new HelperError('Project has no valid domain configuration.');
+  if (project.serviceType !== 'worker' && project.healthCheckEnabled !== false && !/^\/(?!\/)[^\s]*$/.test(project.healthCheckPath ?? '/')) throw new HelperError('Project health-check path is invalid.');
+  project.domains ??= { hosts: [] };
+  if (!Array.isArray(project.domains.hosts) || project.domains.hosts.length > 10) throw new HelperError('Project has no valid domain configuration.');
+  if (project.serviceType === 'worker' && project.domains.hosts.length) throw new HelperError('Workers cannot use domains.');
   project.domains.hosts = [...new Set(project.domains.hosts.map(validateDomain))];
 }
 
@@ -669,41 +695,70 @@ async function prepareProjectRelease(project, releaseId) {
   }
   const environmentSource = join(destination, '.env');
   if (!(await exists(environmentSource))) throw new HelperError('Candidate environment file is unavailable.');
-  const previousUnit = await readFile(identity.unitFile, 'utf8').catch(() => null);
-  const previousEnvironment = await readFile(identity.environmentFile).catch(() => null);
+  if (project.serviceType === 'worker') {
+    return prepareWorkerActivation({ identity, releaseId, releaseRoot: destination, environmentSource, unit: renderProjectUnit(project, identity), run,
+      readState: () => readWorkerState(identity), assertStable: () => checkWorkerProcess(identity) });
+  }
+  const previousUnit = await optionalSnapshot(() => readFile(identity.unitFile, 'utf8'));
+  const previousEnvironment = await optionalSnapshot(() => readFile(identity.environmentFile));
+  const previousTarget = await optionalSnapshot(() => readlink(identity.current));
+  const previousService = await readWorkerState(identity);
+  const previousActive = ['active', 'activating'].includes(previousService.active);
+  if (previousActive && (!previousTarget || previousUnit === null || previousEnvironment === null)) throw new HelperError('Active native service has no complete previous release configuration to restore.');
   const environmentTemp = `${identity.environmentFile}.${releaseId}.tmp`;
-  await copyFile(environmentSource, environmentTemp);
-  await chown(environmentTemp, 0, identity.gid);
-  await chmod(environmentTemp, 0o640);
-  await rename(environmentTemp, identity.environmentFile);
-  await writeFile(identity.unitFile, renderProjectUnit(project, identity), { mode: 0o644 });
-  const previousTarget = await readlink(identity.current).catch(() => null);
   const nextLink = `${identity.current}.${releaseId}.next`;
-  await rm(nextLink, { force: true });
-  await symlink(destination, nextLink);
-  await rename(nextLink, identity.current);
-  return {
+  const restoreFiles = async () => {
+    if (previousUnit !== null) await writeFile(identity.unitFile, previousUnit, { mode: 0o644 });
+    else await rm(identity.unitFile, { force: true });
+    if (previousEnvironment === null) await rm(identity.environmentFile, { force: true });
+    else {
+      await writeFile(identity.environmentFile, previousEnvironment, { mode: 0o640 });
+      await chown(identity.environmentFile, 0, identity.gid);
+      await chmod(identity.environmentFile, 0o640);
+    }
+    if (previousTarget) {
+      const revert = `${identity.current}.rollback`;
+      await rm(revert, { force: true });
+      await symlink(previousTarget, revert);
+      await rename(revert, identity.current);
+    } else await rm(identity.current, { force: true });
+    await rm(environmentTemp, { force: true });
+    await rm(nextLink, { force: true });
+  };
+  const transaction = {
     identity,
     previousTarget,
+    restarted: false,
+    enabledAttempted: false,
     rollback: async () => {
-      if (previousUnit !== null) await writeFile(identity.unitFile, previousUnit, { mode: 0o644 });
-      if (previousEnvironment !== null) {
-        await writeFile(identity.environmentFile, previousEnvironment, { mode: 0o640 });
-        await chown(identity.environmentFile, 0, identity.gid);
+      if (transaction.restarted) {
+        await run('/usr/bin/systemctl', ['stop', identity.service]);
       }
-      if (previousTarget) {
-        const revert = `${identity.current}.rollback`;
-        await rm(revert, { force: true });
-        await symlink(previousTarget, revert);
-        await rename(revert, identity.current);
-        await run('/usr/bin/systemctl', ['daemon-reload']);
-        await run('/usr/bin/systemctl', ['restart', identity.service]).catch(() => {});
-      } else {
-        await run('/usr/bin/systemctl', ['disable', '--now', identity.service]).catch(() => {});
-        await rm(identity.current, { force: true });
+      if (transaction.enabledAttempted && !previousService.enabled) await run('/usr/bin/systemctl', ['disable', identity.service]);
+      await restoreFiles();
+      await run('/usr/bin/systemctl', ['daemon-reload']);
+      if (transaction.enabledAttempted && previousService.enabled) await run('/usr/bin/systemctl', ['enable', identity.service]);
+      if (previousTarget && transaction.restarted && previousActive) {
+        await run('/usr/bin/systemctl', ['restart', identity.service]);
+        await checkWorkerProcess(identity);
       }
     }
   };
+  try {
+    await copyFile(environmentSource, environmentTemp);
+    await chown(environmentTemp, 0, identity.gid);
+    await chmod(environmentTemp, 0o640);
+    await rename(environmentTemp, identity.environmentFile);
+    await writeFile(identity.unitFile, renderProjectUnit(project, identity), { mode: 0o644 });
+    await rm(nextLink, { force: true });
+    await symlink(destination, nextLink);
+    await rename(nextLink, identity.current);
+  } catch (error) {
+    try { await restoreFiles(); }
+    catch { throw new HelperError('Host preparation failed and the prior live files could not be restored.'); }
+    throw error;
+  }
+  return transaction;
 }
 
 async function prepareDockerProjectRelease(project, releaseId) {
@@ -744,8 +799,14 @@ async function prepareDockerProjectRelease(project, releaseId) {
 }
 
 async function startAndCheckProject(project, transaction) {
+  if (project.serviceType === 'worker') {
+    await transaction.activate();
+    return;
+  }
   await run('/usr/bin/systemctl', ['daemon-reload']);
+  transaction.enabledAttempted = true;
   await run('/usr/bin/systemctl', ['enable', transaction.identity.service], { failure: 'The project systemd service could not be enabled.' });
+  transaction.restarted = true;
   await run('/usr/bin/systemctl', ['restart', transaction.identity.service], { failure: 'The project systemd service could not be restarted.' });
   if (project.healthCheckEnabled === false) return;
   const deadline = Date.now() + 30_000;
@@ -811,6 +872,12 @@ async function runDockerCompose(project, releaseRoot, args, options = {}) {
 }
 
 async function applyDomains(project) {
+  if (!project.domains.hosts.length) {
+    const site = join(NGINX_AVAILABLE, `hostmgr-${project.slug}.conf`);
+    const enabled = join(NGINX_ENABLED, `hostmgr-${project.slug}.conf`);
+    if (await exists(site) || await exists(enabled)) await removeManagedNginx(project.slug);
+    return;
+  }
   await ensureUnmatchedNginx();
   const site = join(NGINX_AVAILABLE, `hostmgr-${project.slug}.conf`);
   const enabled = join(NGINX_ENABLED, `hostmgr-${project.slug}.conf`);
@@ -958,7 +1025,7 @@ async function removeManagedNginx(slug) {
 }
 
 async function snapshotNginx(site, enabled) {
-  return { site: await readFile(site, 'utf8').catch(() => null), enabled: await readlink(enabled).catch(() => null) };
+  return { site: await optionalSnapshot(() => readFile(site, 'utf8')), enabled: await optionalSnapshot(() => readlink(enabled)) };
 }
 
 async function restoreNginx(site, enabled, snapshot) {
@@ -966,7 +1033,7 @@ async function restoreNginx(site, enabled, snapshot) {
   else await writeFile(site, snapshot.site, { mode: 0o644 });
   await rm(enabled, { force: true });
   if (snapshot.enabled) await symlink(snapshot.enabled, enabled);
-  await testAndReloadNginx().catch(() => {});
+  await testAndReloadNginx();
 }
 
 async function testAndReloadNginx() {
@@ -1015,7 +1082,18 @@ function renderProjectUnit(project, identity) {
   const bunRuntime = project.runtime === 'bun';
   const workingDirectory = bunRuntime ? identity.runtimeApplicationPath : identity.current;
   const bunSandbox = bunRuntime ? `RuntimeDirectory=${identity.runtimeDirectory}/app\nRuntimeDirectoryMode=0750\nBindPaths=${identity.current}:${identity.runtimeApplicationPath}\n` : '';
-  return `[Unit]\nDescription=Dashboard Portal project ${project.slug}\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nUser=${identity.user}\nGroup=${identity.user}\n${bunSandbox}WorkingDirectory=${workingDirectory}\nEnvironmentFile=${identity.environmentFile}\nEnvironment=PORT=${project.port}\nExecStart=${start}\nRestart=on-failure\nRestartSec=5\nNoNewPrivileges=true\nPrivateTmp=true\nProtectHome=true\nProtectSystem=strict\nReadWritePaths=${identity.root}\n\n[Install]\nWantedBy=multi-user.target\n`;
+  const portEnvironment = project.serviceType === 'worker' ? '' : `Environment=PORT=${project.port}\n`;
+  return `[Unit]\nDescription=Dashboard Portal project ${project.slug}\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nUser=${identity.user}\nGroup=${identity.user}\n${bunSandbox}WorkingDirectory=${workingDirectory}\nEnvironmentFile=${identity.environmentFile}\n${portEnvironment}ExecStart=${start}\nRestart=on-failure\nRestartSec=5\nNoNewPrivileges=true\nPrivateTmp=true\nProtectHome=true\nProtectSystem=strict\nReadWritePaths=${identity.root}\n\n[Install]\nWantedBy=multi-user.target\n`;
+}
+
+async function readWorkerState(identity) {
+  const output = await run('/usr/bin/systemctl', ['show', identity.service, '--property=ActiveState,SubState,MainPID,NRestarts,UnitFileState'], { failure: 'Worker process state could not be read.' });
+  return parseWorkerServiceState(output);
+}
+
+async function checkWorkerProcess(identity) {
+  try { await assertWorkerStable(() => readWorkerState(identity)); }
+  catch (error) { throw new HelperError(error.message); }
 }
 
 async function pruneHistoricalReleases(identity, activeReleaseId, previousTarget) {

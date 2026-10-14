@@ -5,12 +5,19 @@
 
 This document is the design/spec reference moved out of the root `docs/en/README.md`
 so that file can stay focused on installing and using Dashboard Portal. It
-records what v1 is trying to be, which listed capability is actually working
-in the current code versus still planned, and the longer-term roadmap.
+records the current 1.0.0 candidate source capabilities and release
+boundary, and the longer-term backlog. Implementation does not certify a
+production host. See the [prioritized v1 readiness plan](../plans/v1-readiness-plan.md)
+for release gates and work order, and the [acceptance record](../plans/v1-acceptance-record.md)
+for current evidence. The candidate combines v0.8.9 fixes with the v1 preparation work.
+Operational Mail is deferred from the 1.0.0 readiness claim. Installer recovery
+and shared host-operation leases are documented in
+[ADR 0031](../adr/0031-maintenance-exclusion-and-install-recovery.md); legacy
+upgrades still require confirmed quiescence and real host acceptance.
 
 Status labels used below:
 
-- **Implemented** — exercised by the test suite and reachable from the UI/CLI today.
+- **Implemented** — present in source through the applicable UI/API/CLI path; local tests and real-host acceptance are separate evidence.
 - **Partial** — some of the described capability exists; the rest is listed explicitly.
 - **Planned** — described for context; not present in the code yet.
 
@@ -56,11 +63,15 @@ host bind mounts; this is a guardrail, not a hostile-code sandbox (ADR 0021).
 | RAM / disk | Lower | Slightly higher |
 | Getting started | Easy for Linux-fluent users | Needs Dockerfile/Compose |
 | Dependency isolation | Process/user level | Container level |
-| Multiple runtime versions | Not a v1 focus | Supported via images |
+| Multiple runtime versions | Node 20/22/24/26 selection per project; required host runtime must already be provisioned | Supported via images |
 | Best for | Typical personal apps | Special apps or complex dependencies |
 | Current status | **Implemented** | **Implemented (trusted Docker Compose, v0.5; repository suggestion, v0.6)** |
 
-## Features in v1 scope
+## Current capabilities and follow-on backlog
+
+The Planned and Partial items below are backlog, not automatic 1.0.0 release
+requirements. The readiness plan distinguishes mandatory validation from
+recommended operations features and deferred work.
 
 ### Dashboard
 
@@ -68,6 +79,7 @@ host bind mounts; this is a guardrail, not a hostile-code sandbox (ADR 0021).
 - View total memory — **Implemented**
 - View CPU load average and disk usage — **Implemented** (live snapshot + 5-minute history retained 30 days; UI ranges 1/3/7/15/30)
 - Owner email/password bootstrap and login — **Implemented**
+- Master/User accounts, organizations, invitations and per-organization grants — **Implemented** (organizations are access scopes, not hostile-tenant isolation)
 - Optional database client connectors (MongoDB/PostgreSQL/MySQL/Redis) — **Implemented** (metadata + encrypted secret + TCP probe; not host DB packages)
 - View Nginx, Certbot, Git, Docker, and runtime status — **Implemented** (`doctorReport`, live-probed in host mode)
 - View projects, domains, and recent deployments — **Implemented**
@@ -76,10 +88,13 @@ host bind mounts; this is a guardrail, not a hostile-code sandbox (ADR 0021).
 ### Project management
 
 - Create Native projects: repository, branch, directory, build/start command, port — **Implemented**; a shallow metadata scan suggests Node or Bun without executing project code
+- Domainless Web/API and portless long-running Node/Bun/Go/Python-script Workers — **Implemented in 1.0.0**; Workers build without launching candidate consumers and check process stability after activation. See the [internal services guide](../../how-to/internal-services-and-workers.md).
 - Docker Compose projects — **Implemented (v0.5)** for trusted repositories: selected Compose file/service, policy preflight, guarded host activation, rollback, and container logs. v0.6 can suggest this selection from a Compose manifest
 - Manage environment variables through file uploads, full `.env` editing or individual rows — **Implemented** (all values visible to the authenticated owner, encrypted at rest; ADR 0026)
 - Deploy and rollback — **Implemented**, including a durable job queue that survives a Dashboard restart
 - Deployment progress on project cards — **Implemented (v0.8.4)**, automatically refreshing phases and results without opening a log dialog; logs remain available on request
+- Native Bun, Go, Python and PHP runtimes — **Implemented**, with runtime-specific build/start contracts and prerequisites
+- Native Node major selection and release-specific rollback — **Implemented (v0.8.3)**; Portal updates preserve their selected Node major in v0.8.5
 - Stop/restart as a standalone action (outside of deploy/rollback) — **Planned**
 - Health check after deploy — **Implemented** (candidate check + host check, optional per project)
 - View build/candidate logs — **Implemented** (per-release event log in the Logs dialog)
@@ -94,6 +109,7 @@ host bind mounts; this is a guardrail, not a hostile-code sandbox (ADR 0021).
 - GitHub push webhook-triggered auto deploy — **Implemented** (signed delivery, exact repository and branch, polling fallback)
 - GitLab inbound auto deploy — **Planned**
 - Store credentials encrypted, never returned or logged — **Implemented**
+- Organization-scoped credentials and credential grants — **Implemented (v0.8.2)**
 
 ### Domain management
 
@@ -148,7 +164,7 @@ install in `host` mode), and refresh status after.
 The CLI shown below is a **planned interface only** — there is no `hostmgr`
 binary in this repository today. The only real command-line entry points are
 `dashboard-portal.sh` (installer) and the `dashboard-portal` command it
-provisions on the host (`update`, `configure-update`, `--reset-pwd`). Treat
+provisions on the host (`update`, `configure-update`, `--reset-pwd`, help and version reporting). Treat
 the block below as a design placeholder, not a usable command:
 
 ```bash
@@ -225,7 +241,9 @@ reads well next to the roadmap below.
 
 ### Project
 - name and slug
-- deployment mode: `native` or `docker` (only `native` exists today)
+- deployment mode: `native` or `docker` (trusted Docker Compose)
+- runtime and runtime-specific settings, including a Node major per release
+- organization and grants controlling access to project operations
 - repository and branch
 - build/start configuration
 - internal port and health-check path
@@ -255,7 +273,8 @@ boundary see [Architecture Decision Records](../adr/README.md).
 - Dashboard/API runs as a non-root Linux user
 - Separate privileged helper with an operation allowlist
 - Validate domain, path, port, repository URL, and config every time
-- Never store Git tokens, SSH private keys, or environment secrets in plaintext
+- Persist repository tokens, project environment and mail secrets encrypted; runtime environment files are decrypted only where required and protected by permissions
+- Repository credential values are not returned to browsers; project environment plaintext is available only with explicit environment-read grants (ADR 0026/0027)
 - Redact secrets from logs and error responses
 - Use CSRF protection, secure cookies, rate limiting, and session timeout
 - Record audit logs for install, deploy, config changes, and privileged actions
@@ -269,13 +288,17 @@ boundary see [Architecture Decision Records](../adr/README.md).
 - FTP server
 - Shared hosting and multi-tenant isolation
 - Reseller, license, and billing
-- Managing multiple PHP/Node versions on the host through the Dashboard
+- General-purpose runtime version management (Node project selection is implemented; automatic provisioning of every project major and multi-version PHP management are not)
 - Kubernetes or multi-server clusters
 - Full file manager
 - Automatic DNS provider or registrar management
 - Supporting every Linux distribution
 
-Cutting these keeps v1 suitable for single-owner use and low-spec machines.
+These limits keep v1 focused on one administrator-controlled host and trusted
+repositories, with organization-scoped collaboration. Organizations do not
+provide process isolation between mutually untrusted tenants. Node/Bun builds
+and candidate processes still run in the Portal service execution context;
+activated Native services use dedicated project Unix users.
 
 ## Mail service (implemented with port-aware host provisioning)
 
@@ -340,6 +363,10 @@ retry queues remain planned follow-on work.
 
 ## v1 readiness criteria
 
+These are acceptance gates, not a record of completed host testing. The
+[readiness plan](../plans/v1-readiness-plan.md) defines priority and completion
+evidence. Local passing tests alone do not close these gates.
+
 - Install on a clean Ubuntu target from the CLI without hand-editing files
 - If Nginx, Certbot, or Git is missing, the user can install them from the UI
 - Add a Native project from Git and serve it over an HTTPS domain
@@ -347,4 +374,8 @@ retry queues remain planned follow-on work.
 - Bad config does not take down the whole machine's Nginx
 - A deploy that fails build or health check does not destroy the previous release
 - After reboot, Dashboard, Nginx, and enabled apps come back up
-- Secrets do not appear in UI responses, process arguments, or logs
+- Repository credentials, session/password material and encryption keys do not appear in UI/API responses, process arguments or logs; project environment reads require explicit grants and deployment output is redacted
+- Existing installations update without losing state, memberships, encrypted secrets or the configured Portal Node major
+- A consistent backup of state and the original encryption key restores successfully on staging
+- Browser and API checks enforce organization grants, including revocation and cross-organization denial
+- If Mail is included in the operational release claim, real external inbound/outbound delivery, TLS and mailbox recovery are verified separately

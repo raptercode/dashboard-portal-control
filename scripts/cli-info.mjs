@@ -22,7 +22,7 @@ Administrator commands (sudo required):
     --manifest=https://...    Signed manifest URL (required)
     --public-key=/path/...    Public signing key PEM (required)
     --channel=<channel>       Update channel (default: stable)
-  --reset-pwd                 Reset administrator password interactively and restart Portal
+  --reset-pwd                 Generate a new administrator password and restart Portal
 
 Examples:
   dashboard-portal --help
@@ -44,7 +44,7 @@ if (!args.length || (args.length === 1 && ['-h', '--help'].includes(args[0])) ||
     ...Object.entries(NODE_VERSIONS).map(([major, version]) => [`Node ${major}`, `/opt/node-v${version}/bin/node`, ['--version']]),
     ['Bun', '/usr/local/bin/bun', ['--version']],
     ['pnpm (optional)', '/usr/local/bin/pnpm', ['--config.manage-package-manager-versions=false', '--config.pm-on-fail=error', '--config.verify-deps-before-run=false', '--version']],
-    ['Go', '/usr/local/go/bin/go', ['version']],
+    ['Go', '/usr/local/bin/go', ['version']],
     ['Python', '/usr/bin/python3', ['--version']],
     ['PHP', '/usr/bin/php', ['--version']],
     ['Docker', '/usr/bin/docker', ['--version']],

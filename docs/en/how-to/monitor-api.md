@@ -104,7 +104,7 @@ These routes require a logged-in Portal **session cookie**. Mutations also requi
 | `POST /api/monitor-tokens` | Session cookie, CSRF header, JSON `{ "name": "ai-monitor", "projectSlug": "example-app" }` | `201 { "ok": true, "token": "dpm_...", "monitorToken": monitorTokenMetadata }`. The raw token appears only here. |
 | `DELETE /api/monitor-tokens/{id}` | Session cookie and CSRF header | `200 { "ok": true, "monitorToken": monitorTokenMetadata }` with `revokedAt` set. The token then fails monitor reads. |
 
-`monitorTokenMetadata` contains `id`, `name`, `projectSlug`, `createdAt`, `lastUsedAt`, and `revokedAt`; it excludes the raw token and its stored hash. Names are lowercase letters, digits, and hyphens, begin with a letter, and have a maximum length of 80. Names must currently be unique across all stored tokens, including revoked ones. The `id` in the delete path is a UUID. The Settings page provides the create/list/revoke UI.
+`monitorTokenMetadata` contains `id`, `name`, `projectSlug`, `createdAt`, `lastUsedAt`, and `revokedAt`; it excludes the raw token and its stored hash. Names are lowercase letters, digits, and hyphens, begin with a letter, and have a maximum length of 80. Names must currently be unique across all stored tokens, including revoked ones. The `id` in the delete path is a UUID. The Settings → External integrations page (`/settings/monitor`) provides the create/list/revoke UI.
 
 ## Related routes and AI handling
 

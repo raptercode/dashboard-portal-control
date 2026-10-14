@@ -1,0 +1,24 @@
+<section class="page" data-page="settings">
+  <header class="page-header">
+    <div>
+      <span class="page-eyebrow">การตั้งค่า</span>
+      <h1 id="settings-title" class="page-title">บัญชีและความปลอดภัย</h1>
+      <p id="settings-description" class="page-subtitle">จัดการรหัสผ่านของบัญชีที่กำลังใช้งาน</p>
+    </div>
+  </header>
+  {{> partials/settings-navigation.html}}
+  <section class="settings-stack">
+    <article class="setting-row" data-settings-section="account">
+      <div>
+        <h2>เปลี่ยนรหัสผ่าน</h2>
+        <p>ต้องยืนยันรหัสผ่านเดิมก่อน เมื่อเปลี่ยนสำเร็จ session อื่นทั้งหมดจะถูกออกจากระบบทันที และต้องเข้าสู่ระบบใหม่ด้วยรหัสผ่านใหม่</p>
+      </div>
+      <form id="password-change-form" class="form-grid compact">
+        <label for="current-password">รหัสผ่านปัจจุบัน<input id="current-password" name="currentPassword" type="password" autocomplete="current-password" maxlength="128" required></label>
+        <label for="new-password">รหัสผ่านใหม่<input id="new-password" name="newPassword" type="password" autocomplete="new-password" minlength="12" maxlength="128" required><small class="field-hint">อย่างน้อย 12 ตัว มีตัวพิมพ์ใหญ่ ตัวพิมพ์เล็ก ตัวเลข และสัญลักษณ์</small></label>
+        <label for="confirm-password">ยืนยันรหัสผ่านใหม่<input id="confirm-password" name="confirmPassword" type="password" autocomplete="new-password" minlength="12" maxlength="128" required><small class="field-hint">พิมพ์รหัสผ่านใหม่อีกครั้งให้ตรงกัน</small></label>
+        <div class="form-actions"><button type="submit">เปลี่ยนรหัสผ่าน</button></div>
+      </form>
+    </article>
+  </section>
+</section>

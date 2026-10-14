@@ -4,6 +4,8 @@ import { projectActionMenuPlacement } from './project-action-menu-positioning.js
 import { hasNewerSyncedRevision } from './project-manual-sync-action.js';
 import { bindDialogDismissals as bindModalDismissals } from './dialog-dismissals.js';
 import { renderMembersPage, bindInvitationAcceptance } from './members.js';
+import { settingsSection, SETTINGS_SECTIONS } from './settings-navigation.js';
+import { isWorkerProject, serviceFields, serviceRuntimeError } from './project-service-type.js';
 
 const DRAFT_KEY = 'hostmgr.projectDraft';
 const SIDEBAR_COLLAPSED_KEY = 'hostmgr.sidebarCollapsed';
@@ -548,6 +550,10 @@ async function showBootstrap(requireCurrent = false) {
 }
 
 async function showDashboard() {
+  if (!isMaster() && page === 'settings' && !['settings', 'settings-account'].includes(view)) {
+    location.replace('/settings/account');
+    return;
+  }
   if (!isMaster() && ['setup', 'databases', 'mail', 'members', 'overview'].includes(page)) {
     location.replace('/projects');
     return;
@@ -555,7 +561,7 @@ async function showDashboard() {
   setShell('dashboard');
   setPageLoading(true);
   setSidebarCollapsed(localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === 'true');
-  $$('.nav-link').forEach((link) => link.classList.toggle('active', link.dataset.nav === page));
+  updateNavigation();
   try {
     await refresh();
     await hydrateCurrentView();
@@ -603,6 +609,8 @@ async function refresh() {
   if (credentialsLink) credentialsLink.hidden = !credentialPermissions.some(canInAnyOrganization);
   const activityLink = $('[data-nav="activity"]');
   if (activityLink) activityLink.hidden = !canInAnyOrganization('audit.read');
+  $$('.nav-group').forEach((group) => { group.hidden = !$$('.nav-link', group).some((link) => !link.hidden); });
+  updateNavigation();
   state.doctor = doctor;
   state.audit = audit.events || [];
   state.git = git;
@@ -1007,7 +1015,8 @@ function projectRow(project) {
     });
   } else {
     domains.classList.add('muted');
-    domains.textContent = 'ยังไม่ได้ตั้งค่า domain';
+    domains.textContent = isWorkerProject(project) ? 'งานเบื้องหลัง · ไม่มี HTTP endpoint' : 'ไม่ผูกโดเมน · ใช้พอร์ตของแอป';
+    if (!isWorkerProject(project)) domains.title = 'การเข้าถึงจากนอก host ขึ้นอยู่กับ bind address ของแอปและ firewall';
   }
   const repositoryUrl = publicRepositoryUrl(project.repository);
   const repository = element(repositoryUrl ? 'a' : 'span', 'card-repo project-repository-link', repositoryLabel(project.repository, repositoryUrl));
@@ -1019,7 +1028,7 @@ function projectRow(project) {
   }
   const meta = element('div', 'card-meta');
   const portMeta = element('span', 'meta-item');
-  portMeta.append(document.createTextNode('Port '), element('strong', '', String(project.port || 'auto')));
+  portMeta.append(document.createTextNode(isWorkerProject(project) ? 'Worker ' : 'Port '), element('strong', '', isWorkerProject(project) ? 'ไม่ใช้พอร์ต' : String(project.port || 'auto')));
   const branchMeta = element('span', 'meta-item');
   branchMeta.append(document.createTextNode('Branch '), element('strong', '', project.branch));
   const hasNewCommit = hasNewerSyncedRevision({
@@ -1048,8 +1057,9 @@ function projectRow(project) {
   const values = [
     ['Repository', project.repository],
     ['Directory', project.directory || '/'],
-    ['Protocol', project.protocol.toUpperCase()],
-    ['Port', String(project.port)],
+    ['Git protocol', (project.protocol || 'https').toUpperCase()],
+    ['ประเภท', isWorkerProject(project) ? 'Worker · งานเบื้องหลัง' : 'Web · HTTP'],
+    ...(isWorkerProject(project) ? [] : [['Port ภายใน host', String(project.port)]]),
     ['Runtime', runtime],
     ['Environment', project.environment?.keys?.length ? `.env ${project.environment.keys.length} keys` : 'ไม่มีค่า .env'],
     ['Auto deploy', project.autoSync?.enabled
@@ -1118,7 +1128,7 @@ function projectRow(project) {
   const domain = element('button', 'secondary', 'จัดการ domain');
   domain.type = 'button';
   domain.addEventListener('click', closeMenu(() => openDomainDialog(project)));
-  if (can('domains.manage', project)) actionList.append(domain);
+  if (!isWorkerProject(project) && can('domains.manage', project)) actionList.append(domain);
   const hooks = element('button', 'secondary', 'แจ้งเตือน');
   hooks.type = 'button';
   hooks.addEventListener('click', closeMenu(() => openNotificationHookDialog(project).catch(showError)));
@@ -1178,6 +1188,7 @@ async function syncExistingProject(project, button) {
     credentialId: project.credentialId || '',
     sshKeyId: project.sshKeyId || ''
   };
+  Object.assign(payload, serviceFields(project));
   if (payload.runtime === 'docker-compose') {
     payload.composeFile = project.composeFile || 'compose.yaml';
     payload.composeService = project.composeService || '';
@@ -2532,13 +2543,32 @@ function renderAudit() {
 }
 
 function renderSettings() {
-  if (!isMaster()) return;
+  const section = settingsSection(location.search, isMaster(), location.pathname);
+  const detail = SETTINGS_SECTIONS[section];
+  $('#settings-title').textContent = detail.title;
+  $('#settings-description').textContent = detail.description;
+  document.title = `${detail.title} · Dashboard Portal`;
+  $$('[data-settings-link]').forEach((link) => {
+    if (link.dataset.settingsLink === section) link.setAttribute('aria-current', 'page');
+    else link.removeAttribute('aria-current');
+  });
+  if (!isMaster() || section === 'account') return;
+  if (section === 'monitor') { renderMonitorTokens().catch(showError); return; }
   renderSoftwareUpdate();
-  renderMonitorTokens().catch(showError);
   $('#settings-mode').textContent = state.mode === 'host' ? 'host' : 'sandbox';
   $('#mode-description').textContent = state.mode === 'host'
     ? 'โหมด host คำสั่งติดตั้งและ deploy ทำงานบนเครื่องจริงผ่าน privileged helper'
     : 'โหมด sandbox การติดตั้งถูกจำลองและไม่แก้ host จริง';
+}
+
+function updateNavigation() {
+  const section = settingsSection(location.search, isMaster(), location.pathname);
+  $$('.nav-link').forEach((link) => {
+    const active = link.dataset.nav === page && (page !== 'settings' || link.dataset.section === section);
+    link.classList.toggle('active', active);
+    if (active) link.setAttribute('aria-current', 'page');
+    else link.removeAttribute('aria-current');
+  });
 }
 
 async function openNotificationHookDialog(project) {
@@ -2726,12 +2756,14 @@ async function rollbackProject(project, button) {
 }
 
 async function startProjectDeploy(project, button) {
-  if (!project.environment?.keys?.length) {
+  if (!isWorkerProject(project) && !project.environment?.keys?.length) {
     toast('บันทึก ENV อย่างน้อยหนึ่งค่าก่อน จึงสร้าง release ได้');
     await openDeployDialog(project);
     return;
   }
-  const confirmed = await confirmAction('สร้าง release ใหม่', `สร้าง release ของ ${project.name} จาก source ที่ sync ล่าสุดและ ENV ที่บันทึกไว้ ระบบจะตรวจสุขภาพก่อนสลับ traffic หากล้มเหลว release ปัจจุบันยังทำงานต่อ`, 'ตกลง');
+  const confirmed = await confirmAction('สร้าง release ใหม่', isWorkerProject(project)
+    ? `สร้าง Worker release ของ ${project.name} จาก source ล่าสุด ENV เว้นว่างได้ ระบบจะตรวจ process หลัง activate และอาจหยุดสั้น ๆ ระหว่างเปลี่ยน release`
+    : `สร้าง release ของ ${project.name} จาก source ที่ sync ล่าสุดและ ENV ที่บันทึกไว้ ระบบจะตรวจ HTTP ก่อน activate หาก candidate ล้มเหลว release เดิมยังทำงานต่อ`, 'ตกลง');
   if (!confirmed) return;
   await withBusy(button, () => deployExistingProject(project));
 }
@@ -2750,6 +2782,13 @@ async function openDeployDialog(project) {
   $('#deploy-dialog-title').textContent = `${mayDeploy ? 'Deploy' : 'ENV'} ${project.name}`;
   $('#deploy-project-label').textContent = `Release candidate · ${latestRelease?.revision || project.branch || 'latest source'}`;
   $('#deploy-release-project').textContent = project.name;
+  $('.deploy-safe').textContent = isWorkerProject(project) ? 'ตรวจ process หลัง activate · ไม่รัน candidate ซ้ำ' : 'HTTP candidate health check';
+  $('#deploy-release-explanation').textContent = isWorkerProject(project)
+    ? 'เตรียม source, dependencies และ build ก่อนสลับ release จากนั้นเริ่ม worker และตรวจว่า process ทำงานต่อเนื่อง โดยไม่รัน candidate ควบคู่กับ worker เดิม'
+    : 'สร้าง candidate จาก source และ ENV ล่าสุด ตรวจ HTTP บน loopback ก่อน activate ไม่ต้องมีโดเมน';
+  $('#deploy-failure-explanation').textContent = isWorkerProject(project)
+    ? 'Worker อาจหยุดสั้น ๆ ระหว่างเปลี่ยน release หากเริ่ม process ใหม่ไม่สำเร็จ ระบบจะพยายามคืน release เดิม ตรวจผลและ output ใน Logs'
+    : 'หาก candidate ไม่ผ่านการตรวจ release เดิมยังทำงานต่อไป ตรวจเหตุการณ์และ output ของแต่ละขั้นใน Logs';
   $('#deploy-release-source').textContent = `${project.branch || 'main'} · ${latestRelease?.revision || 'latest sync'}`;
   const [payload, configurationPayload] = await Promise.all([
     can('env.read', project) ? api(`/api/projects/${encodeURIComponent(project.slug)}/environment`) : Promise.resolve({ environment: null }),
@@ -2774,6 +2813,7 @@ async function openDeployDialog(project) {
       ? 'Build step is skipped by this project configuration; dependencies and health checks still run.'
       : 'The build plan uses the configuration shown in the Environment step.';
   $('#deploy-env-editor').value = payload.environment?.content || '';
+  $('#deploy-worker-env-notice').hidden = !isWorkerProject(project);
   const envRead = can('env.read', project);
   const envWrite = can('env.write', project);
   $('#deploy-env-editor').readOnly = !envWrite;
@@ -2960,7 +3000,7 @@ async function submitDeploy(event) {
   if (!can('deploy.start', project)) throw new Error('ไม่มีสิทธิ์ deploy โปรเจคนี้');
   const content = collectDeployEnvironmentContent();
   const variables = parseEnvironmentDocument(content).variables;
-  if (can('env.write', project) && !variables.length && can('env.read', project)) throw new Error('ต้องมีอย่างน้อยหนึ่ง environment variable ก่อน deploy');
+  if (!isWorkerProject(project) && can('env.write', project) && !variables.length && can('env.read', project)) throw new Error('ต้องมีอย่างน้อยหนึ่ง environment variable ก่อน deploy');
   if (state.deployStep === 1) {
     if (can('env.read', project)) $('#deploy-release-environment').textContent = `${variables.length} configured keys`;
     setDeployStep(2);
@@ -3054,7 +3094,7 @@ async function hydrateProjectLogs() {
     return;
   }
   $('#log-page-title').textContent = `${project.name} · Logs`;
-  $('#log-page-subtitle').textContent = `${project.slug} · ${project.branch}`;
+  $('#log-page-subtitle').textContent = `${project.slug} · ${project.branch} · ${isWorkerProject(project) ? 'Worker process · ไม่มี HTTP endpoint' : 'Web service'}`;
   renderProjectReleaseLogs(project);
   const checkbox = $('#log-auto-refresh');
   const runtime = $('#log-runtime');
@@ -3089,7 +3129,7 @@ function projectDeploymentLabel(progress) {
   const terminal = { succeeded: 'Deploy สำเร็จ', failed: 'Deploy ล้มเหลว', cancelled: 'ยกเลิก deploy', interrupted: 'Deploy ถูกขัดจังหวะ' };
   if (terminal[progress.status]) return terminal[progress.status];
   if (progress.status === 'queued') return 'รอคิว deploy';
-  const phases = { source_copy: 'เตรียม source', dependencies: 'ติดตั้ง dependencies', install: 'ติดตั้ง dependencies', build: 'กำลัง build', candidate_health: 'ตรวจสุขภาพ candidate', docker_preflight: 'ตรวจ Docker Compose', health_check: 'ตรวจสุขภาพ', health: 'ตรวจสุขภาพ', host_activation: 'เปิดใช้งานบน host', activation: 'เปิดใช้งาน release', start: 'เริ่ม service' };
+  const phases = { source_copy: 'เตรียม source', dependencies: 'ติดตั้ง dependencies', install: 'ติดตั้ง dependencies', build: 'กำลัง build', worker_preflight: 'เตรียม Worker โดยยังไม่เริ่ม process', candidate_health: 'ตรวจสุขภาพ candidate', docker_preflight: 'ตรวจ Docker Compose', health_check: 'ตรวจสุขภาพ', health: 'ตรวจสุขภาพ', host_activation: 'เปิดใช้งานบน host', activation: 'เปิดใช้งาน release', start: 'เริ่ม service' };
   const label = phases[progress.phase] || (progress.phase ? progress.phase.replaceAll('_', ' ') : 'เตรียม deploy');
   if (progress.phaseStatus === 'skipped') return label + ' · ข้ามขั้นตอน';
   return progress.phaseStatus === 'passed' ? label + ' · ผ่านแล้ว' : label;
@@ -3435,10 +3475,21 @@ async function hydrateCurrentView() {
 async function ensureEditDraft() {
   if (flowMode !== 'edit' || !editSlug) return readDraft();
   const draft = readDraft();
-  if (draft.slug === editSlug && draft.repository) return draft;
   const project = state.projects.find((item) => item.slug === editSlug);
   if (!project) throw new Error('ไม่พบโปรเจคที่ต้องการแก้ไข');
+  if (draft.slug === editSlug && draft.repository) {
+    const locked = Boolean(project.deployment?.releases?.length);
+    const workerLocked = locked && isWorkerProject(project);
+    return writeDraft({
+      serviceType: locked ? (project.serviceType || 'web') : (draft.serviceType || 'web'),
+      serviceTypeLocked: locked, workerRuntimeLocked: workerLocked,
+      runtime: workerLocked ? project.runtime : draft.runtime
+    });
+  }
   return writeDraft({
+    serviceType: project.serviceType || 'web',
+    serviceTypeLocked: Boolean(project.deployment?.releases?.length),
+    workerRuntimeLocked: isWorkerProject(project) && Boolean(project.deployment?.releases?.length),
     organization: project.organization || '',
     organizationId: project.organizationId || '',
     name: project.name || '',
@@ -3481,6 +3532,11 @@ async function hydrateIdentityStep() {
   $('#project-name').value = draft.name || '';
   $('#project-slug').value = draft.slug || '';
   $('#project-slug').readOnly = flowMode === 'edit';
+  $$('#project-identity-form input[name="serviceType"]').forEach((input) => {
+    input.checked = input.value === (draft.serviceType || 'web');
+    input.disabled = draft.serviceTypeLocked === true;
+  });
+  $('#service-purpose-hint').hidden = draft.serviceTypeLocked !== true;
   state.slugManual = flowMode === 'edit' || Boolean(draft.slug && draft.name && slugify(draft.name) !== draft.slug);
   const back = $('a.secondary.button[href="/projects"]');
   if (flowMode === 'edit' && back) back.href = '/projects';
@@ -3533,6 +3589,25 @@ async function hydrateRepositoryStep() {
   toggleHealthCheckFields();
   toggleRuntimeFields();
   toggleProjectPort();
+  toggleServiceFields();
+  if (draft.workerRuntimeLocked) {
+    $$('[data-runtime-option]').forEach((button) => { button.disabled = true; });
+    $('#runtime-menu').dataset.locked = 'true';
+    $('#runtime-menu summary').setAttribute('aria-disabled', 'true');
+    $('#detect-project-runtime').hidden = true;
+    $('#runtime-detection-note').textContent = 'Worker มี release แล้ว ประเภทและ runtime ถูกล็อก หากต้องการเปลี่ยนให้สร้างโปรเจคใหม่';
+  }
+}
+
+function toggleServiceFields() {
+  const worker = isWorkerProject(readDraft());
+  $$('[data-web-only]').forEach((section) => {
+    section.hidden = worker;
+    $$('input, select', section).forEach((input) => { input.disabled = worker; });
+  });
+  if (!worker) { toggleProjectPort(); toggleHealthCheckFields(); }
+  const notice = $('#worker-startup-notice');
+  if (notice) notice.hidden = !worker;
 }
 
 async function hydrateReviewStep() {
@@ -3554,9 +3629,12 @@ async function hydrateReviewStep() {
     ['Build', draft.runtime === 'python' ? `สร้าง .venv · ${draft.pythonInstall === 'none' ? 'ไม่ติดตั้ง dependencies' : draft.pythonInstall === 'project' ? 'pip install .' : draft.pythonRequirements || 'requirements.txt'}` : draft.runtime === 'php' ? (draft.phpInstall === 'none' ? 'ไม่ติดตั้ง Composer' : 'composer install --no-dev') : draft.runtime === 'go' ? `go build ${draft.goPackage || '.'}` : draft.skipBuild === true || draft.buildScript === null ? 'Skipped' : (draft.buildScript || 'build')],
     ...(draft.runtime === 'python' ? [['Start', `${draft.pythonMode || 'script'} · ${draft.pythonEntry || 'main.py'}`]] : []),
     ...(draft.runtime === 'php' ? [['Start', `${draft.phpMode || 'server'} · ${draft.phpDocroot || 'public'}`]] : []),
-    ['การเชื่อมต่อ', connectionLabel(draft)],
-    ['Port ภายในเครื่อง', draft.autoPort === true || draft.autoPort === 'on' || !draft.port ? 'สุ่มพอร์ตว่างตอนบันทึก' : draft.port],
-    ['Health check', draft.healthCheckEnabled === false ? 'Skipped' : (draft.healthCheckPath || '/')]
+    ['การเชื่อมต่อ Repository', connectionLabel(draft)],
+    ['ประเภท', isWorkerProject(draft) ? 'Worker · ไม่มีพอร์ตและโดเมน' : 'Web · ไม่ผูกโดเมน ใช้พอร์ตของแอป'],
+    ...(isWorkerProject(draft) ? [['การตรวจสอบ', 'ตรวจ process หลัง activate ไม่รัน candidate ซ้ำ · ไม่ยืนยันว่างานใน queue สำเร็จ']] : [
+      ['Port ภายในเครื่อง', draft.autoPort === true || draft.autoPort === 'on' || !draft.port ? 'สุ่มพอร์ตว่างตอนบันทึก' : draft.port],
+      ['HTTP health check', draft.healthCheckEnabled === false ? 'Skipped' : (draft.healthCheckPath || '/')]
+    ])
   ];
   const list = $('#project-review');
   list.replaceChildren(...pairs.flatMap(([term, description]) => [element('dt', '', term), element('dd', '', description)]));
@@ -3668,6 +3746,7 @@ function setDetectedFramework(value) {
 
 function setProjectRuntime(value) {
   const selected = projectRuntimes[value] ? value : 'node';
+  if (typeof readDraft === 'function' && readDraft().workerRuntimeLocked && selected !== readDraft().runtime) return;
   const choice = projectRuntimes[selected];
   const input = $('#project-runtime');
   if (!input) return;
@@ -3986,6 +4065,7 @@ async function autoInspectRepository() {
 }
 
 async function detectProjectRuntimeFromRepository({ quiet = false, request = null } = {}) {
+  if (readDraft().workerRuntimeLocked) return false;
   if (boundSourceLocked()) return false;
   const repository = $('#repository');
   if (!repository?.reportValidity()) return;
@@ -4083,6 +4163,9 @@ async function syncProjectDraft() {
     credentialId: draft.credentialId || '',
     sshKeyId: draft.sshKeyId || ''
   };
+  Object.assign(payload, serviceFields(draft));
+  const serviceError = serviceRuntimeError(payload);
+  if (serviceError) throw new Error(serviceError);
   const result = await api('/api/projects/sync', { method: 'POST', body: payload });
   clearDraft();
   toast(result.project?.sync?.status === 'synced' ? 'บันทึกและ sync source แล้ว' : (result.project?.sync?.detail || 'บันทึกโปรเจคแล้ว'));
@@ -4183,6 +4266,8 @@ function bindEvents() {
     const open = !document.body.classList.contains('nav-open');
     document.body.classList.toggle('nav-open', open);
     $('#mobile-menu').setAttribute('aria-expanded', String(open));
+    $('#mobile-menu').setAttribute('aria-label', open ? 'ปิดเมนูหลัก' : 'เปิดเมนูหลัก');
+    if (open) $('.nav-link.active:not([hidden])')?.focus();
   });
   $('#sidebar-toggle')?.addEventListener('click', () => {
     const collapsed = !document.body.classList.contains('sidebar-collapsed');
@@ -4200,10 +4285,18 @@ function bindEvents() {
     if (document.body.classList.contains('nav-open') && !event.target.closest('.sidebar, #mobile-menu')) {
       document.body.classList.remove('nav-open');
       $('#mobile-menu')?.setAttribute('aria-expanded', 'false');
+      $('#mobile-menu')?.setAttribute('aria-label', 'เปิดเมนูหลัก');
     }
     if (!event.target.closest('.project-actions-menu')) {
       $$('details.project-actions-menu[open]').forEach((menu) => { menu.open = false; });
     }
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || !document.body.classList.contains('nav-open')) return;
+    document.body.classList.remove('nav-open');
+    $('#mobile-menu')?.setAttribute('aria-expanded', 'false');
+    $('#mobile-menu')?.setAttribute('aria-label', 'เปิดเมนูหลัก');
+    $('#mobile-menu')?.focus();
   });
   $('#mail-check-run')?.addEventListener('click', async (event) => {
     const button = event.currentTarget;
@@ -4317,6 +4410,12 @@ function bindEvents() {
       state.repositoryAutoInspectKey = '';
       state.runtimeDetection = null;
     }
+    if (readDraft().serviceType === 'worker' && data.serviceType === 'web') {
+      data.autoPort = true;
+      data.port = '';
+      data.healthCheckEnabled = true;
+      data.healthCheckPath = '/';
+    }
     writeDraft(data);
     location.href = flowPath('repository');
   });
@@ -4345,6 +4444,10 @@ function bindEvents() {
     data.skipBuild = $('#skip-build').checked;
     if (data.skipBuild) data.buildScript = '';
     data.healthCheckEnabled = $('#health-check-enabled').checked;
+    data.serviceType = readDraft().serviceType || 'web';
+    const serviceError = serviceRuntimeError(data);
+    if (serviceError) { showError(new Error(serviceError)); return; }
+    Object.assign(data, serviceFields(data));
     writeDraft(data);
     location.href = flowPath('review');
   });
@@ -4363,6 +4466,9 @@ function bindEvents() {
   $('#project-directory')?.addEventListener('change', () => detectProjectRuntimeFromRepository({ quiet: true }));
   $('#health-check-enabled')?.addEventListener('change', toggleHealthCheckFields);
   $('#auto-project-port')?.addEventListener('change', toggleProjectPort);
+  $('#runtime-menu summary')?.addEventListener('click', (event) => {
+    if ($('#runtime-menu').dataset.locked === 'true') event.preventDefault();
+  });
   $('#python-mode')?.addEventListener('change', () => {
     const entry = $('#python-entry');
     if (['main.py', 'app:app', 'app.main:app'].includes(entry.value)) entry.value = $('#python-mode').value === 'script' ? 'main.py' : 'app:app';

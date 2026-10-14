@@ -4,6 +4,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DatabaseSync } from './sqlite.mjs';
+import { withMaintenanceLease } from './maintenance-lock.mjs';
 
 export const DEFAULT_CONFIG_PATH = '/etc/dashboard-portal/dashboard-portal.env';
 export const DEFAULT_STATE_DATABASE_PATH = '/var/lib/dashboard-portal/state.sqlite';
@@ -125,12 +126,14 @@ function restartDashboardService() {
 async function runResetCommand() {
   if (process.getuid?.() !== 0) throw new Error('Run this command with sudo.');
   if (process.argv.length !== 3 || process.argv[2] !== '--reset-pwd') throw new Error('Usage: dashboard-portal --reset-pwd');
-  const password = generateResetPassword();
-  await updateStoredPassword(password);
-  const email = await invalidateStoredSessions(DEFAULT_STATE_DATABASE_PATH, password);
-  await restartDashboardService();
-  const who = email ? ` for ${email}` : '';
-  process.stdout.write(`Dashboard Portal password reset${who}. Store this password now; it will not be shown again:\n${password}\n`);
+  await withMaintenanceLease(async () => {
+    const password = generateResetPassword();
+    await updateStoredPassword(password);
+    const email = await invalidateStoredSessions(DEFAULT_STATE_DATABASE_PATH, password);
+    await restartDashboardService();
+    const who = email ? ` for ${email}` : '';
+    process.stdout.write(`Dashboard Portal password reset${who}. Store this password now; it will not be shown again:\n${password}\n`);
+  });
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

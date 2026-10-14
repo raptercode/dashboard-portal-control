@@ -89,6 +89,6 @@ The default stable feed is [GitHub stable.json](https://github.com/raptercode/da
 
 ## Troubleshoot
 
-Inspect `journalctl -u dashboard-portal -u hostmgr-deploy-helper -n 100 --no-pager`, `sudo nginx -t`, host DNS and certificate issuance. HTTP 301 redirecting to healthy HTTPS is expected. An API success does not prove static files or login work. Reset a lost password with `sudo dashboard-portal reset-password`; it prompts privately and revokes old sessions. Keep port 3100 private and redact secrets in shared logs.
+Inspect `journalctl -u dashboard-portal -u hostmgr-deploy-helper -n 100 --no-pager`, `sudo nginx -t`, host DNS and certificate issuance. HTTP 301 redirecting to healthy HTTPS is expected. An API success does not prove static files or login work. Reset a lost password with `sudo dashboard-portal --reset-pwd`; it generates a new random password, displays it once in the terminal, revokes old sessions and restarts Portal. Store the displayed password securely before closing the terminal. Keep port 3100 private and redact secrets in shared logs.
 
 Maintainers: [release guide](releasing-and-ai-handoff.md), [bootstrap hosting](bootstrap-hosting.md), [Node versions](node-versions.md).

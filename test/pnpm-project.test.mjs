@@ -113,12 +113,17 @@ test('activation copies preserve relative pnpm links after the candidate is remo
     projectIdentity: () => ({ root: runtimeRoot, releases: join(runtimeRoot, 'releases'), current: join(runtimeRoot, 'current'), user: 'fixture', uid: 1234, gid: 1234, environmentFile: join(root, 'env/fixture.env'), unitFile: join(root, 'fixture.service') }),
     ensureProjectUser: async () => {}, run: async () => {}, chown: async () => {},
     mkdir, rm, cp, rename, chmod, copyFile, readFile, writeFile, readlink, symlink, join, basename,
+    optionalSnapshot: async read => { try { return await read(); } catch (error) { if (error.code === 'ENOENT') return null; throw error; } },
+    readWorkerState: async () => ({ active: 'inactive', enabled: false }),
+    checkWorkerProcess: async () => { throw new Error('Preparation must not start a service'); },
     readNodePackageManager, nodeRuntimeEnvironment, process, HelperError: Error,
     assertPnpmAvailable: async (_project, _run, options) => { assert.equal(options.uid, 1234); assert.equal(options.gid, 1234); probedAsUser = true; },
     assertDirectory: async () => {}, exists: path => stat(path).then(() => true).catch(() => false),
     renderProjectUnit: () => 'fixture unit', PROJECT_ROOT: projectRoot, ENVIRONMENT_ROOT: join(root, 'env')
   });
-  await prepare({ slug: 'fixture', runtime: 'node', nodeMajor: 24 }, 'release');
+  const transaction = await prepare({ slug: 'fixture', runtime: 'node', nodeMajor: 24 }, 'release');
+  assert.equal(transaction.previousTarget, null);
+  assert.equal(await readFile(join(root, 'env/fixture.env'), 'utf8'), 'NODE_ENV=production\n');
   assert.equal(probedAsUser, true);
   await rm(source, { recursive: true });
   assert.equal(await readlink(join(target, 'node_modules/dep')), '.pnpm/dep/node_modules/dep');

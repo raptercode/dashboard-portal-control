@@ -7,4 +7,4 @@
 
 อย่าแก้ประวัติให้ดูเหมือนตัดสินใจใหม่ ให้เพิ่ม ADR พร้อมเหตุผล/impact และ link บันทึกก่อนหน้า ฉบับภาษาอื่นต้องรักษา status/date/filename
 
-Current references: [0025 mail](0025-port-aware-mail-host-provisioning.md), [0026 ENV](0026-owner-can-read-and-edit-project-environment.md), [0027 access](0027-members-and-organization-permissions.md), [0028 credentials](0028-organization-repository-credentials.md), [0029 runtimes](0029-selectable-node-runtimes-and-sqlite-adapter.md), [0030 bootstrap](0030-public-bootstrap-and-bilingual-documentation.md)
+Current references: [0025 mail](0025-port-aware-mail-host-provisioning.md), [0026 ENV](0026-owner-can-read-and-edit-project-environment.md), [0027 access](0027-members-and-organization-permissions.md), [0028 credentials](0028-organization-repository-credentials.md), [0029 runtimes](0029-selectable-node-runtimes-and-sqlite-adapter.md), [0030 bootstrap](0030-public-bootstrap-and-bilingual-documentation.md), [0031 maintenance/recovery](0031-maintenance-exclusion-and-install-recovery.md)

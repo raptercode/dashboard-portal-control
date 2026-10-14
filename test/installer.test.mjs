@@ -4,6 +4,11 @@ import { readFile } from 'node:fs/promises';
 import { runInNewContext } from 'node:vm';
 import { nodeMajorForProject } from '../scripts/node-versions.mjs';
 
+test('installer includes the worker modules needed by the privileged helper', async () => {
+  const source = await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8');
+  for (const name of ['worker-health', 'worker-activation']) assert.ok(source.includes(`install -m 0750 -o root -g root "$APP_ROOT/scripts/${name}.mjs" "$HELPER_ROOT/${name}.mjs"`));
+});
+
 test('host activation uses the release Node major and defaults legacy releases to 24', async () => {
   const helper = await readFile(new URL('../scripts/hostmgr-deploy-helper.mjs', import.meta.url), 'utf8');
   const source = helper.match(/async function activateProject\(slug, releaseId\) \{[\s\S]*?\n\}/)[0];

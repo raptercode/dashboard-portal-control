@@ -19,6 +19,7 @@
     <div class="drawer-body">
       <section class="field-group" data-deploy-pane="1">
         <h3>Environment variables</h3>
+        <p id="deploy-worker-env-notice" class="notice" hidden>Worker ไม่จำเป็นต้องมี ENV หากแอปไม่ใช้ สามารถเว้นว่างแล้วไปขั้น Build ได้ ระบบไม่เพิ่ม PORT หรือ HOST ให้อัตโนมัติ ค่าที่ผู้ใช้กำหนดเองจะถูกเก็บตามเดิม</p>
         <p id="deploy-saved-env-message">ค่าที่บันทึกที่นี่จะถูกเขียนเป็นไฟล์ .env ให้ release ถัดไป release ที่กำลังทำงานอยู่ไม่เปลี่ยน แก้ได้ทั้งไฟล์หรือทีละรายการ แล้วกด "บันทึก ENV" ก่อนไปขั้นถัดไป</p>
         <div class="deploy-env-toolbar">
           <div class="deploy-env-modes" role="group" aria-label="รูปแบบการแก้ไข ENV">
@@ -69,14 +70,14 @@
       </section>
       <section class="field-group" data-deploy-pane="3" hidden>
         <h3>Release</h3>
-        <p>ตรวจสรุปแล้วกด "Create release" ระบบจะสร้าง candidate จาก source และ ENV ล่าสุด ตรวจสุขภาพบน loopback แล้วจึงสลับ traffic มาที่ release ใหม่</p>
+        <p id="deploy-release-explanation">ตรวจสรุปแล้วกด "Create release" ระบบจะสร้าง candidate จาก source และ ENV ล่าสุด ตรวจ HTTP บน loopback ก่อน activate</p>
         <div class="info-card deploy-release-info">
           <div><div class="k">Project</div><div id="deploy-release-project" class="v">…</div></div>
           <div><div class="k">Source</div><div id="deploy-release-source" class="v mono">…</div></div>
           <div><div class="k">Environment</div><div id="deploy-release-environment" class="v">…</div></div>
           <div><div class="k">Safety check</div><div class="v deploy-safe">Candidate health check</div></div>
         </div>
-        <aside class="notice"><svg class="icon" aria-hidden="true"><use href="#icon-info"></use></svg><p>หากขั้นตอนใดล้มเหลว release ปัจจุบันจะยังทำงานต่อไปตามเดิม ดูเหตุการณ์และ output ของแต่ละขั้นได้จาก Deployment log ในหน้า Logs ของโปรเจค</p></aside>
+        <aside class="notice"><svg class="icon" aria-hidden="true"><use href="#icon-info"></use></svg><p id="deploy-failure-explanation">หากขั้นตอนใดล้มเหลว release ปัจจุบันจะยังทำงานต่อไปตามเดิม ดูเหตุการณ์และ output ของแต่ละขั้นได้จาก Deployment log ในหน้า Logs ของโปรเจค</p></aside>
       </section>
     </div>
     <footer class="drawer-foot">

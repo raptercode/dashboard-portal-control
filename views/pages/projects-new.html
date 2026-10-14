@@ -19,6 +19,12 @@
       <p>ชื่อกับ slug ใช้ระบุโปรเจคทั้งใน Dashboard และบน host องค์กรกำหนดขอบเขตการเข้าถึงโปรเจคนี้</p>
     </header>
     <form id="project-identity-form" class="form-grid">
+      <fieldset class="fieldset service-purpose-picker">
+        <legend>โปรเจคนี้ทำงานแบบไหน?</legend>
+        <label class="check-row"><input type="radio" name="serviceType" value="web" checked><span><b>Web / API</b><small>รับ HTTP ผ่านพอร์ตภายใน host เพิ่มโดเมนเมื่อพร้อมได้ ไม่ต้องมีโดเมนก่อน deploy</small></span></label>
+        <label class="check-row"><input type="radio" name="serviceType" value="worker"><span><b>Worker / งานเบื้องหลัง</b><small>Consumer, queue หรือ scheduler ที่รันต่อเนื่อง ไม่ต้องมีพอร์ตหรือโดเมน รองรับ Node.js, Bun, Go และ Python script</small></span></label>
+      </fieldset>
+      <small id="service-purpose-hint" class="field-hint" hidden>มี release แล้ว จึงเปลี่ยนประเภท Web/Worker ไม่ได้ หากต้องการเปลี่ยนให้สร้างโปรเจคใหม่</small>
       <fieldset class="fieldset org-picker">
         <legend>องค์กร</legend>
         <input id="project-organization" name="organization" type="hidden" value="">
