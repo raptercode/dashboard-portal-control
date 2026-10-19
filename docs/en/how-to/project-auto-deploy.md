@@ -15,6 +15,8 @@ Dashboard Portal already checks every configured project branch every five minut
 
 The hooks are optional. Creating a hook selects its trigger mode and turns on Auto deploy. Selecting **Auto deploy** from the project menu switches back to five-minute polling without needing GitHub Actions. GitHub push mode also uses polling as a fallback. Actions mode waits for the CI hook before deployment, including when a background poll already synced the commit. Disabling the Actions hook stops auto deployment until another mode is selected. A stored hook token can remain after changing modes, but only the selected mode accepts its trigger.
 
+After fixing a failed deployment, click **Sync latest** to retry the already-synced commit when Auto deploy is enabled in polling/GitHub mode. The same action can return to the latest commit after a rollback. A successful active commit is not deployed repeatedly, and background polling does not retry the same failed commit indefinitely. With Auto deploy disabled, use Deploy explicitly; Actions mode still waits for CI. Rollback confirmation shows both release IDs and commits, because separate releases can use the same commit. A successful rollback updates the card while keeping the failed deployment log accessible.
+
 For faster GitHub delivery, use the project's **ตั้งค่า GitHub webhook** action:
 
 1. Create a Secret. This also enables Auto deploy. Copy it immediately; the Portal only displays it once and stores it encrypted with `HOSTMGR_SECRET_KEY`.

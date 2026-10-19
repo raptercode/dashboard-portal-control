@@ -1037,8 +1037,15 @@ export async function createApplication(options = {}) {
     });
     let autoDeploy = null;
     if (!syncFailed && storedProject?.autoSync?.mode !== 'actions' && canAccess(store.snapshot(), requestContext.getStore().user, project.organizationId, 'deploy.start')) {
-      const currentRevision = store.snapshot().projects.find((item) => item.slug === project.slug)?.sync?.revision ?? null;
-      if (currentRevision && currentRevision !== previousRevision) autoDeploy = await queueAutoDeployIfEnabled(project.slug, currentRevision);
+      const current = store.snapshot().projects.find((item) => item.slug === project.slug);
+      const currentRevision = current?.sync?.revision ?? null;
+      const latestRelease = current?.deployment?.releases?.[0];
+      const activeRelease = current?.deployment?.releases?.find(release => release.id === current.deployment.activeReleaseId);
+      // An explicit Sync latest is also a retry after a failed deployment.
+      // Background polling still waits for a new commit to avoid retry loops.
+      const retryFailed = latestRelease?.status === 'failed' && latestRelease.revision === currentRevision;
+      const activeIsBehind = activeRelease?.revision !== currentRevision;
+      if (currentRevision && (currentRevision !== previousRevision || (body.retryDeployment === true && (retryFailed || activeIsBehind)))) autoDeploy = await queueAutoDeployIfEnabled(project.slug, currentRevision);
     }
     const saved = publicProject(store.snapshot().projects.find((item) => item.slug === project.slug));
     return sendJson(response, syncFailed ? 422 : 200, { ok: !syncFailed, project: saved, error: syncFailed ? sync.detail : undefined, activation: autoDeploy?.activation, job: autoDeploy?.job });

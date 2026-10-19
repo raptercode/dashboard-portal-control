@@ -408,11 +408,26 @@ function projectDisplayStatus(project) {
   const deployment = project.deployment || {};
   const sync = project.sync || {};
   const latestRelease = deployment.releases?.[0];
+  if (deployment.state === 'rolling_back') return { key: 'deploying', tone: 'building', label: 'กำลังย้อนกลับ…' };
   if (['queued', 'running'].includes(project.deploymentProgress?.status)) return { key: 'deploying', tone: 'building', label: projectDeploymentLabel(project.deploymentProgress) };
-  if (project.runtimeStatus?.state === 'down' || ['failed', 'needs_ssh_key'].includes(sync.status) || latestRelease?.status === 'failed' || deployment.state === 'failed') return { key: 'attention', tone: 'error', label: 'Needs attention' };
   if (['deploying', 'rolling_back', 'awaiting_activation'].includes(deployment.state)) return { key: 'deploying', tone: 'building', label: 'Deploying…' };
+  if (project.runtimeStatus?.state === 'down' || ['failed', 'needs_ssh_key'].includes(sync.status) || (latestRelease?.status === 'failed' && !projectRecoveredAfterFailure(project)) || deployment.state === 'failed') return { key: 'attention', tone: 'error', label: 'Needs attention' };
   if (deployment.state === 'active' && deployment.activeReleaseId) return { key: 'released', tone: 'success', label: 'Released' };
   return { key: 'synced', tone: 'muted', label: 'Ready to release' };
+}
+
+function projectRecoveredAfterFailure(project) {
+  const deployment = project.deployment || {};
+  const latest = deployment.releases?.[0];
+  const active = deployment.releases?.find(release => release.id === deployment.activeReleaseId);
+  if (deployment.state !== 'active' || latest?.status !== 'failed' || !active || active.status !== 'active') return false;
+  if (['queued', 'running'].includes(project.deploymentProgress?.status)) return false;
+  const failedAt = Math.max(...[
+    latest.createdAt,
+    ...(latest.events || []).filter(event => event.status === 'failed').map(event => event.at),
+    project.deploymentProgress?.updatedAt
+  ].map(value => Date.parse(value)).filter(Number.isFinite));
+  return Number.isFinite(failedAt) && Date.parse(active.activatedAt) > failedAt;
 }
 
 function projectStatusCounts(projects) {
@@ -1040,6 +1055,7 @@ function projectRow(project) {
   portMeta.append(document.createTextNode(isWorkerProject(project) ? 'Worker ' : 'Port '), element('strong', '', isWorkerProject(project) ? 'ไม่ใช้พอร์ต' : String(project.port || 'auto')));
   const branchMeta = element('span', 'meta-item');
   branchMeta.append(document.createTextNode('Branch '), element('strong', '', project.branch));
+  const releaseMeta = activeRelease ? element('span', 'meta-item', `Release ${activeRelease.id.slice(0, 8)}`) : null;
   const hasNewCommit = hasNewerSyncedRevision({
     syncStatus: sync.status,
     syncRevision: sync.revision,
@@ -1052,6 +1068,7 @@ function projectRow(project) {
   } else {
     meta.append(portMeta, branchMeta);
   }
+  if (releaseMeta) meta.append(releaseMeta);
   const stateLabel = element('span', `project-state ${displayStatus.tone}`, displayStatus.label);
   const details = element('details', 'project-details');
   const detailSummary = element('summary', '', 'รายละเอียดการตั้งค่า');
@@ -1085,7 +1102,7 @@ function projectRow(project) {
   const progress = projectDeploymentCard(project);
   if (progress) source.append(progress);
   const actions = element('div', 'card-actions project-actions');
-  const primaryAction = element('button', 'btn btn-primary btn-sm', displayStatus.key === 'deploying' ? 'Deploying…' : (displayStatus.key === 'attention' && deployment.previousReleaseId ? 'Rollback' : 'Deploy'));
+  const primaryAction = element('button', 'btn btn-primary btn-sm', displayStatus.key === 'deploying' ? displayStatus.label : (displayStatus.key === 'attention' && deployment.previousReleaseId ? 'Rollback' : 'Deploy'));
   primaryAction.type = 'button';
   primaryAction.disabled = displayStatus.key === 'deploying' || sync.status !== 'synced';
   if (displayStatus.key === 'attention' && deployment.previousReleaseId) primaryAction.addEventListener('click', () => rollbackProject(project, primaryAction));
@@ -1180,6 +1197,7 @@ function projectRow(project) {
 
 async function syncExistingProject(project, button) {
   const payload = {
+    retryDeployment: true,
     organization: project.organization,
     organizationId: project.organizationId,
     name: project.name,
@@ -2753,15 +2771,22 @@ function confirmProjectDeletion(project) {
 }
 
 async function rollbackProject(project, button) {
-  if (!await confirmAction('ย้อนกลับ release', `ย้อน ${project.name} ไปยัง release ก่อนหน้าหรือไม่?`, 'ย้อนกลับ')) return;
+  const deployment = project.deployment || {};
+  const active = deployment.releases?.find(release => release.id === deployment.activeReleaseId);
+  const target = deployment.releases?.find(release => release.id === deployment.previousReleaseId);
+  const identity = release => release ? `${release.id} (commit ${release.revision?.slice(0, 7) || 'ไม่ทราบ'})` : 'ไม่พบ release';
+  const sameCommit = active?.revision && active.revision === target?.revision ? ' ทั้งสอง release ใช้ commit เดียวกัน เลข commit จะไม่เปลี่ยน' : '';
+  if (!await confirmAction('ย้อนกลับ release', `ย้อน ${project.name} จาก ${identity(active)} ไป ${identity(target)}?${sameCommit}`, 'ย้อนกลับ')) return;
+  const originalText = button.textContent;
   button.disabled = true;
+  button.textContent = 'กำลังย้อนกลับ…';
   try {
-    const result = await api(`/api/projects/${encodeURIComponent(project.slug)}/rollback`, { method: 'POST', body: {} });
-    toast(result.activation === 'queued' || result.activation === 'pending' ? 'จัดคิว rollback แล้ว' : 'rollback สำเร็จ');
+    const result = await api(`/api/projects/${encodeURIComponent(project.slug)}/rollback`, { method: 'POST', body: { releaseId: target?.id } });
+    toast(result.activation === 'queued' || result.activation === 'pending' ? 'จัดคิว rollback แล้ว' : `ย้อนกลับสำเร็จ · release ${target?.id.slice(0, 8) || ''}`);
     if (result.job?.id) await trackProjectDeployment(project, result.job);
     else await refresh();
   } catch (error) { showError(error); }
-  finally { button.disabled = false; }
+  finally { button.disabled = false; button.textContent = originalText; }
 }
 
 async function startProjectDeploy(project, button) {
@@ -3148,13 +3173,15 @@ function projectDeploymentLabel(progress) {
 function projectDeploymentCard(project) {
   const progress = project.deploymentProgress;
   if (!progress) return null;
-  const active = ['queued', 'running'].includes(progress.status);
-  const box = element('div', 'project-deployment-progress' + (active ? ' is-active' : '') + (['failed', 'interrupted'].includes(progress.status) ? ' is-failed' : ''));
+  const rollingBack = project.deployment?.state === 'rolling_back';
+  const active = rollingBack || ['queued', 'running'].includes(progress.status);
+  const recovered = projectRecoveredAfterFailure(project);
+  const box = element('div', 'project-deployment-progress' + (active ? ' is-active' : '') + (!rollingBack && !recovered && ['failed', 'interrupted'].includes(progress.status) ? ' is-failed' : ''));
   box.setAttribute('role', 'status');
-  box.append(element('span', 'project-deployment-phase', projectDeploymentLabel(progress)));
+  box.append(element('span', 'project-deployment-phase', rollingBack ? 'กำลังย้อนกลับ…' : recovered ? `ย้อนกลับสำเร็จ · release ${project.deployment.activeReleaseId.slice(0, 8)}` : projectDeploymentLabel(progress)));
   if (active) box.append(element('span', 'muted', 'อัปเดตอัตโนมัติ'));
   if (can('logs.read', project)) {
-    const logs = element('button', 'btn btn-ghost btn-sm', 'ดูรายละเอียด');
+    const logs = element('button', 'btn btn-ghost btn-sm', recovered || rollingBack ? 'ดูงาน deploy ที่ล้มเหลว' : 'ดูรายละเอียด');
     logs.type = 'button';
     logs.addEventListener('click', () => showDeploymentProgress(project, progress));
     box.append(logs);
@@ -3214,11 +3241,14 @@ async function pollProjectProgress() {
 
 function showDeploymentProgress(project, initialJob) {
   clearTimeout(deploymentProgressTimer);
+  const notifyCompletion = ['queued', 'running'].includes(initialJob.status);
   const generation = ++deploymentProgressGeneration;
   const isCurrent = () => generation === deploymentProgressGeneration && $('#deployment-log-dialog').open;
   $('#deployment-log-title').textContent = `${project.name} · กำลัง deploy`;
   showDialog($('#deployment-log-dialog'));
   const render = (job) => {
+    const titles = { succeeded: 'Deploy สำเร็จ', failed: 'Deploy ล้มเหลว', cancelled: 'ยกเลิก deploy', interrupted: 'Deploy ถูกขัดจังหวะ' };
+    $('#deployment-log-title').textContent = `${project.name} · ${titles[job.status] || 'กำลัง deploy'}`;
     $('#deployment-log-summary').textContent = `${job.status} · ${job.releaseId || ''}`;
     renderDeploymentLog(job.events, job.failureLog, job.failure);
   };
@@ -3229,7 +3259,7 @@ function showDeploymentProgress(project, initialJob) {
       render(job);
       if (job.status === 'succeeded' || job.status === 'failed' || job.status === 'cancelled' || job.status === 'interrupted') {
         await refresh();
-        toast(job.status === 'succeeded' ? `งานของ ${project.slug} สำเร็จ` : `งานของ ${project.slug} สิ้นสุดด้วยสถานะ ${job.status}`, job.status !== 'succeeded');
+        if (notifyCompletion) toast(job.status === 'succeeded' ? `งานของ ${project.slug} สำเร็จ` : `งานของ ${project.slug} สิ้นสุดด้วยสถานะ ${job.status}`, job.status !== 'succeeded');
         if (job.status === 'succeeded' && project.domains?.hosts?.length) {
           try {
             const edge = await api(`/api/projects/${encodeURIComponent(project.slug)}/edge/check`, { method: 'POST', body: {} });

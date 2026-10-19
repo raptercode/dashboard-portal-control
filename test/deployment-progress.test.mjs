@@ -6,6 +6,29 @@ import vm from 'node:vm';
 const app = await readFile(new URL('../public/ui/app.js', import.meta.url), 'utf8');
 const functions = ['closeDialog', 'openDeploymentLog', 'showDeploymentProgress'].map((name) => app.match(new RegExp(`function ${name}\\([^]*?^}`, 'm'))[0]).join('\n');
 
+test('opening an old failed job shows its terminal title without announcing a new failure', async () => {
+  const nodes = new Map();
+  const toasts = [];
+  const timers = [];
+  const node = id => {
+    if (!nodes.has(id)) nodes.set(id, { textContent: '', open: false });
+    return nodes.get(id);
+  };
+  const ctx = vm.createContext({
+    $: node, clearTimeout() {}, setTimeout(callback) { timers.push(callback); },
+    api: async () => ({ job: { id: 'old-job', status: 'failed', events: [], failure: 'Old DNS failure' } }),
+    renderDeploymentLog() {}, showDialog: dialog => { dialog.open = true; }, refresh: async () => {},
+    toast(...args) { toasts.push(args); }
+  });
+  vm.runInContext(`let deploymentProgressTimer; let deploymentProgressGeneration = 0;\n${functions}`, ctx);
+  ctx.showDeploymentProgress({ name: 'Example', slug: 'example' }, { id: 'old-job', status: 'failed' });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.match(node('#deployment-log-title').textContent, /Deploy ล้มเหลว/);
+  assert.doesNotMatch(node('#deployment-log-title').textContent, /กำลัง deploy/);
+  assert.equal(toasts.length, 0, 'viewing old logs must not announce a new failure');
+  assert.equal(timers.length, 0, 'terminal history must not keep polling');
+});
+
 test('a closed deployment poll cannot overwrite a subsequently opened release log', async () => {
   const nodes = new Map();
   const node = (id) => {

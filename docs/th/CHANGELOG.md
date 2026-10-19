@@ -2,6 +2,11 @@
 
 [English](../en/CHANGELOG.md)
 
+## ยังไม่ออก release
+
+- กด Sync latest เพื่อ retry commit ที่ sync มาแล้วแต่ deploy ล้ม หรือกลับไป commit ล่าสุดหลัง rollback ได้เมื่อ Auto deploy อนุญาต แยกจากการบันทึก config, polling, การปิด Auto deploy และ Actions mode
+- หลัง rollback สำเร็จการ์ดแสดงผลใหม่ พร้อม release ID และแจ้งเมื่อปลายทางใช้ commit เดียวกัน ยังดู log ที่ล้มเหลวเดิมได้ โดยไม่แจ้งเหมือนเพิ่งเกิด failure ใหม่หรือแสดงว่างานที่จบแล้วกำลังรัน
+
 ## 1.0.2 — 2026-10-20
 
 - รอผลตรวจ HTTP/TLS สูงสุด 30 วินาทีหลัง graceful reload ของ Nginx เมื่อ managed config ถูกต้อง แก้โดเมนใหม่ถูก rollback ทันทีเพราะ worker เดิมยังปฏิเสธ TLS ส่วน config ที่ผิดจริงยังหยุดทันที

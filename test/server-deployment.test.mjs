@@ -3,6 +3,49 @@ import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
 
 import { start } from './support/server.mjs';
+import { beginDeployment, createRelease, failRelease } from '../src/native-project.mjs';
+
+test('manual Sync latest retries a failed revision already cached by polling without redeploying it repeatedly', async t => {
+  let revision = 'a'.repeat(40);
+  const { app, base } = await start({ autoSyncPollingEnabled: false, projectSyncer: async () => ({ status: 'synced', at: new Date().toISOString(), revision, detail: 'Repository checked.' }) });
+  t.after(() => app.close());
+  const login = await fetch(base + '/api/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'owner@local.test', password: 'correct-horse-battery-staple' }) });
+  const session = await login.json();
+  const headers = { cookie: login.headers.get('set-cookie').split(';')[0], 'content-type': 'application/json', 'x-csrf-token': session.csrfToken };
+  const post = async (path, body = {}) => {
+    const response = await fetch(base + path, { method: 'POST', headers, body: JSON.stringify(body) });
+    assert.equal(response.status, 200);
+    return response.json();
+  };
+  await post('/api/tools/git/install', { confirm: true });
+  await post('/api/git-config', { name: 'Fixture', email: 'fixture@example.test' });
+  const body = { retryDeployment: true, name: 'Retry fixture', slug: 'retry-fixture', repository: 'https://github.com/example/retry.git', branch: 'main', port: 3006, protocol: 'https' };
+  const sync = () => post('/api/projects/sync', body);
+  await sync();
+  await post('/api/projects/retry-fixture/environment', { content: 'NODE_ENV=production\n' });
+  await post('/api/projects/retry-fixture/deploy');
+  revision = 'b'.repeat(40);
+  await sync(); // The failed revision is already present in the Git cache.
+  await app.store.update(state => {
+    const project = state.projects.find(p => p.slug === 'retry-fixture');
+    const failed = createRelease({ ...project, environment: { NODE_ENV: 'production' } }, revision);
+    project.deployment = failRelease(beginDeployment(project.deployment, failed), failed.id, 'Fixture DNS failure');
+  });
+  assert.equal((await sync()).activation, undefined, 'disabled auto deployment must stay disabled');
+  await post('/api/projects/retry-fixture/auto-sync', { enabled: true });
+  assert.equal((await post('/api/projects/sync', { ...body, retryDeployment: false })).activation, undefined, 'saving configuration must not implicitly retry a cached revision');
+  const retried = await sync();
+  assert.equal(retried.activation, 'complete');
+  assert.equal(retried.project.deployment.releases.find(r => r.id === retried.project.deployment.activeReleaseId).revision, revision);
+  const count = retried.project.deployment.releases.length;
+  const repeated = await sync();
+  assert.equal(repeated.activation, undefined);
+  assert.equal(repeated.project.deployment.releases.length, count);
+  await post('/api/projects/retry-fixture/rollback');
+  const afterRollback = await sync();
+  assert.equal(afterRollback.activation, 'complete', 'an explicit sync can return to latest after an intentional rollback');
+  assert.equal(afterRollback.project.deployment.releases.find(r => r.id === afterRollback.project.deployment.activeReleaseId).revision, revision);
+});
 
 test('local UI demo simulates sync and activates a release without cloning', async (t) => {
   const { app, base } = await start();

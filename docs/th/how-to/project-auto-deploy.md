@@ -13,6 +13,8 @@ Portal ตรวจ branch ของแต่ละ project ทุกห้า�
 
 สร้าง hook จะเลือก mode และเปิด auto deploy เลือก Auto deploy จากเมนูจะกลับ polling GitHub mode ยังคง polling fallback Actions mode รอ CI แม้ poll sync แล้ว ปิด Actions hook จะหยุด auto deploy จนเปลี่ยน mode Token เก็บไว้ได้แต่เฉพาะ mode ที่เลือกจึงรับ trigger
 
+หลังแก้สาเหตุ deploy ล้มเหลว กด **Sync latest** เพื่อ retry commit ที่ sync มาแล้วได้ เมื่อเปิด Auto deploy ในโหมด polling/GitHub ปุ่มเดียวกันใช้กลับไป commit ล่าสุดหลัง rollback ได้ หาก active เป็น commit ล่าสุดและสำเร็จอยู่แล้วจะไม่ deploy ซ้ำ ส่วน polling ไม่ retry commit เดิมวนไม่สิ้นสุด เมื่อปิด Auto deploy ให้กด Deploy เอง และ Actions mode ยังต้องรอ CI หน้ายืนยัน Rollback แสดง release ID และ commit ทั้งต้นทาง/ปลายทาง เพราะหลาย release อาจใช้ commit เดียวกัน หลัง rollback สำเร็จการ์ดจะแสดงผลใหม่ โดยยังเปิดดู log งาน deploy ที่ล้มเหลวเดิมได้
+
 ## GitHub push webhook
 
 1. เปิด action ตั้งค่า GitHub webhook สร้าง Secret และคัดลอกทันที ระบบแสดงครั้งเดียวและเข้ารหัสด้วย `HOSTMGR_SECRET_KEY`

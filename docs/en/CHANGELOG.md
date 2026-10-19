@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Explicit Sync latest retries a cached failed revision or returns to the latest commit after rollback when Auto deploy permits it. Configuration saves, background polling, disabled Auto deploy and Actions mode retain their separate behavior.
+- Successful rollback updates the card, shows release IDs and identifies same-commit targets. Historical failure logs remain accessible without announcing a new failure or labeling a completed job as running.
+
 ## 1.0.2 — 2026-10-20
 
 - Wait up to 30 seconds for live HTTP/TLS probes after a graceful Nginx reload when the managed configuration is correct. A new domain no longer rolls back immediately because an old worker rejects its TLS handshake; genuine configuration errors still fail immediately.
