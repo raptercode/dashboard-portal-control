@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.2 — 2026-10-20
+
+- Wait up to 30 seconds for live HTTP/TLS probes after a graceful Nginx reload when the managed configuration is correct. A new domain no longer rolls back immediately because an old worker rejects its TLS handshake; genuine configuration errors still fail immediately.
+- Use fresh HTTP connections during readiness checks and distinguish certificate, HTTP routing and upstream failures.
+- Regression tests cover delayed workers, retry limits, configuration failures and connection reuse. Before publication, the patch passed the real Verify API, all eight Nginx/TLS checks and HTTPS 200 on an existing Ubuntu host. Fresh installation and reboot acceptance remain separate.
+
 ## 1.0.1 — 2026-10-20
 
 - Domain replacement and removal update the named certificate's exact domain set. Certificate preflight falls back to bounded public DNS queries when the host resolver retains a negative answer; HTTP-01 validation remains required.

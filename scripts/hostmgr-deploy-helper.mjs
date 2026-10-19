@@ -953,13 +953,18 @@ async function assertProjectEdge(project, { timeoutMs = 30_000, intervalMs = 500
   const startedAt = Date.now();
   let attempts = 0;
   let result;
+  let structureFailed = false;
   do {
     result = await inspectLoadedProjectEdge(project);
     attempts += 1;
     if (result.status === 'ok') return;
-    // A restarted service can still be booting even when optional health checks
-    // are disabled. Structural Nginx failures cannot be fixed by waiting here.
-    if (result.status !== 'upstream-down') break;
+    // nginx -s reload returns after sending a signal, before the new workers
+    // necessarily serve requests. Old workers may still return 404/default-site
+    // or reject the new SNI. Retry live probes only when the config is sound.
+    const structuralIds = ['site', 'enabled', 'loaded', 'conflict', 'tls'];
+    structureFailed = structuralIds.some(id => result.checks?.some(check => check.id === id && !check.ok));
+    const structureReady = structuralIds.every(id => result.checks?.some(check => check.id === id && check.ok));
+    if (structureFailed || !(result.status === 'upstream-down' || (structureReady && ['error', 'default-site'].includes(result.status)))) break;
     const remaining = timeoutMs - (Date.now() - startedAt);
     if (remaining <= 0) break;
     await delay(Math.min(intervalMs, remaining));
@@ -970,8 +975,11 @@ async function assertProjectEdge(project, { timeoutMs = 30_000, intervalMs = 500
     `Last status: ${result.status}`,
     ...(result.checks ?? []).filter(check => !check.ok).map(check => `${check.id}: ${check.detail}`)
   ].join('\n');
+  if (structureFailed) throw new HelperError('Nginx did not load the managed reverse proxy for this domain after reload.', diagnostics);
   if (result.status === 'default-site') throw new HelperError('Nginx still serves the default site for this domain after reload.', diagnostics);
   if (result.status === 'upstream-down') throw new HelperError('The project process is not answering on its port after waiting for startup.', diagnostics);
+  if (result.checks?.some(check => check.id === 'certificate' && !check.ok)) throw new HelperError('Origin TLS certificate verification did not pass after waiting for Nginx reload. Check the certificate hostname, trust chain, and port 443.', diagnostics);
+  if (result.checks?.some(check => check.id === 'http' && !check.ok)) throw new HelperError('HTTP routing for this domain did not become ready after waiting for Nginx reload. Check port 80 and the HTTPS redirect.', diagnostics);
   throw new HelperError('Nginx did not load the managed reverse proxy for this domain after reload.', diagnostics);
 }
 

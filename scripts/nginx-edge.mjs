@@ -125,6 +125,8 @@ export async function probeLoopbackHttp(hostname, options = {}) {
       path: `${url.pathname}${url.search}`,
       method: 'GET',
       headers: { host: hostname, accept: 'text/html,application/json,*/*' },
+      // A pooled socket can still belong to a worker from before the reload.
+      agent: false,
       timeout: timeoutMs,
       rejectUnauthorized: false
     }, (response) => {

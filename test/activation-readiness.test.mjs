@@ -2,9 +2,34 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
+import { buildEdgeEvaluation } from '../scripts/nginx-edge.mjs';
 
 const source = await readFile(new URL('../scripts/hostmgr-deploy-helper.mjs', import.meta.url), 'utf8');
 const assertion = source.match(/async function assertProjectEdge\(project[^]*?\n\}/)[0];
+
+test('a loaded edge waits for graceful reload workers before treating the old 404 and TLS rejection as failure', async () => {
+  let attempts = 0;
+  let elapsed = 0;
+  const sitePath = '/etc/nginx/sites-available/hostmgr-fixture.conf';
+  const enabledPath = '/etc/nginx/sites-enabled/hostmgr-fixture.conf';
+  const check = vm.runInNewContext(`(${assertion})`, {
+    inspectLoadedProjectEdge: async () => {
+      const ready = ++attempts > 1;
+      return buildEdgeEvaluation({
+        siteExists: true, enabled: true, hosts: ['api.example.test'], port: 39984, sitePath, enabledPath,
+        nginx: `# configuration file ${enabledPath}:\nserver {\n listen 80;\n server_name api.example.test;\n}\nserver {\n listen 443 ssl;\n server_name api.example.test;\n location / { proxy_pass http://127.0.0.1:39984; }\n}\n`,
+        upstreamProbe: { status: 200, kind: 'app' },
+        httpProbe: ready ? { status: 308, location: 'https://api.example.test/', kind: 'empty' } : { status: 404, kind: 'app' },
+        tlsProbe: { status: ready ? 'valid' : 'invalid', expiresAt: null }
+      });
+    },
+    delay: async ms => { elapsed += ms; }, Date: { now: () => elapsed },
+    HelperError: Error
+  });
+  await check({ port: 39984 }, { timeoutMs: 1000, intervalMs: 250 });
+  assert.equal(attempts, 2);
+  assert.equal(elapsed, 250);
+});
 
 test('activation rechecks an upstream that becomes ready after its first probe', async () => {
   let attempts = 0;
@@ -17,6 +42,47 @@ test('activation rechecks an upstream that becomes ready after its first probe',
   await check({ port: 44739, healthCheckEnabled: false, healthCheckPath: '/' });
   assert.equal(attempts, 3);
   assert.ok(elapsed > 0);
+});
+
+test('a loaded edge bounds TLS and HTTP retries and reports the actual failed probe', async () => {
+  for (const failedId of ['certificate', 'http']) {
+    let elapsed = 0;
+    let attempts = 0;
+    const check = vm.runInNewContext(`(${assertion})`, {
+      inspectLoadedProjectEdge: async () => {
+        attempts++;
+        return { status: 'error', checks: [
+          ...['site', 'enabled', 'loaded', 'conflict', 'tls'].map(id => ({ id, ok: true })),
+          { id: failedId, ok: false, detail: `fixture ${failedId} failed` }
+        ] };
+      },
+      delay: async ms => { elapsed += ms; }, Date: { now: () => elapsed },
+      HelperError: class extends Error { constructor(message, buildOutput) { super(message); this.buildOutput = buildOutput; } }
+    });
+    await assert.rejects(check({ port: 39984 }, { timeoutMs: 1000, intervalMs: 250 }), error => {
+      assert.match(error.message, failedId === 'certificate' ? /TLS certificate/ : /HTTP/);
+      assert.match(error.buildOutput, /4 attempts over 1000 ms/);
+      assert.match(error.buildOutput, new RegExp(`fixture ${failedId} failed`));
+      return true;
+    });
+    assert.equal(attempts, 4);
+    assert.equal(elapsed, 1000);
+  }
+});
+
+test('a real configuration failure does not wait even while the upstream is starting', async () => {
+  for (const failedId of ['site', 'enabled', 'loaded', 'conflict', 'tls']) {
+    let attempts = 0;
+    const check = vm.runInNewContext(`(${assertion})`, {
+      inspectLoadedProjectEdge: async () => {
+        attempts++;
+        return { status: 'upstream-down', checks: [{ id: failedId, ok: false }] };
+      },
+      delay: async () => assert.fail('configuration errors cannot recover by waiting'), Date, HelperError: Error
+    });
+    await assert.rejects(check({ port: 39984 }), /Nginx/);
+    assert.equal(attempts, 1);
+  }
 });
 
 test('an unavailable upstream times out with the last probe diagnostics', async () => {

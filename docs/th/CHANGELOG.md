@@ -2,6 +2,12 @@
 
 [English](../en/CHANGELOG.md)
 
+## 1.0.2 — 2026-10-20
+
+- รอผลตรวจ HTTP/TLS สูงสุด 30 วินาทีหลัง graceful reload ของ Nginx เมื่อ managed config ถูกต้อง แก้โดเมนใหม่ถูก rollback ทันทีเพราะ worker เดิมยังปฏิเสธ TLS ส่วน config ที่ผิดจริงยังหยุดทันที
+- เปิด HTTP connection ใหม่ทุกครั้งที่ตรวจ readiness และแยก error ของ certificate, HTTP routing และ upstream
+- เพิ่ม regression tests สำหรับ worker ที่พร้อมช้า, เวลารอสูงสุด, config ผิด และการใช้ connection ซ้ำ ก่อน publish ทดสอบแพตช์บน Ubuntu host จริงแล้ว: Verify API สำเร็จ, Nginx/TLS ผ่านทั้ง 8 ข้อ และ HTTPS ตอบ 200 การติดตั้งใหม่และ reboot ยังเป็นการทดสอบแยกต่างหาก
+
 ## 1.0.1 — 2026-10-20
 
 - เปลี่ยนหรือลบโดเมนแล้วอัปเดตชุดโดเมนใน certificate เดิมให้ตรง ใช้ public DNS สำรองแบบจำกัดเวลาเมื่อ resolver บน host ยังตอบไม่พบโดเมน โดยยังต้องผ่าน HTTP-01 จริง

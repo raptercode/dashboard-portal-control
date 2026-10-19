@@ -143,3 +143,16 @@ test('loopback probe sends the domain Host header instead of 127.0.0.1', async (
   assert.equal(probe.location, 'https://helpdesk-api.vitemail.site/');
   assert.notEqual(probe.kind, 'nginx-default');
 });
+
+test('readiness probes use fresh connections instead of a previous Nginx worker', async t => {
+  const connections = new Set();
+  const server = http.createServer((request, response) => {
+    connections.add(request.socket);
+    response.end('ready');
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => { server.closeAllConnections(); server.close(); });
+  const url = `http://127.0.0.1:${server.address().port}/`;
+  for (let i = 0; i < 3; i++) await probeLoopbackHttp('app.example.test', { url });
+  assert.equal(connections.size, 3);
+});
