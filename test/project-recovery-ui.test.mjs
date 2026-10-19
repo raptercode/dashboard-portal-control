@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 
 const app = await readFile(new URL('../public/ui/app.js', import.meta.url), 'utf8');
-const functions = ['projectRecoveredAfterFailure', 'projectDisplayStatus', 'projectDeploymentLabel', 'projectDeploymentCard', 'rollbackProject', 'syncExistingProject']
+const functions = ['projectRecoveredAfterFailure', 'projectDisplayStatus', 'projectDeploymentLabel', 'projectDeploymentCard', 'rollbackProject', 'restartProject', 'syncExistingProject']
   .map(name => app.match(new RegExp(`(?:async )?function ${name}\\([^]*?^}`, 'm'))?.[0] || '').join('\n');
 const project = () => ({
   slug: 'example', name: 'Example', sync: { status: 'synced', revision: 'b'.repeat(40) }, runtimeStatus: { state: 'up' },
@@ -74,4 +74,25 @@ test('the real Sync latest handler explicitly requests a retry, unlike a configu
   });
   await ctx.syncExistingProject(project(), {});
   assert.equal(calls, 1);
+});
+
+test('Restart confirms the deployed release, reports progress, and refreshes after a failed request without saving ENV', async () => {
+  const fixture = project();
+  let refreshed = 0;
+  let rendered = 0;
+  const ctx = context({
+    state: { projects: [fixture] }, view: 'projects',
+    withBusy: async (_button, work) => work(),
+    confirmAction: async (_title, detail) => { assert.match(detail, /ENV.*เดิม/); assert.match(detail, /Deploy/); return true; },
+    renderLiveProjects() { rendered++; assert.equal(ctx.projectDisplayStatus(fixture).label, 'กำลัง Restart…'); },
+    api: async (path, options) => {
+      assert.equal(path, '/api/projects/example/restart');
+      assert.equal(options.body.confirm, true);
+      throw new Error('restart failed');
+    },
+    refresh: async () => { refreshed++; }
+  });
+  await assert.rejects(ctx.restartProject(fixture, {}), /restart failed/);
+  assert.equal(rendered, 1);
+  assert.equal(refreshed, 1);
 });

@@ -111,6 +111,8 @@ export async function createApplication(options = {}) {
   const domainDnsCheck = options.domainDnsCheck ?? checkDomainDns;
   const projectDomainHelper = options.projectDomainHelper ?? callHostHelper;
   const domainMutations = new Set();
+  const projectRestarts = new Set();
+  const projectRestartHelper = options.projectRestartHelper ?? callHostHelper;
   const mailOutboundCheck = options.mailOutboundCheck ?? checkSmtpOutbound;
   const mailInboundCheck = options.mailInboundCheck ?? (() => checkMailInboundReadiness(mode, process.env.HOSTMGR_DEPLOY_HELPER_SOCKET));
   const mailDns = {
@@ -283,6 +285,8 @@ export async function createApplication(options = {}) {
           : (credentialRoute || (request.method === 'POST' && bodyRoutes.includes(url.pathname))) ? await readJson(request) : {};
         if (!getSession(request)) return sendJson(response, 401, { error: 'Session permissions changed. Sign in again.' });
         const access = authorizeRequest({ state: store.snapshot(), user: session.user, path: url.pathname, method: request.method, body });
+        const mutationSlug = url.pathname.match(/^\/api\/projects\/([a-z][a-z0-9-]{0,62})(?:\/|$)/)?.[1];
+        if (!['GET', 'HEAD'].includes(request.method) && projectRestarts.has(url.pathname === '/api/projects/sync' ? body.slug : mutationSlug || body.slug)) throw new InputError('โปรเจคกำลัง Restart กรุณารอให้เสร็จก่อน');
         context.authorization = { path: url.pathname, method: request.method, body };
         context.organizationId = access?.organizationId ?? access?.organization?.id;
         if (url.pathname === '/api/projects/sync' && access?.organization) {
@@ -341,6 +345,8 @@ export async function createApplication(options = {}) {
       if (request.method === 'DELETE' && deleteMatch) return await handleProjectDelete(request, response, deleteMatch[1]);
       const deployMatch = url.pathname.match(/^\/api\/projects\/([a-z][a-z0-9-]{0,62})\/deploy$/);
       if (request.method === 'POST' && deployMatch) return await handleProjectDeploy(request, response, deployMatch[1]);
+      const restartMatch = url.pathname.match(/^\/api\/projects\/([a-z][a-z0-9-]{0,62})\/restart$/);
+      if (request.method === 'POST' && restartMatch) return await handleProjectRestart(request, response, restartMatch[1]);
       const autoSyncMatch = url.pathname.match(/^\/api\/projects\/([a-z][a-z0-9-]{0,62})\/auto-sync$/);
       if (request.method === 'POST' && autoSyncMatch) return await handleProjectAutoSync(request, response, autoSyncMatch[1]);
       const githubHookMatch = url.pathname.match(/^\/api\/projects\/([a-z][a-z0-9-]{0,62})\/github-webhook$/);
@@ -1158,6 +1164,7 @@ export async function createApplication(options = {}) {
   }
 
   async function queueAutoDeployIfEnabled(slug, revision) {
+    if (projectRestarts.has(slug)) throw new InputError('โปรเจคกำลัง Restart รอให้เสร็จแล้วกด Sync latest อีกครั้ง');
     const project = store.snapshot().projects.find((item) => item.slug === slug);
     if (!project?.autoSync?.enabled || project.sync?.status !== 'synced') return null;
     if (project.serviceType !== 'worker' && !project.environment?.keys?.length) {
@@ -1207,6 +1214,7 @@ export async function createApplication(options = {}) {
   }
 
   async function executeProjectSourcePoll(slug, trigger = 'poll') {
+    if (projectRestarts.has(slug)) { rememberPendingSourceCheck(slug, trigger); return; }
     if (autoSyncRunning.has(slug)) {
       rememberPendingSourceCheck(slug, trigger);
       return;
@@ -1247,7 +1255,7 @@ export async function createApplication(options = {}) {
     } finally {
       autoSyncRunning.delete(slug);
       const pendingTrigger = autoSyncPending.get(slug);
-      if (pendingTrigger && !store.snapshot().jobs.some((job) => job.projectSlug === slug && ['queued', 'running'].includes(job.status))) {
+      if (pendingTrigger && !projectRestarts.has(slug) && !store.snapshot().jobs.some((job) => job.projectSlug === slug && ['queued', 'running'].includes(job.status))) {
         autoSyncPending.delete(slug);
         setImmediate(() => { void pollProjectSource(slug, pendingTrigger); });
       }
@@ -1346,6 +1354,49 @@ export async function createApplication(options = {}) {
       if (result?.state === 'active' || result?.state === 'down') return { state: result.state, checkedAt: new Date().toISOString() };
     } catch { /* Runtime status is advisory; it must not block the project list. */ }
     return { state: 'unknown' };
+  }
+
+  async function handleProjectRestart(request, response, slug) {
+    if (!requireSession(request, response, true)) return;
+    const body = await readJson(request);
+    if (body.confirm !== true) throw new InputError('ยืนยัน Restart โปรเจคก่อน');
+    const snapshot = store.snapshot();
+    const project = findProject(snapshot, slug);
+    if (!project.deployment?.activeReleaseId) throw new InputError('Deploy ให้มี active release ก่อนจึง Restart ได้');
+    if (body.releaseId !== undefined && body.releaseId !== project.deployment.activeReleaseId) throw new InputError('Active release เปลี่ยนแล้ว กรุณา Refresh ก่อน Restart');
+    if (project.runtime === 'docker-compose') throw new InputError('Restart นี้รองรับแอปที่รันด้วย systemd เท่านั้น');
+    if (projectRestarts.has(slug) || domainMutations.has(slug) || autoSyncRunning.has(slug) || ['deploying', 'rolling_back', 'awaiting_activation'].includes(project.deployment.state) || snapshot.jobs.some(job => job.projectSlug === slug && ['queued', 'running'].includes(job.status))) throw new InputError('โปรเจคมีงานกำลังทำอยู่ รอให้เสร็จก่อน Restart');
+    const releaseId = project.deployment.activeReleaseId;
+    const startedAt = new Date().toISOString();
+    projectRestarts.add(slug);
+    const record = async (status, detail) => store.update(state => {
+      const target = findProject(state, slug);
+      target.runtimeOperation = { kind: 'restart', status, releaseId, startedAt, finishedAt: status === 'running' ? null : new Date().toISOString(), detail };
+      appendAudit(state, { action: 'project.restart', outcome: status === 'running' ? 'started' : status === 'succeeded' ? 'success' : 'failure', actor: 'owner', target: slug, detail });
+    });
+    try {
+      await record('running', 'กำลัง Restart active release ด้วย ENV ที่ deploy อยู่เดิม');
+      let result;
+      if (uiDemo) result = { ok: true, state: 'active', releaseId };
+      else {
+        const socket = process.env.HOSTMGR_DEPLOY_HELPER_SOCKET;
+        if (!socket) throw new Error('missing helper');
+        result = await projectRestartHelper(socket, { operation: 'restart-project', slug, releaseId });
+      }
+      if (!result.ok || result.state !== 'active' || result.releaseId !== releaseId) {
+        await record('failed', 'Restart ไม่ผ่านการตรวจ process/health ตรวจ Logs ของโปรเจคก่อนลองใหม่');
+        return sendJson(response, 422, { ok: false, error: 'Restart ไม่สำเร็จหรือยังไม่ผ่าน health check ตรวจ Logs ของโปรเจค', project: publicProject(findProject(store.snapshot(), slug)) });
+      }
+      await record('succeeded', uiDemo ? 'โหมดสาธิต: จำลอง Restart สำเร็จ' : 'Restart สำเร็จ · ใช้ release และ ENV เดิม');
+      return sendJson(response, 200, { ok: true, project: publicProject(findProject(store.snapshot(), slug)) });
+    } catch {
+      await record('failed', 'ยังยืนยันผล Restart ไม่ได้ ตรวจสถานะและ Logs ก่อนลองใหม่');
+      return sendJson(response, 422, { ok: false, error: 'ยังยืนยันผล Restart ไม่ได้ ตรวจสถานะและ Logs ก่อนลองใหม่', project: publicProject(findProject(store.snapshot(), slug)) });
+    } finally {
+      projectRestarts.delete(slug);
+      const trigger = autoSyncPending.get(slug);
+      if (trigger) { autoSyncPending.delete(slug); setImmediate(() => { void pollProjectSource(slug, trigger); }); }
+    }
   }
 
   async function handleProjectDeploy(request, response, slug) {
@@ -1587,6 +1638,13 @@ export async function createApplication(options = {}) {
 
   async function recoverDeploymentQueue() {
     await store.update((state) => {
+      for (const project of state.projects) {
+        if (project.runtimeOperation?.status !== 'running') continue;
+        project.runtimeOperation.status = 'failed';
+        project.runtimeOperation.finishedAt = new Date().toISOString();
+        project.runtimeOperation.detail = 'Portal เริ่มใหม่ระหว่าง Restart จึงยังยืนยันผลไม่ได้ ตรวจสถานะและ Logs ก่อนลองใหม่';
+        appendAudit(state, { action: 'project.restart', outcome: 'failure', actor: 'system', target: project.slug, detail: project.runtimeOperation.detail });
+      }
       for (const job of state.jobs.filter((item) => item.status === 'running')) {
         job.status = 'interrupted';
         job.finishedAt = new Date().toISOString();

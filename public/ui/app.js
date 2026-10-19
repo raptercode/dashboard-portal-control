@@ -47,6 +47,7 @@ const state = {
   runtimeDetection: null,
   deployEnvironmentMode: 'file',
   deployEnvironmentRevision: 0,
+  deployEnvironmentSavedContent: '',
   notificationProject: null,
   slugManual: false,
   deployStep: 1
@@ -408,6 +409,7 @@ function projectDisplayStatus(project) {
   const deployment = project.deployment || {};
   const sync = project.sync || {};
   const latestRelease = deployment.releases?.[0];
+  if (project.runtimeOperation?.status === 'running') return { key: 'deploying', tone: 'building', label: 'กำลัง Restart…' };
   if (deployment.state === 'rolling_back') return { key: 'deploying', tone: 'building', label: 'กำลังย้อนกลับ…' };
   if (['queued', 'running'].includes(project.deploymentProgress?.status)) return { key: 'deploying', tone: 'building', label: projectDeploymentLabel(project.deploymentProgress) };
   if (['deploying', 'rolling_back', 'awaiting_activation'].includes(deployment.state)) return { key: 'deploying', tone: 'building', label: 'Deploying…' };
@@ -1101,21 +1103,44 @@ function projectRow(project) {
   copy.append(headline, source, secondary, details);
   const progress = projectDeploymentCard(project);
   if (progress) source.append(progress);
+  const operation = project.runtimeOperation;
+  if (operation && operation.releaseId === deployment.activeReleaseId) {
+    const operationBox = element('div', 'project-deployment-progress' + (operation.status === 'running' ? ' is-active' : operation.status === 'failed' ? ' is-failed' : ''));
+    operationBox.setAttribute('role', 'status');
+    operationBox.append(element('span', 'project-deployment-phase', operation.status === 'running' ? 'กำลัง Restart…' : operation.status === 'succeeded' ? 'Restart สำเร็จ · release เดิม' : 'Restart ยังไม่สำเร็จ · ตรวจ Logs'));
+    operationBox.title = operation.detail || '';
+    source.append(operationBox);
+  }
   const actions = element('div', 'card-actions project-actions');
-  const primaryAction = element('button', 'btn btn-primary btn-sm', displayStatus.key === 'deploying' ? displayStatus.label : (displayStatus.key === 'attention' && deployment.previousReleaseId ? 'Rollback' : 'Deploy'));
+  const mainActions = element('div', 'project-main-actions');
+  const utilityActions = element('div', 'project-utility-actions');
+  const primaryAction = element('button', 'btn btn-primary btn-sm', displayStatus.key === 'deploying' ? displayStatus.label : 'Deploy');
   primaryAction.type = 'button';
   primaryAction.disabled = displayStatus.key === 'deploying' || sync.status !== 'synced';
-  if (displayStatus.key === 'attention' && deployment.previousReleaseId) primaryAction.addEventListener('click', () => rollbackProject(project, primaryAction));
-  else primaryAction.addEventListener('click', () => startProjectDeploy(project, primaryAction).catch(showError));
-  if (can(displayStatus.key === 'attention' && deployment.previousReleaseId ? 'deploy.rollback' : 'deploy.start', project)) actions.append(primaryAction);
+  primaryAction.addEventListener('click', () => openDeployDialog(project).catch(showError));
+  if (can('deploy.start', project)) mainActions.append(primaryAction);
   const manualSync = element('button', 'btn btn-ghost btn-sm project-manual-sync', 'Sync latest');
   manualSync.type = 'button';
   manualSync.disabled = displayStatus.key === 'deploying';
   manualSync.addEventListener('click', () => syncExistingProject(project, manualSync).catch(showError));
-  if (can('source.sync', project)) actions.append(manualSync);
+  if (can('source.sync', project)) mainActions.append(manualSync);
+  const environment = element('button', 'btn btn-ghost btn-sm', 'ENV');
+  environment.type = 'button';
+  environment.title = 'จัดการ Environment และแผน Deploy';
+  environment.disabled = displayStatus.key === 'deploying';
+  environment.addEventListener('click', () => openDeployDialog(project).catch(showError));
+  if (can('env.read', project) || can('env.write', project)) utilityActions.append(environment);
+  if (can('deploy.start', project) && project.runtime !== 'docker-compose') {
+    const restart = element('button', 'btn btn-ghost btn-sm', 'Restart app');
+    restart.type = 'button';
+    restart.disabled = displayStatus.key === 'deploying' || !deployment.activeReleaseId;
+    restart.title = deployment.activeReleaseId ? 'เริ่ม process ของ release ปัจจุบันใหม่ ใช้ ENV ที่ deploy อยู่เดิม' : 'ต้องมี active release ก่อน';
+    restart.addEventListener('click', () => restartProject(project, restart).catch(showError));
+    utilityActions.append(restart);
+  }
   const logsPageLink = element('a', 'btn btn-ghost btn-sm', 'Logs');
   logsPageLink.href = `/projects/${encodeURIComponent(project.slug)}/logs`;
-  if (can('logs.read', project)) actions.append(logsPageLink);
+  if (can('logs.read', project)) utilityActions.append(logsPageLink);
   const menu = element('details', 'project-actions-menu');
   const menuSummary = element('summary');
   menuSummary.append(icon('more'));
@@ -1143,6 +1168,7 @@ function projectRow(project) {
     ? (can('env.write', project) ? 'จัดการ ENV และ deploy' : 'ตรวจแผนและ deploy')
     : (can('env.write', project) ? 'จัดการ ENV' : 'ดู ENV'));
   deploy.type = 'button';
+  deploy.disabled = displayStatus.key === 'deploying';
   deploy.addEventListener('click', closeMenu(() => openDeployDialog(project).catch(showError)));
   if (can('deploy.start', project) || can('env.read', project) || can('env.write', project)) actionList.append(deploy);
   if (latestRelease && can('logs.read', project)) {
@@ -1179,6 +1205,7 @@ function projectRow(project) {
   if (deployment.previousReleaseId && can('deploy.rollback', project)) {
     const rollback = element('button', 'secondary', 'ย้อนกลับ');
     rollback.type = 'button';
+    rollback.disabled = displayStatus.key === 'deploying';
     rollback.addEventListener('click', closeMenu(() => rollbackProject(project, rollback)));
     actionList.append(rollback);
   }
@@ -1188,11 +1215,26 @@ function projectRow(project) {
   remove.type = 'button';
   remove.addEventListener('click', closeMenu(() => deleteProject(project, remove)));
   if (isMaster()) actionList.append(divider, remove);
-  if (actionList.children.length) { menu.append(menuSummary, actionList); actions.append(menu); }
+  if (actionList.children.length) { menu.append(menuSummary, actionList); utilityActions.append(menu); }
+  actions.append(mainActions, utilityActions);
   const side = element('div', 'project-side');
   side.append(actions);
   row.append(copy, side);
   return row;
+}
+
+async function restartProject(project, button) {
+  const active = project.deployment?.releases?.find(release => release.id === project.deployment.activeReleaseId);
+  if (!await confirmAction(`Restart ${project.name}?`, `เริ่ม process ใหม่จาก release ${project.deployment.activeReleaseId?.slice(0, 8)}${active?.revision ? ` · commit ${active.revision.slice(0, 12)}` : ''} แอปจะหยุดชั่วครู่ ใช้ ENV ที่ deploy อยู่เดิม หากแก้ ENV ใหม่ให้ใช้ Deploy เพื่อรัน build ด้วย`, 'Restart app')) return;
+  await withBusy(button, async () => {
+    const current = state.projects.find(item => item.slug === project.slug);
+    if (current) current.runtimeOperation = { kind: 'restart', status: 'running', releaseId: project.deployment.activeReleaseId };
+    if (view === 'projects') renderLiveProjects();
+    try {
+      await api(`/api/projects/${encodeURIComponent(project.slug)}/restart`, { method: 'POST', body: { confirm: true, releaseId: project.deployment.activeReleaseId } });
+      toast('Restart สำเร็จ · ใช้ release และ ENV เดิม');
+    } finally { await refresh(); }
+  });
 }
 
 async function syncExistingProject(project, button) {
@@ -2812,9 +2854,9 @@ async function deployExistingProject(project) {
 async function openDeployDialog(project) {
   state.activeProject = project;
   const mayDeploy = can('deploy.start', project);
-  const latestRelease = project.deployment?.releases?.[0];
+  const activeRelease = project.deployment?.releases?.find(release => release.id === project.deployment.activeReleaseId);
   $('#deploy-dialog-title').textContent = `${mayDeploy ? 'Deploy' : 'ENV'} ${project.name}`;
-  $('#deploy-project-label').textContent = `Release candidate · ${latestRelease?.revision || project.branch || 'latest source'}`;
+  $('#deploy-project-label').textContent = `กำลังรัน ${activeRelease?.revision?.slice(0, 12) || 'ยังไม่มี release'} · Source ${project.sync?.revision?.slice(0, 12) || project.branch || 'รอ sync'}`;
   $('#deploy-release-project').textContent = project.name;
   $('.deploy-safe').textContent = isWorkerProject(project) ? 'ตรวจ process หลัง activate · ไม่รัน candidate ซ้ำ' : 'HTTP candidate health check';
   $('#deploy-release-explanation').textContent = isWorkerProject(project)
@@ -2823,7 +2865,7 @@ async function openDeployDialog(project) {
   $('#deploy-failure-explanation').textContent = isWorkerProject(project)
     ? 'Worker อาจหยุดสั้น ๆ ระหว่างเปลี่ยน release หากเริ่ม process ใหม่ไม่สำเร็จ ระบบจะพยายามคืน release เดิม ตรวจผลและ output ใน Logs'
     : 'หาก candidate ไม่ผ่านการตรวจ release เดิมยังทำงานต่อไป ตรวจเหตุการณ์และ output ของแต่ละขั้นใน Logs';
-  $('#deploy-release-source').textContent = `${project.branch || 'main'} · ${latestRelease?.revision || 'latest sync'}`;
+  $('#deploy-release-source').textContent = `${project.branch || 'main'} · ${project.sync?.revision || 'latest sync'}`;
   const [payload, configurationPayload] = await Promise.all([
     can('env.read', project) ? api(`/api/projects/${encodeURIComponent(project.slug)}/environment`) : Promise.resolve({ environment: null }),
     api(`/api/projects/${encodeURIComponent(project.slug)}/deploy-configuration`)
@@ -2845,7 +2887,7 @@ async function openDeployDialog(project) {
     ? `No ${configuration.lockfile.name} found deployment will use ${configuration.packageManager}, not npm ci.`
     : configuration.skipBuild
       ? 'Build step is skipped by this project configuration; dependencies and health checks still run.'
-      : 'The build plan uses the configuration shown in the Environment step.';
+      : 'Deploy จะติดตั้ง dependencies และรัน build ด้วย ENV ที่บันทึกไว้ ก่อนเริ่ม release ใหม่';
   $('#deploy-env-editor').value = payload.environment?.content || '';
   $('#deploy-worker-env-notice').hidden = !isWorkerProject(project);
   const envRead = can('env.read', project);
@@ -2857,19 +2899,21 @@ async function openDeployDialog(project) {
   $('#deploy-env-file-mode').hidden = !envRead || !envWrite;
   $('#deploy-saved-env-message').textContent = !envRead && envWrite
     ? 'คุณอ่านค่า ENV เดิมไม่ได้ การบันทึกจะเขียนทับทั้งไฟล์ กรุณาใส่ค่า .env ครบทุกบรรทัดก่อนบันทึก'
-    : !envRead ? 'คุณไม่มีสิทธิ์อ่านหรือแก้ไข ENV เดิม Deploy จะใช้ค่าที่บันทึกไว้บนระบบ' : !envWrite ? 'คุณอ่านค่า ENV ได้ แต่แก้ไขไม่ได้' : 'ค่าที่บันทึกที่นี่จะถูกเขียนเป็นไฟล์ .env ให้ release ถัดไป release ที่กำลังทำงานอยู่ไม่เปลี่ยน';
+    : !envRead ? 'คุณไม่มีสิทธิ์อ่านหรือแก้ไข ENV เดิม Deploy จะใช้ค่าที่บันทึกไว้บนระบบ' : !envWrite ? 'คุณอ่านค่า ENV ได้ แต่แก้ไขไม่ได้' : 'บันทึก ENV แล้ว Deploy ใหม่เพื่อให้มีผลตั้งแต่ขั้น build ส่วน Restart app ใช้ release และ ENV ที่ deploy อยู่เดิม';
   state.deployEnvironmentMode = 'file';
   setDeployEnvironmentMode('file');
   $('#deploy-environment-rows').replaceChildren();
   $('#deploy-env-file').value = '';
   $('#deploy-env-status').textContent = 'ยังไม่มีการเปลี่ยนแปลง';
+  state.deployEnvironmentSavedContent = $('#deploy-env-editor').value;
+  $('#deploy-env-filter').value = '';
   state.deployEnvironmentRevision += 1;
   const keyCount = payload.environment?.variables?.length || 0;
   $('#deploy-release-environment').textContent = envRead ? (keyCount ? `${keyCount} configured keys` : 'ยังไม่มีค่า ENV') : 'ใช้ ENV ที่บันทึกไว้';
   setDeployStep(1);
   $('#deploy-dialog .stepper').hidden = !mayDeploy;
   $('#deploy-submit').hidden = !mayDeploy;
-  $('#deploy-back').hidden = !mayDeploy;
+  $('#deploy-back').hidden = true;
   $('#deploy-cancel').textContent = mayDeploy ? 'ยกเลิก' : 'ปิด';
   const dialog = showDialog($('#deploy-dialog'));
   requestAnimationFrame(() => dialog.classList.add('open'));
@@ -2933,6 +2977,13 @@ function setDeployEnvironmentMode(mode) {
   $('#deploy-env-rows-pane').hidden = mode !== 'rows';
   $('#deploy-env-file-mode').setAttribute('aria-pressed', String(mode === 'file'));
   $('#deploy-env-rows-mode').setAttribute('aria-pressed', String(mode === 'rows'));
+  $('#deploy-env-filter').hidden = mode !== 'rows';
+  filterDeployEnvironment();
+}
+
+function filterDeployEnvironment() {
+  const query = $('#deploy-env-filter').value.trim().toUpperCase();
+  $$('.deploy-env-row').forEach(row => { row.hidden = !($('input', row).value.toUpperCase().includes(query)); });
 }
 
 function markDeployEnvironmentChanged() {
@@ -2971,6 +3022,7 @@ async function saveDeployEnvironment() {
     const current = state.projects.find((item) => item.slug === project.slug);
     if (current) current.environment = result.project.environment;
     if (state.activeProject === project && $('#deploy-dialog').open) {
+      state.deployEnvironmentSavedContent = content;
       $('#deploy-release-environment').textContent = `${result.project.environment.keys.length} configured keys`;
       if (state.deployEnvironmentRevision === revision) $('#deploy-env-status').textContent = 'บันทึกแล้ว · ค่าจะมีผลเมื่อ deploy ครั้งถัดไป';
     }
@@ -2985,15 +3037,29 @@ function setDeployStep(step) {
     const itemStep = Number(item.dataset.deployStep);
     item.classList.toggle('active', itemStep === step);
     item.classList.toggle('done', itemStep < step);
+    if (itemStep === step) item.setAttribute('aria-current', 'step');
+    else item.removeAttribute('aria-current');
   });
   const back = $('#deploy-back');
   back.hidden = step === 1;
-  $('#deploy-submit').textContent = step === 1 ? 'Next: Build' : step === 2 ? 'Next: Release' : 'Create release';
+  $('#deploy-submit').textContent = step === 1 ? 'ถัดไป: Build' : step === 2 ? 'ถัดไป: ตรวจและ Deploy' : 'บันทึก ENV และ Deploy';
+  $('#deploy-submit').disabled = state.activeProject?.sync?.status !== 'synced';
 }
 
-function closeDeployDialog() {
+function navigateDeployStep(step) {
+  const content = collectDeployEnvironmentContent();
+  const variables = parseEnvironmentDocument(content).variables;
+  if (step > 1 && can('env.read', state.activeProject)) $('#deploy-release-environment').textContent = `${variables.length} configured keys · จะมีผลหลัง Deploy`;
+  setDeployStep(step);
+}
+
+async function closeDeployDialog() {
   const dialog = $('#deploy-dialog');
   if (!dialog.open) return Promise.resolve();
+  // Compare the raw document as well: invalid edits must still get a discard warning.
+  let content = $('#deploy-env-editor').value;
+  try { content = collectDeployEnvironmentContent(); } catch { content = null; }
+  if (can('env.write', state.activeProject) && content !== state.deployEnvironmentSavedContent && !await confirmAction('ปิดโดยไม่บันทึก ENV?', 'มี ENV ที่แก้ไขแล้วยังไม่ได้บันทึก หากปิดตอนนี้การแก้ไขจะหายไป', 'ทิ้งการแก้ไข')) return;
   dialog.classList.remove('open');
   dialog.close();
   return Promise.resolve();
@@ -3048,7 +3114,10 @@ async function submitDeploy(event) {
   const submit = $('#deploy-submit');
   submit.disabled = true;
   try {
-    if (can('env.write', project) && (can('env.read', project) || content.trim())) await api(`/api/projects/${encodeURIComponent(project.slug)}/environment`, { method: 'POST', body: { mode: 'replace', content } });
+    if (can('env.write', project) && (can('env.read', project) || content.trim())) {
+      await api(`/api/projects/${encodeURIComponent(project.slug)}/environment`, { method: 'POST', body: { mode: 'replace', content } });
+      state.deployEnvironmentSavedContent = content;
+    }
     const result = await api(`/api/projects/${encodeURIComponent(project.slug)}/deploy`, { method: 'POST', body: {} });
     await closeDeployDialog();
     toast(result.activation === 'queued' ? 'จัดคิว deploy แล้ว' : 'สร้าง release แล้ว');
@@ -3220,7 +3289,7 @@ function renderLiveProjects() {
 function scheduleProjectProgress() {
   clearTimeout(projectProgressTimer);
   if (view !== 'projects') return;
-  const active = state.projects.some((project) => ['queued', 'running'].includes(project.deploymentProgress?.status));
+  const active = state.projects.some((project) => project.runtimeOperation?.status === 'running' || ['queued', 'running'].includes(project.deploymentProgress?.status));
   projectProgressTimer = setTimeout(pollProjectProgress, active ? 1500 : 5000);
 }
 
@@ -4352,6 +4421,10 @@ function bindEvents() {
 
   $('#deploy-form')?.addEventListener('submit', (event) => submitDeploy(event).catch(showError));
   $('#deploy-back')?.addEventListener('click', () => setDeployStep(Math.max(1, state.deployStep - 1)));
+  $$('[data-deploy-step]').forEach(button => button.addEventListener('click', () => {
+    try { navigateDeployStep(Number(button.dataset.deployStep)); } catch (error) { showError(error); }
+  }));
+  $('#deploy-env-filter')?.addEventListener('input', filterDeployEnvironment);
   $('#deploy-add-variable')?.addEventListener('click', () => {
     const row = deployEnvironmentRow();
     $('#deploy-environment-rows').append(row);

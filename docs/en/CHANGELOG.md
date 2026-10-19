@@ -1,7 +1,10 @@
 # Changelog
 
-## Unreleased
+## 1.0.3 — 2026-10-20
 
+- Restart the active native app process after a failed sync/deployment without creating another release or replacing its deployed ENV. Restart checks process stability and configured HTTP health, reports progress and failures, and blocks overlapping project operations.
+- Move ENV and deployment planning into a wide workspace with searchable variable rows, direct Environment / Build / Review navigation and unsaved-edit protection. Saving ENV applies it to the next deployment, including its build; Restart keeps the deployed ENV.
+- Keep Deploy, Sync latest, ENV, Restart app and Logs visible on project cards. Restart supports native systemd apps; Docker Compose retains its deployment workflow.
 - Explicit Sync latest retries a cached failed revision or returns to the latest commit after rollback when Auto deploy permits it. Configuration saves, background polling, disabled Auto deploy and Actions mode retain their separate behavior.
 - Successful rollback updates the card, shows release IDs and identifies same-commit targets. Historical failure logs remain accessible without announcing a new failure or labeling a completed job as running.
 

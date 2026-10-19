@@ -1,5 +1,5 @@
-<dialog id="deploy-dialog" class="modal drawer deploy-drawer" aria-labelledby="deploy-dialog-title">
-  <form id="deploy-form" class="modal-form deploy-drawer-form">
+<dialog id="deploy-dialog" class="modal deploy-workspace" aria-labelledby="deploy-dialog-title">
+  <form id="deploy-form" class="modal-form deploy-workspace-form">
     <header class="drawer-head">
       <div class="title">
         <div>
@@ -10,11 +10,11 @@
       </div>
     </header>
     <div class="stepper" aria-label="Deployment steps">
-      <div class="step active" data-deploy-step="1"><div class="step-num">1</div><div class="step-label">Environment</div></div>
+      <button type="button" class="step active" data-deploy-step="1" aria-label="1 Environment" aria-current="step"><span class="step-num">1</span><span class="step-label">Environment</span></button>
       <div class="step-line"></div>
-      <div class="step" data-deploy-step="2"><div class="step-num">2</div><div class="step-label">Build</div></div>
+      <button type="button" class="step" data-deploy-step="2" aria-label="2 Build plan"><span class="step-num">2</span><span class="step-label">Build plan</span></button>
       <div class="step-line"></div>
-      <div class="step" data-deploy-step="3"><div class="step-num">3</div><div class="step-label">Release</div></div>
+      <button type="button" class="step" data-deploy-step="3" aria-label="3 Review &amp; Deploy"><span class="step-num">3</span><span class="step-label">Review &amp; Deploy</span></button>
     </div>
     <div class="drawer-body">
       <section class="field-group" data-deploy-pane="1">
@@ -26,9 +26,11 @@
             <button id="deploy-env-file-mode" class="btn btn-ghost btn-sm" type="button" aria-pressed="true">ทั้งไฟล์ .env</button>
             <button id="deploy-env-rows-mode" class="btn btn-ghost btn-sm" type="button" aria-pressed="false">ทีละรายการ</button>
           </div>
-          <button id="deploy-env-upload" class="btn btn-ghost btn-sm" type="button">อัปโหลดไฟล์ .env</button>
+          <div class="deploy-env-modes-actions"><button id="deploy-env-upload" class="btn btn-ghost btn-sm" type="button">อัปโหลดไฟล์ .env</button><button id="deploy-env-save" class="btn btn-ghost btn-sm" type="button">บันทึก ENV</button></div>
           <input id="deploy-env-file" type="file" hidden aria-label="เลือกไฟล์ .env">
         </div>
+        <span id="deploy-env-status" class="field-hint" role="status">ยังไม่มีการเปลี่ยนแปลง</span>
+        <input id="deploy-env-filter" class="input" type="search" aria-label="ค้นหาชื่อตัวแปร ENV" placeholder="ค้นหาชื่อตัวแปร…" autocomplete="off" hidden>
         <div id="deploy-env-editor-pane">
           <label for="deploy-env-editor">.env (KEY=value)
             <textarea id="deploy-env-editor" class="input deploy-env-editor" rows="10" spellcheck="false" autocomplete="off" autocapitalize="off" wrap="off" aria-describedby="deploy-env-hint" placeholder="NODE_ENV=production&#10;API_URL=https://example.com&#10;API_KEY="></textarea>
@@ -39,9 +41,14 @@
           <button id="deploy-add-variable" class="btn btn-ghost btn-sm" type="button"><svg class="icon" aria-hidden="true"><use href="#icon-plus"></use></svg>เพิ่มตัวแปร</button>
         </div>
         <p id="deploy-env-hint" class="field-hint">การอัปโหลดจะเพิ่ม key ใหม่และเขียนทับ key ที่ชื่อซ้ำ ลบบรรทัดเพื่อลบ key และเขียน KEY= เพื่อบันทึกค่าว่าง ค่าที่บันทึกถูกเก็บบน host และปิดบังใน log</p>
-        <div class="deploy-env-save-row">
-          <button id="deploy-env-save" class="btn btn-ghost btn-sm" type="button">บันทึก ENV</button>
-          <span id="deploy-env-status" class="field-hint" role="status">ยังไม่มีการเปลี่ยนแปลง</span>
+      </section>
+      <section class="field-group" data-deploy-pane="2" hidden>
+        <h3>Build plan</h3>
+        <p>ระบบจะดึง commit ล่าสุดของ branch นี้มาไว้ในโฟลเดอร์ release ใหม่ ติดตั้ง dependencies และรัน build แยกจาก release ที่กำลังทำงาน ผู้ใช้ยังใช้งานเวอร์ชันเดิมได้ตลอดช่วง build</p>
+        <div class="info-card deploy-build-info">
+          <div><div class="k">Runtime</div><div id="deploy-runtime" class="v">…</div></div>
+          <div><div class="k">Branch</div><div id="deploy-branch" class="v mono">…</div></div>
+          <div><div class="k">Start step</div><div id="deploy-start-script" class="v mono">…</div></div>
         </div>
         <div class="deploy-configuration">
           <h3>Build configuration</h3>
@@ -57,19 +64,10 @@
             <div id="deploy-skip-build-toggle" class="toggle" role="img" aria-label="Skip build step setting" aria-disabled="true"></div>
           </div>
         </div>
-      </section>
-      <section class="field-group" data-deploy-pane="2" hidden>
-        <h3>Build plan</h3>
-        <p>ระบบจะดึง commit ล่าสุดของ branch นี้มาไว้ในโฟลเดอร์ release ใหม่ ติดตั้ง dependencies และรัน build แยกจาก release ที่กำลังทำงาน ผู้ใช้ยังใช้งานเวอร์ชันเดิมได้ตลอดช่วง build</p>
-        <div class="info-card deploy-build-info">
-          <div><div class="k">Runtime</div><div id="deploy-runtime" class="v">…</div></div>
-          <div><div class="k">Branch</div><div id="deploy-branch" class="v mono">…</div></div>
-          <div><div class="k">Start step</div><div id="deploy-start-script" class="v mono">…</div></div>
-        </div>
         <aside class="notice"><svg class="icon" aria-hidden="true"><use href="#icon-info"></use></svg><p id="deploy-build-note">การตั้งค่า build เปลี่ยนได้จากหน้าแก้ไขโปรเจคเท่านั้น</p></aside>
       </section>
       <section class="field-group" data-deploy-pane="3" hidden>
-        <h3>Release</h3>
+        <h3>ตรวจและ Deploy</h3>
         <p id="deploy-release-explanation">ตรวจสรุปแล้วกด "Create release" ระบบจะสร้าง candidate จาก source และ ENV ล่าสุด ตรวจ HTTP บน loopback ก่อน activate</p>
         <div class="info-card deploy-release-info">
           <div><div class="k">Project</div><div id="deploy-release-project" class="v">…</div></div>
@@ -84,7 +82,7 @@
       <button class="btn btn-ghost" id="deploy-cancel" type="button" data-dialog-close>ยกเลิก</button>
       <button class="btn btn-ghost" id="deploy-back" type="button" hidden>ย้อนกลับ</button>
       <span class="modal-spacer"></span>
-      <button id="deploy-submit" class="btn btn-primary" type="submit">Next: Build</button>
+      <button id="deploy-submit" class="btn btn-primary" type="submit">ถัดไป: Build</button>
     </footer>
   </form>
 </dialog>

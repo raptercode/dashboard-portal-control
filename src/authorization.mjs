@@ -114,7 +114,7 @@ export function authorizeRequest({ state, user, path, method, body = {} }) {
     const scope = scopeProject(projectRoute[1]);
     const action = projectRoute[2];
     const permission = {
-      'POST deploy': 'deploy.start', 'POST rollback': 'deploy.rollback',
+      'POST deploy': 'deploy.start', 'POST restart': 'deploy.start', 'POST rollback': 'deploy.rollback',
       'GET deploy-configuration': 'project.view', 'GET environment': 'env.read',
       'POST environment': 'env.write', 'GET logs': 'logs.read',
       'POST domains': 'domains.manage', 'POST domains/check': 'domains.manage', 'POST domains/verify': 'domains.manage', 'POST edge/check': 'domains.manage'

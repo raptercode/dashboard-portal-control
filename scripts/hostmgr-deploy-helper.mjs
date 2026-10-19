@@ -89,6 +89,7 @@ async function dispatch(request) {
   if (!request || typeof request !== 'object') throw new HelperError('Invalid helper request.');
   if (request.operation === 'install-tool') return installTool(request.tool);
   if (request.operation === 'activate-project') return activateProject(request.slug, request.releaseId);
+  if (request.operation === 'restart-project') return restartProject(request.slug, request.releaseId);
   if (request.operation === 'sync-project-domains') return syncProjectDomains(request.slug, request.hosts);
   if (request.operation === 'remove-project-domains') return removeProjectDomains(request.slug);
   if (request.operation === 'delete-project') return deleteProject(request.slug);
@@ -137,6 +138,29 @@ async function projectRuntimeStatus(slug) {
   }
   if (project.healthCheckEnabled !== false && !await healthCheck(project.port, project.healthCheckPath ?? '/')) return { state: 'down' };
   return { state: 'active' };
+}
+
+async function restartProject(slug, releaseId) {
+  const project = await loadProject(slug);
+  validateReleaseId(releaseId);
+  if (project.runtime === 'docker-compose') throw new HelperError('Restart is available for native systemd projects only.');
+  if (project.deployment?.activeReleaseId !== releaseId || ['deploying', 'rolling_back', 'awaiting_activation'].includes(project.deployment.state)) throw new HelperError('The active release changed or another deployment operation is running. Refresh before restarting.');
+  const identity = projectIdentity(slug);
+  const current = await readlink(identity.current).catch(() => null);
+  if (current !== join(identity.releases, releaseId)) throw new HelperError('The running release does not match the active release. Inspect deployment logs before restarting.');
+  // Keep the deployed unit, release and ENV intact. Saved ENV belongs to the
+  // next build/deployment, which may compile those values into its output.
+  await run('/usr/bin/systemctl', ['restart', identity.service], { failure: 'The project service could not be restarted.' });
+  await checkWorkerProcess(identity);
+  if (project.serviceType !== 'worker' && project.healthCheckEnabled !== false) {
+    const deadline = Date.now() + 30_000;
+    while (Date.now() < deadline) {
+      if (await healthCheck(project.port, project.healthCheckPath ?? '/')) return { state: 'active', releaseId };
+      await delay(250);
+    }
+    throw new HelperError('The restarted process did not pass its configured HTTP health check. Inspect the project logs.');
+  }
+  return { state: 'active', releaseId };
 }
 
 async function setAdminPassword(password) {

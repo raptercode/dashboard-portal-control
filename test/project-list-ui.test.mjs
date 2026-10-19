@@ -67,7 +67,7 @@ test('project list keeps technical settings behind details and protects deletion
   assert.doesNotMatch(dialogs, /auto-sync-secret/);
   assert.match(dialogs, /id="project-notification-hook-list"/);
   assert.match(dialogs, /id="project-delete-confirmation"/);
-  assert.match(dialogs, /class="modal drawer deploy-drawer"/);
+  assert.match(dialogs, /class="modal deploy-workspace"/);
   assert.match(dialogs, /data-deploy-step="1"/);
   assert.match(dialogs, /data-deploy-step="2"/);
   assert.match(dialogs, /data-deploy-step="3"/);
@@ -174,7 +174,7 @@ test('standard modals stay within the viewport and keep dark inputs readable', a
   assert.match(css, /html\[data-theme="light"\] \{\s*color-scheme: light;/);
   assert.match(css, /input:not\(\[type="checkbox"\]\):not\(\[type="radio"\]\):not\(\[type="file"\]\):not\(\[type="hidden"\]\),\s*select,\s*textarea \{[\s\S]*?background: var\(--bg\);[\s\S]*?color: var\(--text\);/);
   assert.match(css, /option \{ background: var\(--surface\); color: var\(--text\); \}/);
-  assert.match(css, /\.modal-form:not\(\.deploy-drawer-form\) \{ display: grid; grid-template-rows: auto minmax\(0, 1fr\) auto;/);
+  assert.match(css, /\.modal-form:not\(\.deploy-workspace-form\) \{ display: grid; grid-template-rows: auto minmax\(0, 1fr\) auto;/);
   assert.match(css, /\.modal-body \{[^}]*min-height: 0;[^}]*overflow: auto;/);
   assert.match(css, /\.close-btn, \.btn-icon, \.modal-close \{[\s\S]*?background: transparent;/);
   assert.match(css, /:root \{[\s\S]*?--surface: #111418;[\s\S]*?--text: #e6e8ec;/);

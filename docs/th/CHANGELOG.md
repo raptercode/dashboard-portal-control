@@ -2,7 +2,11 @@
 
 [English](../en/CHANGELOG.md)
 
-## ยังไม่ออก release
+## 1.0.3 — 2026-10-20
+
+- เพิ่ม Restart app สำหรับ process ของ active release หลัง Sync หรือ Deploy ล้มเหลว โดยตรวจความเสถียรของ process และ HTTP health ตามการตั้งค่า แสดงผลระหว่างทำและเมื่อจบ พร้อมกันงานจัดการโปรเจคซ้อนกัน
+- ย้าย ENV และแผน Deploy เป็นหน้าต่างกว้าง ค้นหาตัวแปรได้ สลับ Environment / Build / Review โดยตรง และเตือนก่อนทิ้งค่าที่ยังไม่บันทึก ENV ใหม่มีผลผ่าน Deploy รวมถึงขั้น build ส่วน Restart ใช้ ENV ที่ deploy อยู่เดิม
+- แสดง Deploy, Sync latest, ENV, Restart app และ Logs บนการ์ดโปรเจคโดยตรง Restart รองรับแอป native ที่รันด้วย systemd ส่วน Docker Compose ใช้ flow Deploy ตามเดิม
 
 - กด Sync latest เพื่อ retry commit ที่ sync มาแล้วแต่ deploy ล้ม หรือกลับไป commit ล่าสุดหลัง rollback ได้เมื่อ Auto deploy อนุญาต แยกจากการบันทึก config, polling, การปิด Auto deploy และ Actions mode
 - หลัง rollback สำเร็จการ์ดแสดงผลใหม่ พร้อม release ID และแจ้งเมื่อปลายทางใช้ commit เดียวกัน ยังดู log ที่ล้มเหลวเดิมได้ โดยไม่แจ้งเหมือนเพิ่งเกิด failure ใหม่หรือแสดงว่างานที่จบแล้วกำลังรัน
