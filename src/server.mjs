@@ -109,6 +109,8 @@ export async function createApplication(options = {}) {
   const softwareUpdateFetcher = options.updateFetcher ?? fetch;
   const softwareVersion = options.softwareVersion ?? await installedSoftwareVersion();
   const domainDnsCheck = options.domainDnsCheck ?? checkDomainDns;
+  const projectDomainHelper = options.projectDomainHelper ?? callHostHelper;
+  const domainMutations = new Set();
   const mailOutboundCheck = options.mailOutboundCheck ?? checkSmtpOutbound;
   const mailInboundCheck = options.mailInboundCheck ?? (() => checkMailInboundReadiness(mode, process.env.HOSTMGR_DEPLOY_HELPER_SOCKET));
   const mailDns = {
@@ -354,6 +356,8 @@ export async function createApplication(options = {}) {
       if (request.method === 'POST' && envMatch) return await handleProjectEnvironment(request, response, envMatch[1]);
       const domainsCheckMatch = url.pathname.match(/^\/api\/projects\/([a-z][a-z0-9-]{0,62})\/domains\/check$/);
       if (request.method === 'POST' && domainsCheckMatch) return await handleProjectDomainCheck(request, response, domainsCheckMatch[1]);
+      const domainsVerifyMatch = url.pathname.match(/^\/api\/projects\/([a-z][a-z0-9-]{0,62})\/domains\/verify$/);
+      if (request.method === 'POST' && domainsVerifyMatch) return await handleProjectDomainVerify(request, response, domainsVerifyMatch[1]);
       const edgeCheckMatch = url.pathname.match(/^\/api\/projects\/([a-z][a-z0-9-]{0,62})\/edge\/check$/);
       if (request.method === 'POST' && edgeCheckMatch) return await handleProjectEdgeCheck(request, response, edgeCheckMatch[1]);
       const domainsMatch = url.pathname.match(/^\/api\/projects\/([a-z][a-z0-9-]{0,62})\/domains$/);
@@ -1296,6 +1300,7 @@ export async function createApplication(options = {}) {
 
   async function handleProjectDelete(request, response, slug) {
     if (!requireSession(request, response, true)) return;
+    if (domainMutations.has(slug)) throw new InputError('กรุณารอให้ Verify โดเมนเสร็จก่อนลบโปรเจค');
     const project = findProject(store.snapshot(), slug);
     if (store.snapshot().jobs.some((item) => item.projectSlug === slug && ['queued', 'running'].includes(item.status))) throw new InputError('Wait for the queued deployment to finish before deleting this project.');
     if (mode === 'host') {
@@ -1338,6 +1343,7 @@ export async function createApplication(options = {}) {
 
   async function handleProjectDeploy(request, response, slug) {
     if (!requireSession(request, response, true)) return;
+    if (domainMutations.has(slug)) throw new InputError('กรุณารอให้ Verify โดเมนเสร็จก่อน deploy');
     const project = store.snapshot().projects.find((item) => item.slug === slug);
     if (!project) throw new InputError('Project was not found.');
     if (project.sync?.status !== 'synced') throw new InputError('Sync the repository successfully before deploying.');
@@ -1435,7 +1441,7 @@ export async function createApplication(options = {}) {
         return markJobSucceeded(jobId, worker ? 'Worker build/source awaits host activation and process stability checks.' : deployProject.runtime === 'python' ? 'Python source awaits host venv installation and health checks.' : deployProject.runtime === 'php' ? 'PHP source awaits host Composer installation and health checks.' : 'Candidate is healthy and awaits reviewed host activation.');
       }
       await recordPhase('host_activation', 'started', 'Activating the verified candidate on the host.');
-      await activateOnHost(helperSocket, job.projectSlug, release.id);
+      const activation = await activateOnHost(helperSocket, job.projectSlug, release.id);
       await pruneCandidateReleases(projectRoot, job.projectSlug, release.id, project.deployment?.activeReleaseId);
       await store.update((state) => {
         const target = findProject(state, job.projectSlug);
@@ -1447,7 +1453,7 @@ export async function createApplication(options = {}) {
         target.deployment = activateRelease(target.deployment, release.id);
         target.deployment = appendReleaseEvent(target.deployment, release.id, 'host_activation', 'passed', worker ? 'Worker service activation and process stability checks passed.' : target.domains?.hosts?.length ? 'Host service and domain activation completed.' : 'Internal web service activation completed without an Nginx domain.');
         target.deployment = pruneInactiveReleases(target.deployment);
-        if (target.domains?.hosts?.length) target.domains.syncedAt = new Date().toISOString();
+        markDomainsActivated(target, activation.domains);
         appendAudit(state, { action: 'project.deploy', outcome: 'success', actor: 'owner', target: job.projectSlug, detail: `Activated release ${release.id}` });
       });
       return markJobSucceeded(jobId, 'Deployment completed and the new release is active.');
@@ -1589,6 +1595,7 @@ export async function createApplication(options = {}) {
 
   async function handleProjectRollback(request, response, slug) {
     if (!requireSession(request, response, true)) return;
+    if (domainMutations.has(slug)) throw new InputError('กรุณารอให้ Verify โดเมนเสร็จก่อน rollback');
     const body = await readJson(request);
     const requestedReleaseId = typeof body.releaseId === 'string' ? body.releaseId : null;
     if (requestedReleaseId && !/^[a-f0-9-]{36}$/i.test(requestedReleaseId)) throw new InputError('Release selection is invalid.');
@@ -1618,11 +1625,11 @@ export async function createApplication(options = {}) {
       return sendJson(response, 202, { ok: true, activation: 'pending', project: publicProject(store.snapshot().projects.find((item) => item.slug === slug)) });
     }
     try {
-      await activateOnHost(helperSocket, slug, rollback.release.id);
+      const activation = await activateOnHost(helperSocket, slug, rollback.release.id);
       await store.update((state) => {
         const target = findProject(state, slug);
         target.deployment = activateRelease(target.deployment, rollback.release.id, 'rollback');
-        if (target.domains?.hosts?.length) target.domains.syncedAt = new Date().toISOString();
+        markDomainsActivated(target, activation.domains);
         appendAudit(state, { action: 'project.rollback', outcome: 'success', actor: 'owner', target: slug, detail: `Activated rollback release ${rollback.release.id}` });
       });
       return sendJson(response, 200, { ok: true, activation: 'complete', project: publicProject(store.snapshot().projects.find((item) => item.slug === slug)) });
@@ -1847,49 +1854,105 @@ export async function createApplication(options = {}) {
     if (!requireSession(request, response, true)) return;
     const project = findProject(store.snapshot(), slug);
     if (!project.domains?.hosts?.length) throw new InputError('Save a domain before checking Nginx.');
+    const body = await readJson(request);
+    const hostname = body.hostname === undefined ? project.domains.hosts[0] : validateDomain({ hostname: body.hostname });
+    if (!project.domains.hosts.includes(hostname)) throw new InputError('โดเมนนี้ไม่ได้อยู่ในโปรเจค');
     if (mode !== 'host') {
       return sendJson(response, 200, publicEdgeResult({
         passed: false,
         status: 'unavailable',
-        hostname: project.domains.hosts[0],
+        hostname,
         checks: [{ id: 'host', ok: false, detail: 'ตรวจ Nginx/proxy จริงได้เฉพาะเครื่องที่ติดตั้ง Dashboard Portal หลัง release' }]
       }));
     }
     const socketPath = process.env.HOSTMGR_DEPLOY_HELPER_SOCKET;
     if (!socketPath) throw new InputError('The host deployment helper is not configured.');
-    const result = await callHostHelper(socketPath, { operation: 'inspect-project-edge', slug: project.slug });
+    const result = await projectDomainHelper(socketPath, { operation: 'inspect-project-edge', slug: project.slug, hostname });
     if (result.ok === false) throw new InputError(result.error || 'Nginx edge check failed.');
     return sendJson(response, 200, publicEdgeResult(result));
   }
 
   async function handleProjectDomains(request, response, slug) {
     if (!requireSession(request, response, true)) return;
-    const hosts = validateProjectDomains((await readJson(request)).domains, { allowEmpty: true });
+    const body = await readJson(request);
+    const hosts = validateProjectDomains(body.domains, { allowEmpty: true });
+    if (body.sync !== undefined && typeof body.sync !== 'boolean') throw new InputError('Domain sync option must be a boolean.');
     if (findProject(store.snapshot(), slug).serviceType === 'worker' && hosts.length) throw new InputError('Worker services cannot have HTTP domains.');
-    let active = false;
-    await store.update((state) => {
-      const project = findProject(state, slug);
-      project.domains = { hosts, updatedAt: new Date().toISOString(), syncedAt: null };
-      active = project.deployment?.state === 'active' && Boolean(project.deployment.activeReleaseId);
-      appendAudit(state, { action: 'project.save_domains', outcome: 'success', actor: 'owner', target: slug, detail: `Saved ${hosts.length} project domain name(s)` });
-    });
-    if (mode === 'host' && active) {
-      const socketPath = process.env.HOSTMGR_DEPLOY_HELPER_SOCKET;
-      if (!socketPath) throw new InputError('Domain saved, but the host deployment helper is not configured.');
-      try {
-        if (hosts.length) await syncDomainsOnHost(socketPath, slug);
-        else await callHostHelper(socketPath, { operation: 'remove-project-domains', slug });
-      } catch {
-        await store.update((state) => appendAudit(state, { action: 'project.sync_domains', outcome: 'failure', actor: 'owner', target: slug, detail: 'Domain saved but Nginx/TLS sync failed; previous managed configuration was retained.' }));
-        throw new InputError('Domain was saved, but Nginx/TLS sync failed. Verify DNS points to this host and retry.');
-      }
+    if (domainMutations.has(slug)) throw new InputError('กำลังบันทึกหรือ sync โดเมนของโปรเจคนี้ กรุณารอแล้วลองอีกครั้ง');
+    if (store.snapshot().jobs.some(job => job.projectSlug === slug && ['queued', 'running'].includes(job.status))) throw new InputError('กรุณารอให้การ deploy ของโปรเจคนี้เสร็จก่อนเปลี่ยนโดเมน');
+    domainMutations.add(slug);
+    try {
+      let removed = false;
+      let added = false;
+      let retainedActive = [];
       await store.update((state) => {
         const project = findProject(state, slug);
-        project.domains.syncedAt = new Date().toISOString();
-        appendAudit(state, { action: 'project.sync_domains', outcome: 'success', actor: 'owner', target: slug, detail: project.domains.hosts.length ? `Synced Nginx and TLS for ${project.domains.hosts.length} domain name(s)` : 'Removed managed Nginx domain configuration.' });
+        if (state.projects.some(other => other.slug !== slug && hosts.some(host => other.domains?.hosts?.includes(host)))) throw new InputError('มีโดเมนนี้อยู่ในโปรเจคอื่นแล้ว ลบออกจากโปรเจคเดิมก่อนเพิ่มที่นี่');
+        const activeHosts = activeDomainHosts(project);
+        removed = (project.domains?.hosts || []).some(host => !hosts.includes(host));
+        added = hosts.some(host => !project.domains?.hosts?.includes(host));
+        retainedActive = activeHosts.filter(host => hosts.includes(host));
+        project.domains = { hosts, activeHosts, updatedAt: new Date().toISOString(), syncedAt: null, syncError: null, verification: {} };
+        appendAudit(state, { action: 'project.save_domains', outcome: 'success', actor: 'owner', target: slug, detail: `Saved ${hosts.length} project domain name(s)` });
       });
-    }
-    return sendJson(response, 200, { ok: true, project: publicProject(store.snapshot().projects.find((item) => item.slug === slug)) });
+      const domainSync = body.sync === false && !removed
+        ? { status: 'pending', detail: 'เพิ่มโดเมนแล้ว ตั้ง DNS ตามรายการแล้วกด Verify เพื่อเปิดใช้งาน HTTPS' }
+        : await syncSavedProjectDomains(slug, removed && !added ? retainedActive : hosts);
+      return sendJson(response, 200, { ok: domainSync.status !== 'failed', domainSync, project: publicProject(store.snapshot().projects.find((item) => item.slug === slug)) });
+    } finally { domainMutations.delete(slug); }
+  }
+
+  async function handleProjectDomainVerify(request, response, slug) {
+    if (!requireSession(request, response, true)) return;
+    const project = findProject(store.snapshot(), slug);
+    const body = await readJson(request);
+    const targets = body.hostname === undefined ? [...(project.domains?.hosts || [])] : [validateDomain({ hostname: body.hostname })];
+    if (!targets.length || targets.some(host => !project.domains?.hosts?.includes(host))) throw new InputError('เพิ่มโดเมนในโปรเจคก่อนกด Verify');
+    if (domainMutations.has(slug)) throw new InputError('กำลัง Verify โดเมนของโปรเจคนี้ กรุณารอสักครู่');
+    if (store.snapshot().jobs.some(job => job.projectSlug === slug && ['queued', 'running'].includes(job.status))) throw new InputError('กรุณารอให้ deploy เสร็จก่อน Verify โดเมน');
+    domainMutations.add(slug);
+    try {
+      const checks = Object.fromEntries(await Promise.all(targets.map(async hostname => {
+        try { return [hostname, normalizeDomainCheckResult(hostname, await domainDnsCheck(hostname))]; }
+        catch (error) { return [hostname, normalizeDomainCheckResult(hostname, { status: 'error', detail: softDomainCheckDetail(error) })]; }
+      })));
+      await store.update(state => {
+        const target = findProject(state, slug);
+        target.domains.verification = { ...(target.domains.verification || {}), ...checks };
+      });
+      const eligible = targets.filter(host => ['ok', 'proxied'].includes(checks[host].status));
+      const active = activeDomainHosts(project).filter(host => project.domains.hosts.includes(host));
+      const activationHosts = [...new Set([...active, ...eligible])];
+      const domainSync = eligible.length
+        ? await syncSavedProjectDomains(slug, activationHosts)
+        : { status: 'pending', detail: 'ยังยืนยัน DNS ไม่ได้ ตั้ง record ตามรายการแล้วกด Verify อีกครั้ง โดเมนเดิมยังคงใช้งานได้' };
+      return sendJson(response, 200, { ok: domainSync.status === 'synced', checks, domainSync, project: publicProject(findProject(store.snapshot(), slug)) });
+    } finally { domainMutations.delete(slug); }
+  }
+
+  async function syncSavedProjectDomains(slug, hosts) {
+    const project = findProject(store.snapshot(), slug);
+    if (mode !== 'host' || !project.deployment?.activeReleaseId) return { status: 'pending', detail: mode === 'host' ? 'บันทึกโดเมนแล้ว รอ deploy โปรเจคก่อนเปิดใช้งาน TLS' : 'โหมดสาธิต: ยังไม่ได้ตั้ง Nginx/TLS บน host จริง' };
+    const socketPath = process.env.HOSTMGR_DEPLOY_HELPER_SOCKET;
+    let syncError = null;
+    try {
+      if (!socketPath) syncError = 'ยังไม่ได้ตั้งค่า host deployment helper กรุณารัน installer ของ Dashboard Portal อีกครั้ง';
+      else {
+        const result = await projectDomainHelper(socketPath, { operation: hosts.length ? 'sync-project-domains' : 'remove-project-domains', slug, ...(hosts.length ? { hosts } : {}) });
+        if (!result.ok) syncError = String(result.error || 'Host helper rejected Nginx/TLS sync.').slice(0, 1000);
+      }
+    } catch { syncError = 'ติดต่อ host deployment helper ไม่สำเร็จหรือหมดเวลารอ ตรวจบริการ helper แล้วกด Refresh ก่อนลอง Verify อีกครั้ง'; }
+    const domainSync = syncError
+      ? { status: 'failed', detail: `บันทึกโดเมนแล้ว แต่เปิดใช้งาน Nginx/TLS ไม่สำเร็จ: ${syncError}` }
+      : { status: 'synced', detail: hosts.length ? 'เปิดใช้งานโดเมนและ TLS แล้ว' : 'ถอดโดเมนออกจาก Nginx แล้ว แอปยังทำงานที่พอร์ตเดิม' };
+    await store.update(state => {
+      const target = findProject(state, slug);
+      if (!syncError) target.domains.activeHosts = [...hosts];
+      target.domains.syncedAt = !syncError && target.domains.hosts.every(host => hosts.includes(host)) ? new Date().toISOString() : null;
+      target.domains.syncError = syncError ? domainSync.detail : null;
+      appendAudit(state, { action: 'project.sync_domains', outcome: syncError ? 'failure' : 'success', actor: 'owner', target: slug, detail: domainSync.detail });
+    });
+    return domainSync;
   }
 
   async function handleProjectLogs(request, response, slug) {
@@ -2559,11 +2622,7 @@ function repositoryDirectory(project, projectRoot) {
 async function activateOnHost(socketPath, slug, releaseId) {
   const result = await callHostHelper(socketPath, { operation: 'activate-project', slug, releaseId });
   if (!result.ok) throw new DeploymentFailure(result.error || 'Deployment helper rejected the activation.', result.buildOutput);
-}
-
-async function syncDomainsOnHost(socketPath, slug) {
-  const result = await callHostHelper(socketPath, { operation: 'sync-project-domains', slug });
-  if (!result.ok) throw new Error('Deployment helper rejected the domain sync.');
+  return result;
 }
 
 async function probeProjectRuntime({ socketPath, project }) {
@@ -2597,8 +2656,8 @@ function normalizeDomainCheckResult(hostname, result) {
     expected,
     matched: Boolean(result.matched),
     status,
-    ...(['proxied', 'error'].includes(status) ? { detail: typeof result.detail === 'string' && result.detail ? result.detail.slice(0, 240) : 'DNS check failed. Verify network/DNS settings and try again.' } : {}),
-    ...(status === 'proxied' ? { proxy: { detected: true, provider: result.proxy?.provider === 'Cloudflare' ? 'Cloudflare' : 'CDN' } } : {}),
+    ...(['proxied', 'error'].includes(status) ? { detail: typeof result.detail === 'string' && result.detail ? result.detail.slice(0, 240) : status === 'proxied' ? 'Cloudflare Proxy is enabled. Verify can continue with Proxy enabled.' : 'DNS check failed. Verify network/DNS settings and try again.' } : {}),
+    ...(status === 'proxied' || result.proxy?.detected === true ? { proxy: { detected: true, provider: result.proxy?.provider === 'Cloudflare' ? 'Cloudflare' : 'CDN' } } : {}),
   };
 }
 
@@ -2762,6 +2821,17 @@ function publicProject(project) {
     safe.autoSync.hasActionsSecret = Boolean(project.autoSync.encryptedActionsSecret);
   }
   return safe;
+}
+
+function activeDomainHosts(project) {
+  return [...(project.domains?.activeHosts ?? (project.domains?.syncedAt ? project.domains.hosts : []))];
+}
+
+function markDomainsActivated(project, hosts) {
+  if (!project.domains) return;
+  project.domains.activeHosts = hosts ?? project.domains.activeHosts ?? [...project.domains.hosts];
+  project.domains.syncedAt = project.domains.hosts.every(host => project.domains.activeHosts.includes(host)) ? new Date().toISOString() : null;
+  if (project.domains.syncedAt) project.domains.syncError = null;
 }
 
 function githubRepositoryName(repository) {

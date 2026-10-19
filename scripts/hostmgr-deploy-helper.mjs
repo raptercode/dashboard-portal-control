@@ -14,7 +14,8 @@ import { withMaintenanceLease } from './maintenance-lock.mjs';
 import { parseWorkerServiceState, assertWorkerStable } from './worker-health.mjs';
 import { prepareWorkerActivation } from './worker-activation.mjs';
 import { updateStoredPassword } from './password-config.mjs';
-import { buildEdgeEvaluation, probeLoopbackHttp, publicEdgeResult, renderUnmatchedNginx } from './nginx-edge.mjs';
+import { buildEdgeEvaluation, probeLoopbackHttp, probeLoopbackTls, publicEdgeResult, renderUnmatchedNginx, preserveManagedTlsForChallenge } from './nginx-edge.mjs';
+import { resolvePublicDomainAddresses } from './domain-dns.mjs';
 import { buildMailPortPlan, renderDkimTables, renderDovecotConfiguration, renderMap, renderOpenDkimConfiguration, renderPostfixMain, renderPostfixMaster } from './mail-host-config.mjs';
 
 const MAX_REQUEST_BYTES = 16 * 1024;
@@ -88,13 +89,13 @@ async function dispatch(request) {
   if (!request || typeof request !== 'object') throw new HelperError('Invalid helper request.');
   if (request.operation === 'install-tool') return installTool(request.tool);
   if (request.operation === 'activate-project') return activateProject(request.slug, request.releaseId);
-  if (request.operation === 'sync-project-domains') return syncProjectDomains(request.slug);
+  if (request.operation === 'sync-project-domains') return syncProjectDomains(request.slug, request.hosts);
   if (request.operation === 'remove-project-domains') return removeProjectDomains(request.slug);
   if (request.operation === 'delete-project') return deleteProject(request.slug);
   if (request.operation === 'set-admin-password') return setAdminPassword(request.password);
   if (request.operation === 'read-project-log') return readProjectLog(request.slug, request.lines);
   if (request.operation === 'project-runtime-status') return projectRuntimeStatus(request.slug);
-  if (request.operation === 'inspect-project-edge') return inspectProjectEdge(request.slug);
+  if (request.operation === 'inspect-project-edge') return inspectProjectEdge(request.slug, request.hostname);
   if (request.operation === 'mail-port-readiness') return mailPortReadiness();
   if (request.operation === 'configure-mail') return configureMail();
   if (request.operation === 'create-mailbox') return createMailbox(request.domain, request.localPart, request.password);
@@ -496,6 +497,9 @@ async function activateProject(slug, releaseId) {
     if (['node', 'bun'].includes(project.runtime)) project.startScript = release.startScript;
     validateProject(project);
   }
+  // Domains added through the Add/Verify flow stay pending across deployments.
+  // Legacy projects without activeHosts keep their existing activation contract.
+  if (Array.isArray(project.domains?.activeHosts)) project.domains.hosts = project.domains.hosts.filter(host => project.domains.activeHosts.includes(host));
   const environment = await readTextOrEmpty(join(PROJECT_ROOT, slug, 'releases', releaseId, '.env'));
   let transaction;
   try {
@@ -545,9 +549,13 @@ async function rollbackFailedActivation(transaction, failure, environment) {
   }
 }
 
-async function syncProjectDomains(slug) {
+async function syncProjectDomains(slug, hosts) {
   const project = await loadProject(slug);
   if (!project.deployment?.activeReleaseId) throw new HelperError('No active release is available for domain sync.');
+  if (hosts !== undefined) {
+    if (!Array.isArray(hosts) || !hosts.length || hosts.length > 10 || hosts.some(host => !project.domains.hosts.includes(host))) throw new HelperError('Domain activation must use saved project domains.');
+    project.domains.hosts = [...new Set(hosts.map(validateDomain))];
+  }
   await applyDomains(project);
   return { domains: project.domains.hosts };
 }
@@ -885,7 +893,7 @@ async function applyDomains(project) {
   const snapshot = await snapshotNginx(site, enabled);
   try {
     await mkdir(ACME_ROOT, { recursive: true, mode: 0o755 });
-    await writeNginx(site, enabled, renderHttpSite(project, ACME_ROOT));
+    await writeNginx(site, enabled, preserveManagedTlsForChallenge(renderHttpSite(project, ACME_ROOT), snapshot.site));
     await testAndReloadNginx();
     await issueCertificate(project);
     await writeNginx(site, enabled, renderTlsSite(project, ACME_ROOT, certificateName(project.slug)));
@@ -903,8 +911,14 @@ async function ensureUnmatchedNginx() {
   await writeNginx(site, enabled, renderUnmatchedNginx(ACME_ROOT));
 }
 
-async function inspectProjectEdge(slug) {
-  return inspectLoadedProjectEdge(await loadProject(slug));
+async function inspectProjectEdge(slug, hostname) {
+  const project = await loadProject(slug);
+  if (hostname !== undefined) {
+    const host = validateDomain(hostname);
+    if (!project.domains.hosts.includes(host)) throw new HelperError('Domain is not configured for this project.');
+    project.domains.hosts = [host];
+  }
+  return inspectLoadedProjectEdge(project);
 }
 
 async function inspectLoadedProjectEdge(project) {
@@ -915,9 +929,12 @@ async function inspectLoadedProjectEdge(project) {
   const siteExists = await exists(site);
   const enabledOk = await readlink(enabled).then((target) => target === site).catch(() => false);
   const dump = await run('/usr/sbin/nginx', ['-T']).catch(() => '');
-  const httpProbe = await probeLoopbackHttp(hosts[0], { url: 'http://127.0.0.1/' });
   const upstreamPath = project.healthCheckPath ?? '/';
-  const upstreamProbe = await probeLoopbackHttp(hosts[0], { url: `http://127.0.0.1:${project.port}${upstreamPath}` });
+  const [httpProbe, upstreamProbe, tlsProbe] = await Promise.all([
+    probeLoopbackHttp(hosts[0], { url: 'http://127.0.0.1/' }),
+    probeLoopbackHttp(hosts[0], { url: `http://127.0.0.1:${project.port}${upstreamPath}` }),
+    probeLoopbackTls(hosts[0])
+  ]);
   return publicEdgeResult(buildEdgeEvaluation({
     siteExists,
     enabled: enabledOk,
@@ -926,6 +943,7 @@ async function inspectLoadedProjectEdge(project) {
     port: project.port,
     httpProbe,
     upstreamProbe,
+    tlsProbe,
     sitePath: site,
     enabledPath: enabled
   }));
@@ -972,16 +990,21 @@ async function assertDomainsAreAvailable(hosts, site, enabled) {
 
 async function issueCertificate(project) {
   const email = await acmeEmail();
-  for (const host of project.domains.hosts) {
+  await Promise.all(project.domains.hosts.map(async host => {
     let dnsFailure;
-    const dns = await run('/usr/bin/getent', ['ahosts', host]).catch((error) => { dnsFailure = error; return ''; });
-    if (!dns.trim()) throw new HelperError(`Domain ${host} does not resolve in DNS. Add an A/AAAA record pointing to this host before retrying.`, dnsFailure?.commandOutput);
-  }
-  const args = ['certonly', '--webroot', '--webroot-path', ACME_ROOT, '--non-interactive', '--agree-tos', '--email', email, '--keep-until-expiring', '--expand', '--cert-name', certificateName(project.slug)];
+    const dns = await run('/usr/bin/getent', ['ahosts', host], { timeout: 5000 }).catch((error) => { dnsFailure = error; return ''; });
+    if (!dns.trim()) {
+      const publicAddresses = await resolvePublicDomainAddresses(host);
+      if (!publicAddresses.length) throw new HelperError(`Domain ${host} does not resolve through the host or public DNS resolvers. Verify its A/AAAA records and DNS propagation before retrying.`, dnsFailure?.commandOutput);
+    }
+  }));
+  // A project keeps its certificate name when domains are replaced or removed.
+  // --expand only handles a strict superset of the previous certificate names.
+  const args = ['certonly', '--webroot', '--webroot-path', ACME_ROOT, '--non-interactive', '--agree-tos', '--email', email, '--keep-until-expiring', '--renew-with-new-domains', '--cert-name', certificateName(project.slug)];
   for (const host of project.domains.hosts) args.push('-d', host);
   await run('/usr/bin/certbot', args, {
     timeout: 180_000,
-    failure: 'TLS certificate request failed. Confirm the domain resolves to this host, port 80 is reachable, and any CDN proxy or HTTPS redirect is disabled during HTTP-01 validation.'
+    failure: 'TLS certificate request failed. Confirm DNS reaches this host and port 80 serves /.well-known/acme-challenge/. If using a proxy, check its origin target, redirect, cache and firewall rules for this path; Proxy may remain enabled.'
   });
 }
 

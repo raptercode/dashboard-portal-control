@@ -74,7 +74,7 @@ for (const preset of ['viewer', 'operator', 'maintainer']) {
 
 test('Viewer cannot invoke deployment, source sync, configuration, environment or webhook mutations', async (t) => {
   const { base, member, orgA } = await fixture(t, PERMISSION_PRESETS.viewer);
-  for (const suffix of ['deploy', 'rollback', 'auto-sync', 'deploy-configuration', 'environment', 'domains', 'github-webhook', 'actions-hook']) {
+  for (const suffix of ['deploy', 'rollback', 'auto-sync', 'deploy-configuration', 'environment', 'domains', 'domains/verify', 'github-webhook', 'actions-hook']) {
     assert.equal((await request(base, `/api/projects/alpha/${suffix}`, member, 'POST', {})).status, 403, suffix);
   }
   assert.equal((await request(base, '/api/projects/sync', member, 'POST', { slug: 'alpha', organizationId: orgA })).status, 403);

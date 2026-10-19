@@ -21,7 +21,7 @@ export function callHostHelper(socketPath, request) {
       ? 900_000
       : request?.operation === 'install-tool'
         ? 540_000
-        : request?.operation === 'configure-mail'
+        : ['configure-mail', 'sync-project-domains'].includes(request?.operation)
           ? 240_000
           : 90_000;
     const timer = setTimeout(() => socket.destroy(new Error('Host helper timed out.')), timeoutMs);

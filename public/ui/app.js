@@ -6,6 +6,7 @@ import { bindDialogDismissals as bindModalDismissals } from './dialog-dismissals
 import { renderMembersPage, bindInvitationAcceptance } from './members.js';
 import { settingsSection, SETTINGS_SECTIONS } from './settings-navigation.js';
 import { isWorkerProject, serviceFields, serviceRuntimeError } from './project-service-type.js';
+import { createDomainSettings } from './project-domains.js';
 
 const DRAFT_KEY = 'hostmgr.projectDraft';
 const SIDEBAR_COLLAPSED_KEY = 'hostmgr.sidebarCollapsed';
@@ -46,11 +47,19 @@ const state = {
   runtimeDetection: null,
   deployEnvironmentMode: 'file',
   deployEnvironmentRevision: 0,
-  domainDraft: null,
   notificationProject: null,
   slugManual: false,
   deployStep: 1
 };
+const domainSettings = createDomainSettings({
+  $, element, statusChip, api, showDialog, clearDialogError, showError, toast, confirmAction,
+  refreshCards: refresh,
+  copyText: value => navigator.clipboard.writeText(value),
+  onProjectChanged: project => {
+    state.projects = state.projects.map(item => item.slug === project.slug ? project : item);
+    if (state.activeProject?.slug === project.slug) state.activeProject = project;
+  }
+});
 let projectProgressTimer = null;
 let projectProgressPolling = false;
 let deploymentProgressTimer = null;
@@ -2972,6 +2981,7 @@ function closeDialog(dialog) {
     clearTimeout(deploymentProgressTimer);
     deploymentProgressGeneration += 1;
   }
+  if (dialog.id === 'domain-dialog') domainSettings.close();
   dialog.close();
   return Promise.resolve();
 }
@@ -3256,213 +3266,7 @@ function watchDeploymentJob(jobId, slug) {
 
 function openDomainDialog(project) {
   state.activeProject = project;
-  state.domainDraft = { hosts: [...(project.domains?.hosts || [])], pending: null, check: null, checks: {}, edge: null };
-  $('#domain-project-label').textContent = `${project.name} · ${project.slug}`;
-  setDomainView('list');
-  renderDomainList();
-  showDialog($('#domain-dialog'));
-  refreshDomainStatuses();
-}
-
-function setDomainView(viewName) {
-  const root = $('[data-domain-view]');
-  root.dataset.domainView = viewName;
-  $$('.domain-list-panel, .domain-list-notice').forEach((node) => { node.hidden = viewName !== 'list'; });
-  $('.domain-add-panel').hidden = viewName !== 'add';
-  $('#domain-cancel').hidden = viewName !== 'list';
-  $('#domain-add-start').hidden = viewName !== 'list';
-  $('#domain-back').hidden = viewName === 'list';
-  $('#domain-check').hidden = viewName !== 'add' || Number(root.dataset.domainStep || 1) !== 1;
-  $('#domain-recheck').hidden = viewName !== 'add' || Number(root.dataset.domainStep || 1) !== 2;
-  $('#domain-submit').hidden = viewName !== 'add' || Number(root.dataset.domainStep || 1) !== 2;
-  if (viewName === 'add') setDomainStep(1);
-}
-
-function setDomainStep(step) {
-  $('[data-domain-view]').dataset.domainStep = String(step);
-  $$('[data-domain-step]').forEach((panel) => { panel.hidden = Number(panel.dataset.domainStep) !== step; });
-  $$('[data-domain-dot]').forEach((dot) => {
-    const index = Number(dot.dataset.domainDot);
-    dot.classList.toggle('current', index === step);
-    dot.classList.toggle('done', index < step);
-  });
-  $('#domain-check').hidden = step !== 1;
-  $('#domain-recheck').hidden = step !== 2;
-  $('#domain-submit').hidden = step !== 2;
-  $('#domain-back').hidden = false;
-}
-
-function renderDomainList() {
-  const hosts = state.domainDraft?.hosts || [];
-  const list = $('#domain-list');
-  $('#domain-list-empty').hidden = hosts.length > 0;
-  list.replaceChildren(...hosts.map((host) => {
-    const result = state.domainDraft?.checks?.[host];
-    const row = element('article', 'domain-row');
-    const header = element('div', 'domain-row-head');
-    header.append(element('span', 'domain-hostname', host), domainStatusChip(result));
-    const actions = element('div', 'domain-row-actions');
-    const refresh = element('button', 'secondary', 'ตรวจใหม่');
-    refresh.type = 'button';
-    refresh.disabled = result?.status === 'checking';
-    refresh.addEventListener('click', () => refreshDomainStatuses([host]));
-    const remove = element('button', 'secondary', 'ลบ');
-    remove.type = 'button';
-    remove.addEventListener('click', () => removeDomainHost(host));
-    actions.append(refresh, remove);
-    header.append(actions);
-    row.append(header, element('p', 'domain-row-detail', domainStatusDetail(result)));
-    if (result?.resolved?.length || result?.expected?.length) {
-      row.append(element('p', 'domain-records', `DNS: ${result.resolved?.join(', ') || '…'} · Origin: ${result.expected?.join(', ') || 'not configured'}`));
-    }
-    return row;
-  }));
-  renderDomainEdge();
-}
-
-function domainStatusLabel(status) {
-  if (status === 'ok') return 'Ready';
-  if (status === 'proxied') return 'Proxy detected';
-  if (status === 'mismatch') return 'ชี้ผิดเครื่อง';
-  if (status === 'unresolved') return 'ยังไม่ resolve';
-  if (status === 'checking') return 'Checking';
-  return 'ตรวจไม่ได้';
-}
-
-function domainStatusChip(result) {
-  const status = result?.status || 'checking';
-  const variant = status === 'ok' ? 'ready' : status === 'checking' ? 'muted' : 'needs';
-  return statusChip(domainStatusLabel(status), variant);
-}
-
-function domainStatusDetail(result) {
-  if (!result || result.status === 'checking') return 'กำลังตรวจ DNS และสถานะ proxy…';
-  if (result.status === 'ok') return 'DNS ชี้เข้าเครื่องนี้แล้ว พร้อมออก certificate และเปิดใช้งานโดเมน';
-  if (result.status === 'proxied') return `${result.proxy?.provider || 'CDN'} Proxy กำลังรับ traffic อยู่ ตั้ง DNS only และปิด forced HTTPS ชั่วคราวก่อนออก certificate แบบ HTTP-01 แล้วกด Refresh`;
-  if (result.status === 'mismatch') return 'DNS ยังไม่ชี้มาที่ origin ของ Dashboard Portal';
-  if (result.status === 'unresolved') return 'ไม่พบ DNS record ที่ใช้งานได้ รอ propagation แล้วกด Refresh';
-  return result.detail || 'ตรวจ DNS ไม่สำเร็จ ลอง Refresh อีกครั้ง';
-}
-
-function renderDomainEdge() {
-  const panel = $('#domain-edge');
-  if (!panel) return;
-  const edge = state.domainDraft?.edge;
-  const hosts = state.domainDraft?.hosts || [];
-  if (!hosts.length) {
-    panel.hidden = true;
-    panel.replaceChildren();
-    return;
-  }
-  panel.hidden = false;
-  if (!edge || edge.status === 'checking') {
-    panel.replaceChildren(element('p', 'domain-row-detail', 'กำลังตรวจ Nginx reverse proxy และ reload…'));
-    return;
-  }
-  const head = element('div', 'domain-row-head');
-  head.append(element('span', 'domain-hostname', 'Nginx / reverse proxy'), edgeStatusChip(edge));
-  const list = element('ul', 'edge-check-list');
-  for (const item of edge.checks || []) {
-    const row = element('li', item.ok ? 'ok' : 'fail');
-    row.append(element('span', 'edge-check-mark', item.ok ? 'ผ่าน' : 'ไม่ผ่าน'), document.createTextNode(` ${item.detail}`));
-    list.append(row);
-  }
-  panel.replaceChildren(head, list);
-}
-
-function edgeStatusChip(edge) {
-  if (!edge || edge.status === 'checking') return statusChip('Checking', 'muted');
-  if (edge.passed || edge.status === 'ok') return statusChip('Proxy พร้อม', 'ready');
-  if (edge.status === 'default-site') return statusChip('ขึ้นหน้า Nginx default', 'needs');
-  if (edge.status === 'not-loaded') return statusChip('ยังไม่โหลด vhost', 'needs');
-  if (edge.status === 'upstream-down') return statusChip('แอปไม่ตอบพอร์ต', 'needs');
-  if (edge.status === 'unavailable') return statusChip('ต้องตรวจบน host', 'muted');
-  return statusChip('Nginx ยังไม่พร้อม', 'needs');
-}
-
-async function refreshDomainStatuses(hosts = state.domainDraft?.hosts || []) {
-  const project = state.activeProject;
-  if (!project || !hosts.length || !state.domainDraft) return;
-  const button = $('#domain-refresh');
-  if (button) button.disabled = true;
-  for (const host of hosts) state.domainDraft.checks[host] = { status: 'checking' };
-  renderDomainList();
-  for (const host of hosts) {
-    try {
-      state.domainDraft.checks[host] = await api(`/api/projects/${encodeURIComponent(project.slug)}/domains/check`, { method: 'POST', body: { hostname: host } });
-    } catch (error) {
-      state.domainDraft.checks[host] = { hostname: host, status: 'error', detail: error.message };
-    }
-    renderDomainList();
-  }
-  try {
-    state.domainDraft.edge = { status: 'checking' };
-    renderDomainList();
-    state.domainDraft.edge = await api(`/api/projects/${encodeURIComponent(project.slug)}/edge/check`, { method: 'POST', body: {} });
-  } catch (error) {
-    state.domainDraft.edge = { passed: false, status: 'error', checks: [{ id: 'host', ok: false, detail: error.message }] };
-  }
-  renderDomainList();
-  if (button) button.disabled = false;
-}
-
-async function checkDomainInput() {
-  const hostname = $('#domain-hostname').value.trim();
-  if (!hostname) throw new Error('กรุณากรอกโดเมน');
-  const project = state.activeProject;
-  $('#domain-check-summary').textContent = 'กำลังตรวจสอบ…';
-  $('#domain-check-detail').replaceChildren();
-  setDomainStep(2);
-  try {
-    const result = await api(`/api/projects/${encodeURIComponent(project.slug)}/domains/check`, { method: 'POST', body: { hostname } });
-    state.domainDraft.pending = result.hostname || hostname;
-    state.domainDraft.check = result;
-    renderDomainCheck(result);
-  } catch (error) {
-    $('#domain-check-summary').textContent = error.message;
-    showError(error);
-  }
-}
-
-function renderDomainCheck(result) {
-  $('#domain-check-summary').textContent = domainStatusLabel(result.status);
-  const detail = $('#domain-check-detail');
-  detail.replaceChildren();
-  const pairs = [
-    ['Hostname', result.hostname],
-    ['สถานะ', domainStatusLabel(result.status)],
-    ['รายละเอียด', result.detail || result.message || '…']
-  ];
-  for (const [term, value] of pairs) {
-    detail.append(element('dt', '', term), element('dd', '', value || '…'));
-  }
-}
-
-async function confirmAddDomain(event) {
-  event.preventDefault();
-  const project = state.activeProject;
-  const hostname = state.domainDraft.pending;
-  if (!hostname) throw new Error('ยังไม่มีโดเมนที่ตรวจแล้ว');
-  const domains = [...new Set([...(state.domainDraft.hosts || []), hostname])];
-  if (domains.length > 10) throw new Error('เพิ่มได้ไม่เกิน 10 โดเมน');
-  const result = await api(`/api/projects/${encodeURIComponent(project.slug)}/domains`, { method: 'POST', body: { domains } });
-  state.domainDraft.hosts = result.project?.domains?.hosts || domains;
-  state.domainDraft.checks = {};
-  toast(`เพิ่ม ${hostname} แล้ว`);
-  setDomainView('list');
-  renderDomainList();
-  await refresh();
-}
-
-async function removeDomainHost(host) {
-  const project = state.activeProject;
-  const domains = (state.domainDraft.hosts || []).filter((item) => item !== host);
-  if (!await confirmAction('ลบ domain', domains.length ? `ลบ ${host} ออกจาก ${project.name} หรือไม่?` : `ลบ ${host} ซึ่งเป็น domain สุดท้ายหรือไม่? Nginx ที่ Portal จัดการให้จะถูกถอดออก แต่ service จะยังทำงานภายในเครื่อง`, 'ลบ')) return;
-  const result = await api(`/api/projects/${encodeURIComponent(project.slug)}/domains`, { method: 'POST', body: { domains } });
-  state.domainDraft.hosts = result.project?.domains?.hosts || domains;
-  delete state.domainDraft.checks?.[host];
-  renderDomainList();
-  await refresh();
+  domainSettings.open(project);
 }
 
 async function hydrateCurrentView() {
@@ -4532,16 +4336,7 @@ function bindEvents() {
   $('#deploy-env-upload')?.addEventListener('click', () => $('#deploy-env-file').click());
   $('#deploy-env-file')?.addEventListener('change', (event) => importDeployEnvironmentFile(event).catch(showError));
   $('#deploy-env-save')?.addEventListener('click', () => saveDeployEnvironment().catch(showError));
-  $('#domain-add-start')?.addEventListener('click', () => setDomainView('add'));
-  $('#domain-back')?.addEventListener('click', () => {
-    const step = Number($('[data-domain-view]').dataset.domainStep || 1);
-    if (step > 1) setDomainStep(step - 1);
-    else setDomainView('list');
-  });
-  $('#domain-check')?.addEventListener('click', () => checkDomainInput().catch(showError));
-  $('#domain-recheck')?.addEventListener('click', () => checkDomainInput().catch(showError));
-  $('#domain-refresh')?.addEventListener('click', () => refreshDomainStatuses().catch(showError));
-  $('#domain-form')?.addEventListener('submit', (event) => confirmAddDomain(event).catch(showError));
+  domainSettings.bind();
 }
 
 async function bootstrap() {

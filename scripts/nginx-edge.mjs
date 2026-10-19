@@ -1,7 +1,15 @@
 import http from 'node:http';
 import https from 'node:https';
+import tls from 'node:tls';
 
 export const NGINX_DEFAULT_RE = /welcome to nginx!?/i;
+
+export function preserveManagedTlsForChallenge(httpSite, previousSite) {
+  // Portal's owned template writes one HTTP block followed by one TLS block.
+  // Keep the previous TLS block while Certbot validates the new HTTP names.
+  const tls = String(previousSite ?? '').match(/\nserver \{\r?\n    listen 443 ssl;[\s\S]*$/)?.[0] || '';
+  return httpSite + tls;
+}
 
 export function renderUnmatchedNginx(acmeRoot = '/var/lib/hostmgr/acme') {
   return `# Managed by Dashboard Portal. Do not edit.\nserver {\n    listen 80 default_server;\n    listen [::]:80 default_server;\n    server_name _;\n\n    location ^~ /.well-known/acme-challenge/ {\n        root ${acmeRoot};\n    }\n\n    location / {\n        return 404;\n    }\n}\n\nserver {\n    listen 443 ssl default_server;\n    listen [::]:443 ssl default_server;\n    server_name _;\n    ssl_reject_handshake on;\n}\n`;
@@ -57,8 +65,35 @@ export function publicEdgeResult(input) {
     passed: input?.passed === true,
     status,
     hostname: typeof input?.hostname === 'string' ? input.hostname.slice(0, 253) : null,
-    checks
+    checks,
+    ...(input?.tls ? { tls: {
+      status: ['valid', 'invalid', 'unreachable'].includes(input.tls.status) ? input.tls.status : 'unknown',
+      expiresAt: typeof input.tls.expiresAt === 'string' ? input.tls.expiresAt.slice(0, 40) : null
+    } } : {})
   };
+}
+
+export async function probeLoopbackTls(hostname, options = {}) {
+  return new Promise(resolve => {
+    let settled = false;
+    let socket;
+    const finish = result => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      socket?.destroy();
+      resolve(result);
+    };
+    const timer = setTimeout(() => finish({ status: 'unreachable', expiresAt: null }), options.timeoutMs ?? 2000);
+    try {
+      socket = (options.connect ?? tls.connect)({ host: '127.0.0.1', port: 443, servername: hostname, rejectUnauthorized: true });
+      socket.once('secureConnect', () => {
+        const expiry = Date.parse(socket.getPeerCertificate()?.valid_to);
+        finish({ status: socket.authorized ? 'valid' : 'invalid', expiresAt: Number.isFinite(expiry) ? new Date(expiry).toISOString() : null });
+      });
+      socket.once('error', error => finish({ status: ['ECONNREFUSED', 'ETIMEDOUT', 'ECONNRESET'].includes(error.code) ? 'unreachable' : 'invalid', expiresAt: null }));
+    } catch { finish({ status: 'unreachable', expiresAt: null }); }
+  });
 }
 
 export async function probeLoopbackHttp(hostname, options = {}) {
@@ -118,7 +153,7 @@ export async function probeLoopbackHttp(hostname, options = {}) {
   });
 }
 
-export function buildEdgeEvaluation({ siteExists, enabled, nginx, hosts, port, httpProbe, upstreamProbe, sitePath, enabledPath }) {
+export function buildEdgeEvaluation({ siteExists, enabled, nginx, hosts, port, httpProbe, upstreamProbe, tlsProbe, sitePath, enabledPath }) {
   const hostname = hosts[0] ?? null;
   const nginxSummary = summarizeManagedNginx(nginx, { sitePath, enabledPath, hosts, port });
   const checks = [
@@ -130,6 +165,7 @@ export function buildEdgeEvaluation({ siteExists, enabled, nginx, hosts, port, h
     check('upstream', upstreamOk(upstreamProbe), upstreamDetail(upstreamProbe, port)),
     check('http', httpOk(httpProbe, hostname), httpDetail(httpProbe, hostname, nginxSummary.defaultServerPresent))
   ];
+  if (tlsProbe) checks.push(check('certificate', tlsProbe.status === 'valid', tlsProbe.status === 'valid' ? 'TLS certificate ของ origin ถูกต้องและตรง hostname' : 'ยังยืนยัน TLS certificate ของ origin ไม่ได้ ตรวจ certificate และพอร์ต 443'));
   const defaultSite = httpProbe?.kind === 'nginx-default';
   const status = !siteExists || !enabled || !nginxSummary.loaded
     ? 'not-loaded'
@@ -140,7 +176,7 @@ export function buildEdgeEvaluation({ siteExists, enabled, nginx, hosts, port, h
         : checks.every((item) => item.ok)
           ? 'ok'
           : 'error';
-  return { passed: status === 'ok', status, hostname, checks };
+  return { passed: status === 'ok', status, hostname, checks, ...(tlsProbe ? { tls: tlsProbe } : {}) };
 }
 
 function check(id, ok, detail) {

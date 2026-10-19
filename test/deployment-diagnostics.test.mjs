@@ -85,6 +85,7 @@ test('helper preserves useful output beyond the former 12 KiB limit and marks tr
 test('DNS activation failure names the affected domain and retains resolver diagnostics', async () => {
   const issue = vm.runInNewContext(`(${source.match(/async function issueCertificate\(project\) \{[^]*?\n\}/)[0]})`, {
     acmeEmail: async () => 'owner@example.test',
+    resolvePublicDomainAddresses: async () => [],
     run: async () => { throw { commandOutput: 'Command: getent\nExit code: 2' }; },
     HelperError: class extends Error { constructor(message, buildOutput) { super(message); this.buildOutput = buildOutput; } }
   });

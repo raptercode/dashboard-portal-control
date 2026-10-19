@@ -85,7 +85,7 @@ test('privileged helper keeps shadow-utils and traversable managed roots compati
 
 test('helper reports a safe and actionable TLS validation failure', async () => {
   const helper = await readFile(new URL('../scripts/hostmgr-deploy-helper.mjs', import.meta.url), 'utf8');
-  assert.match(helper, /TLS certificate request failed\. Confirm the domain resolves to this host, port 80 is reachable, and any CDN proxy or HTTPS redirect is disabled during HTTP-01 validation\./);
+  assert.match(helper, /TLS certificate request failed\.[^\n]*Proxy may remain enabled\./);
   assert.match(helper, /child\.stderr\.resume\(\)/);
 });
 
@@ -246,7 +246,7 @@ test('Python remains optional while project execution drops privileges before an
   assert.doesNotMatch(helper, /run\('\/usr\/bin\/doveadm', \['--version'\]\)/);
   assert.match(client, /operation === 'activate-project'[\s\S]*\? 900_000/);
   assert.match(client, /operation === 'install-tool'[\s\S]*\? 540_000/);
-  assert.match(client, /operation === 'configure-mail'[\s\S]*\? 240_000/);
+  assert.match(client, /\['configure-mail', 'sync-project-domains'\]\.includes\(request\?\.operation\)[\s\S]*\? 240_000/);
   assert.match(server, /throw new InputError\(result\.error \|\| 'Privileged helper rejected the operation\.'\)/);
 });
 

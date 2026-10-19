@@ -2,6 +2,14 @@
 
 [English](../en/CHANGELOG.md)
 
+## 1.0.1 — 2026-10-20
+
+- เปลี่ยนหรือลบโดเมนแล้วอัปเดตชุดโดเมนใน certificate เดิมให้ตรง ใช้ public DNS สำรองแบบจำกัดเวลาเมื่อ resolver บน host ยังตอบไม่พบโดเมน โดยยังต้องผ่าน HTTP-01 จริง
+- Add โดเมนก่อนตั้ง DNS ดู record A/AAAA ที่ต้องตั้ง แล้วกด Verify เพื่อเปิด Nginx/TLS โดเมนที่ยังรอไม่กระทบโดเมนเดิมหรือการ deploy แอปรอบถัดไป ส่วน Refresh ตรวจสถานะโดยไม่แก้ config
+- แสดง Cloudflare Proxy จาก DNS สาธารณะทั้ง IPv4/IPv6 โดยไม่บังคับปิด และตรวจ certificate ของ origin จริงด้วย SNI, hostname และ trust validation แยกจาก IP origin ที่ Proxy ซ่อนไว้และ certificate ของ CDN ฝั่งผู้เข้าชม
+- แยกผลบันทึกกับผลเปิดใช้งาน Nginx/TLS เก็บ error และมี retry แก้กรณี helper ปฏิเสธการลบโดเมนสุดท้ายแต่รายงานว่า sync สำเร็จ ป้องกันกดซ้ำและ response เก่าเขียนทับเมื่อปิดหรือเปลี่ยนโปรเจค
+- ทดสอบ failure/retry ด้วย local fixtures; การออก certificate และกู้คืน production จริงต้องตรวจหลังติดตั้งแพตช์
+
 ## 1.0.0 — 2026-10-15
 
 - Stable release สำหรับ Ubuntu amd64 host เดียวและ trusted repositories การ publish ไม่อัปเดตเครื่องที่ติดตั้งอยู่

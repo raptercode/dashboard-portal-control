@@ -127,7 +127,44 @@ test('checkDomainDns identifies a Cloudflare-proxied record without treating it 
   assert.equal(result.status, 'proxied');
   assert.equal(result.matched, false);
   assert.deepEqual(result.proxy, { detected: true, provider: 'Cloudflare' });
-  assert.match(result.detail, /DNS only/);
+  assert.match(result.detail, /without requiring Proxy to be disabled/);
+});
+
+test('Cloudflare IPv6 Proxy is detected and can be verified without disabling it', async () => {
+  const result = await checkDomainDns('app.example.test', {
+    expected: ['203.0.113.9'],
+    lookup: async () => [{ address: '2606:4700:3033::ac43:dc08', family: 6 }]
+  });
+  assert.equal(result.status, 'proxied');
+  assert.equal(result.proxy.detected, true);
+});
+
+test('a resolver that ignores AbortSignal cannot keep a DNS check pending forever', async () => {
+  const result = await checkDomainDns('app.example.test', {
+    expected: ['203.0.113.9'], timeoutMs: 5,
+    lookup: () => new Promise(() => {}), resolve4: async () => [], resolve6: async () => [],
+    publicResolve4: async () => ['203.0.113.9'], publicResolve6: async () => []
+  });
+  assert.equal(result.status, 'ok');
+});
+
+test('public Proxy answers take precedence over a cached origin match', async () => {
+  const result = await checkDomainDns('app.example.test', {
+    expected: ['203.0.113.9'],
+    lookup: async () => [{ address: '203.0.113.9', family: 4 }],
+    publicResolve4: async () => ['104.21.51.31'], publicResolve6: async () => []
+  });
+  assert.equal(result.status, 'proxied');
+  assert.equal(result.matched, false);
+});
+
+test('a matching A record cannot hide an AAAA record pointing to another origin', async () => {
+  const result = await checkDomainDns('app.example.test', {
+    expected: ['203.0.113.9'],
+    lookup: async () => [{ address: '203.0.113.9', family: 4 }, { address: '2001:db8::99', family: 6 }]
+  });
+  assert.equal(result.status, 'mismatch');
+  assert.equal(result.matched, false);
 });
 
 test('checkDomainDns rejects invalid hostnames', async () => {

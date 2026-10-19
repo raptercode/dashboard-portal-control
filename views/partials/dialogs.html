@@ -109,7 +109,7 @@
   <footer class="modal-footer"><button id="deployment-log-copy" class="secondary" type="button" disabled>คัดลอก log</button><span class="modal-spacer"></span><button id="deployment-log-dismiss" type="button" data-dialog-close>ปิด</button></footer>
 </dialog>
 
-<dialog id="domain-dialog" class="modal" aria-labelledby="domain-dialog-title">
+<dialog id="domain-dialog" class="modal domain-settings-modal" aria-labelledby="domain-dialog-title">
   <form id="domain-form" class="modal-form">
     <header class="modal-header">
       <div>
@@ -118,38 +118,28 @@
       </div>
       <button class="modal-close" id="domain-close" type="button" data-dialog-close aria-label="ปิด"><svg class="icon" aria-hidden="true"><use href="#icon-close"></use></svg></button>
     </header>
-    <div class="modal-body" data-domain-view="list">
+    <div class="modal-body domain-settings-body">
+      <section class="domain-add-section">
+        <h3>เพิ่มโดเมน</h3>
+        <p class="domain-row-detail">เพิ่มโดเมนก่อน แล้วตั้ง DNS ตามรายการและกด Verify เพื่อเปิดใช้งาน HTTPS</p>
+        <label class="sr-only" for="domain-hostname">Domain name</label>
+        <div class="domain-add-input">
+          <input id="domain-hostname" type="text" maxlength="253" placeholder="app.example.com" spellcheck="false" autocomplete="off" aria-label="Domain name" aria-describedby="domain-add-hint">
+          <button id="domain-submit" type="submit">Add</button>
+        </div>
+        <p id="domain-add-hint" class="domain-row-detail">ใส่เฉพาะ hostname ไม่ต้องมี https:// หรือ path เพิ่มได้แม้ DNS ยังไม่พร้อม</p>
+      </section>
       <section class="domain-list-panel">
-        <div class="domain-list-heading"><div><h3>Public domains</h3><p>แต่ละโดเมนต้องมี DNS record ชี้มาที่ host นี้ Dashboard จะตั้ง Nginx reverse proxy ไปยังพอร์ตของโปรเจคและออก TLS certificate ให้</p></div><button class="secondary" id="domain-refresh" type="button">ตรวจสถานะใหม่</button></div>
-        <div id="domain-list" class="domain-list" aria-live="polite"></div>
-        <section id="domain-edge" class="edge-panel" hidden></section>
-        <p id="domain-list-empty" class="empty-state">ยังไม่มีโดเมน กด "เพิ่มโดเมน" เพื่อเริ่มต้น</p>
+          <div class="domain-list-heading"><div><h3>Production domains</h3><p id="domain-count" class="domain-row-detail">0/10 โดเมน</p></div><div class="domain-toolbar"><button class="secondary" id="domain-refresh" type="button">Refresh</button><button class="secondary" id="domain-verify-all" type="button">Verify ทั้งหมด</button></div></div>
+        <p id="domain-sync-status" class="domain-row-detail" role="status" aria-live="polite" hidden></p>
+          <button id="domain-retry-cleanup" class="secondary" type="button" hidden>ลองลบโดเมนจาก Nginx อีกครั้ง</button>
+          <div id="domain-list" class="domain-list" aria-live="polite"></div>
+          <p id="domain-list-empty" class="empty-state">ยังไม่มีโดเมน กรอก hostname ด้านบนแล้วกด Add</p>
       </section>
-      <section class="domain-add-panel" hidden>
-        <ol class="step-list" aria-label="ขั้นตอนเพิ่มโดเมน">
-          <li class="current" data-domain-dot="1"><span>1</span> กรอกโดเมน</li>
-          <li data-domain-dot="2"><span>2</span> ตรวจ DNS</li>
-        </ol>
-        <div data-domain-step="1">
-          <label for="domain-hostname">Domain name<small class="field-hint">ใส่เฉพาะ hostname ไม่ต้องมี https:// หรือ path ตั้ง A หรือ AAAA record ของโดเมนนี้ให้ชี้มาที่ IP ของ host ก่อน ระบบจะตรวจในขั้นถัดไป</small><input id="domain-hostname" type="text" maxlength="253" placeholder="app.example.com" spellcheck="false" autocomplete="off"></label>
-        </div>
-        <div data-domain-step="2" hidden>
-          <h3>สถานะ DNS</h3>
-          <p id="domain-check-summary">กำลังตรวจสอบ…</p>
-          <dl id="domain-check-detail" class="detail-list"></dl>
-          <aside class="notice"><svg class="icon" aria-hidden="true"><use href="#icon-info"></use></svg><p>เพิ่มโดเมนได้แม้ DNS ยังไม่ชี้มาที่ host Nginx จะพร้อมทันที ส่วน TLS certificate จะออกสำเร็จเมื่อ record ชี้ถูกแล้ว กด "ตรวจสถานะใหม่" ในรายการเพื่อลองอีกครั้ง</p></aside>
-        </div>
-      </section>
-      <aside class="notice domain-list-notice"><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg><div><strong>การ sync แตะเฉพาะไฟล์ของ Dashboard Portal</strong><p>เขียนใหม่เฉพาะ Nginx site ที่ Dashboard Portal เป็นเจ้าของ ไม่แก้ config อื่นบน host และทดสอบ config ก่อน reload ทุกครั้ง ถ้าทดสอบไม่ผ่านจะไม่ reload</p></div></aside>
+      <aside class="notice"><svg class="icon" aria-hidden="true"><use href="#icon-info"></use></svg><div><strong>เปิด Cloudflare Proxy ไว้ได้</strong><p>Verify จะตรวจ DNS แล้วตั้ง Nginx และออก TLS ให้โดเมนที่พร้อม หาก HTTP-01 ไม่ผ่าน ให้ตรวจ Origin, redirect, cache และ firewall ของเส้นทาง /.well-known/acme-challenge/ ส่วน Refresh ตรวจสถานะอย่างเดียว</p></div></aside>
     </div>
     <footer class="modal-footer">
       <button class="secondary" id="domain-cancel" type="button" data-dialog-close>ปิด</button>
-      <button class="secondary" id="domain-back" type="button" hidden>ย้อนกลับ</button>
-      <button class="secondary" id="domain-recheck" type="button" hidden>ตรวจ DNS อีกครั้ง</button>
-      <span class="modal-spacer"></span>
-      <button id="domain-add-start" type="button">เพิ่มโดเมน</button>
-      <button id="domain-check" type="button" hidden>ตรวจ DNS</button>
-      <button id="domain-submit" type="submit" hidden>เพิ่มโดเมน</button>
     </footer>
   </form>
 </dialog>

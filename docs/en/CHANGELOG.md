@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.1 — 2026-10-20
+
+- Domain replacement and removal update the named certificate's exact domain set. Certificate preflight falls back to bounded public DNS queries when the host resolver retains a negative answer; HTTP-01 validation remains required.
+- Add domains before configuring DNS, view the required A/AAAA records, then Verify to configure Nginx/TLS. Pending domains do not interrupt existing active domains or later app deployments. Refresh checks status without changing configuration.
+- Show Cloudflare Proxy status from public IPv4/IPv6 DNS without requiring Proxy to be disabled, and check the origin TLS certificate with SNI, hostname and trust validation. The proxy's hidden origin IP and visitor-facing CDN certificate remain separate.
+- Saved domain state and Nginx/TLS activation have separate outcomes, visible errors and explicit retry. Rejected removal of the last domain no longer counts as a successful sync. Dialogs prevent duplicate actions and ignore stale responses after closing or changing projects.
+- Local automated fixtures cover the failure/retry paths; real certificate issuance and production recovery require host acceptance after installing this patch.
+
 ## 1.0.0 — 2026-10-15
 
 - Stable release scope: one Ubuntu amd64 host and trusted repositories. Publication does not update an installed host.

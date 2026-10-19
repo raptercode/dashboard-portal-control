@@ -1,14 +1,9 @@
 import dns from 'node:dns/promises';
 import os from 'node:os';
 import { InputError, validateDomain } from './core.mjs';
+import { isCloudflareAddress, resolvePublicDomainAddresses } from '../scripts/domain-dns.mjs';
 
 const DEFAULT_DNS_TIMEOUT_MS = 5_000;
-const CLOUDFLARE_IPV4_CIDRS = [
-  '173.245.48.0/20', '103.21.244.0/22', '103.22.200.0/22', '103.31.4.0/22',
-  '141.101.64.0/18', '108.162.192.0/18', '190.93.240.0/20', '188.114.96.0/20',
-  '197.234.240.0/22', '198.41.128.0/17', '162.158.0.0/15', '104.16.0.0/13',
-  '104.24.0.0/14', '172.64.0.0/13', '131.0.72.0/22'
-].map(parseIpv4Cidr);
 
 export function hostExpectedAddresses(env = process.env, networkInterfaces = os.networkInterfaces) {
   const fromEnv = String(env?.HOSTMGR_PUBLIC_IP || '')
@@ -50,11 +45,9 @@ function asAddressList(value) {
   return value.filter((item) => typeof item === 'string' && item);
 }
 
-const PUBLIC_DNS_SERVERS = Object.freeze(['1.1.1.1', '8.8.8.8']);
-
 async function resolveWithLookup(hostname, lookup, timeoutMs) {
   const signal = AbortSignal.timeout(timeoutMs);
-  const records = await lookup(hostname, { all: true, order: 'ipv4first', signal });
+  const records = await boundedDnsRequest(() => lookup(hostname, { all: true, order: 'ipv4first', signal }), timeoutMs);
   if (!Array.isArray(records)) return [];
   return records
     .map((item) => (typeof item === 'string' ? item : item?.address))
@@ -77,33 +70,21 @@ async function resolveFromPublicDns(hostname, timeoutMs, options = {}) {
     }
     return addresses;
   }
-  const Resolver = options.Resolver ?? dns.Resolver;
-  const servers = options.publicDnsServers ?? [...PUBLIC_DNS_SERVERS];
-  const addresses = [];
-  let unexpectedError = null;
-  const attempts = servers.flatMap((server) => {
-    const resolver = new Resolver();
-    resolver.setServers([server]);
-    return [
-      resolveRecordList((name, opts) => resolver.resolve4(name, opts), hostname, timeoutMs),
-      resolveRecordList((name, opts) => resolver.resolve6(name, opts), hostname, timeoutMs),
-    ];
-  });
-  const outcomes = await Promise.allSettled(attempts);
-  for (const outcome of outcomes) {
-    if (outcome.status === 'fulfilled') {
-      addresses.push(...outcome.value);
-    } else if (!isUnresolvedDnsError(outcome.reason) && !unexpectedError) {
-      unexpectedError = outcome.reason;
-    }
-  }
-  if (!addresses.length && unexpectedError) throw unexpectedError;
-  return addresses;
+  return resolvePublicDomainAddresses(hostname, { timeoutMs, Resolver: options.Resolver, servers: options.publicDnsServers });
 }
 
 async function resolveRecordList(resolver, hostname, timeoutMs) {
   const signal = AbortSignal.timeout(timeoutMs);
-  return asAddressList(await resolver(hostname, { signal }));
+  return asAddressList(await boundedDnsRequest(() => resolver(hostname, { signal }), timeoutMs));
+}
+
+async function boundedDnsRequest(work, timeoutMs) {
+  let timer;
+  try {
+    return await Promise.race([work(), new Promise((_, reject) => {
+      timer = setTimeout(() => reject(Object.assign(new Error('DNS lookup timed out.'), { code: 'ETIMEOUT' })), timeoutMs);
+    })]);
+  } finally { clearTimeout(timer); }
 }
 
 function isUnresolvedDnsError(error) {
@@ -121,6 +102,7 @@ export async function checkDomainDns(input, options = {}) {
       ? asAddressList(options.expected)
       : hostExpectedAddresses(options.env, options.networkInterfaces);
     const resolved = [];
+    let publicResolved = [];
     let sawResolverError = false;
     try {
       resolved.push(...await resolveWithLookup(hostname, lookup, timeoutMs));
@@ -139,23 +121,12 @@ export async function checkDomainDns(input, options = {}) {
         if (!isUnresolvedDnsError(error)) sawResolverError = true;
       }
     }
-    if (!resolved.length) {
-      try {
-        resolved.push(...await resolveFromPublicDns(hostname, timeoutMs, options));
-      } catch (error) {
-        if (!isUnresolvedDnsError(error)) sawResolverError = true;
-      }
-    }
-    // The host resolver can retain a CDN answer after a record is switched to
-    // DNS-only. When that stale answer does not match this host, ask the public
-    // resolvers before blocking the certificate flow.
-    if (expected.length && !resolved.some((address) => expected.includes(address))) {
-      try {
-        resolved.push(...await resolveFromPublicDns(hostname, timeoutMs, options));
-      } catch (error) {
-        if (!isUnresolvedDnsError(error)) sawResolverError = true;
-      }
-    }
+    // Check public answers even if the host still caches the old origin IP:
+    // the user may have enabled Proxy since the previous verification.
+    try {
+      publicResolved = await resolveFromPublicDns(hostname, timeoutMs, options);
+      resolved.push(...publicResolved);
+    } catch (error) { if (!isUnresolvedDnsError(error)) sawResolverError = true; }
     const uniqueResolved = [...new Set(resolved)];
     if (!uniqueResolved.length) {
       if (sawResolverError) {
@@ -170,8 +141,10 @@ export async function checkDomainDns(input, options = {}) {
       }
       return { hostname, resolved: [], expected, matched: false, status: 'unresolved' };
     }
-    const matched = uniqueResolved.some((address) => expected.includes(address));
-    const cloudflareProxy = !matched && uniqueResolved.every(isCloudflareIpv4);
+    const currentResolved = publicResolved.length ? publicResolved : uniqueResolved;
+    const matched = currentResolved.every((address) => expected.includes(address));
+    const proxyDetected = currentResolved.some(isCloudflareAddress);
+    const cloudflareProxy = proxyDetected && currentResolved.every(address => isCloudflareAddress(address) || expected.includes(address));
     if (cloudflareProxy) {
       return {
         hostname,
@@ -180,10 +153,10 @@ export async function checkDomainDns(input, options = {}) {
         matched: false,
         status: 'proxied',
         proxy: { detected: true, provider: 'Cloudflare' },
-        detail: 'DNS is routed through Cloudflare Proxy. Use DNS only and disable forced HTTPS while issuing the first HTTP-01 certificate.'
+        detail: 'Cloudflare Proxy is enabled. The origin IP is hidden by the proxy; Verify will attempt HTTP-01 validation without requiring Proxy to be disabled.'
       };
     }
-    return { hostname, resolved: uniqueResolved, expected, matched, status: matched ? 'ok' : 'mismatch' };
+    return { hostname, resolved: uniqueResolved, expected, matched, status: matched ? 'ok' : 'mismatch', ...(proxyDetected ? { proxy: { detected: true, provider: 'Cloudflare' } } : {}) };
   } catch (error) {
     if (error instanceof InputError) throw error;
     return {
@@ -337,21 +310,4 @@ export async function checkPtrRecord(mailHostname, options = {}) {
 export async function checkMailHostnameDns(hostname, options = {}) {
   const result = await checkDomainDns(hostname, options);
   return { ...result, proxied: result.status === 'proxied' };
-}
-
-function parseIpv4Cidr(value) {
-  const [address, length] = value.split('/');
-  const prefix = Number(length);
-  return { network: ipv4ToNumber(address), mask: prefix === 0 ? 0 : (0xffffffff << (32 - prefix)) >>> 0 };
-}
-
-function ipv4ToNumber(address) {
-  const parts = address.split('.').map(Number);
-  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return null;
-  return parts.reduce((value, part) => ((value << 8) | part) >>> 0, 0);
-}
-
-function isCloudflareIpv4(address) {
-  const value = ipv4ToNumber(address);
-  return value !== null && CLOUDFLARE_IPV4_CIDRS.some(({ network, mask }) => (value & mask) === (network & mask));
 }

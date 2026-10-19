@@ -117,7 +117,7 @@ export function authorizeRequest({ state, user, path, method, body = {} }) {
       'POST deploy': 'deploy.start', 'POST rollback': 'deploy.rollback',
       'GET deploy-configuration': 'project.view', 'GET environment': 'env.read',
       'POST environment': 'env.write', 'GET logs': 'logs.read',
-      'POST domains': 'domains.manage', 'POST domains/check': 'domains.manage', 'POST edge/check': 'domains.manage'
+      'POST domains': 'domains.manage', 'POST domains/check': 'domains.manage', 'POST domains/verify': 'domains.manage', 'POST edge/check': 'domains.manage'
     }[`${method} ${action}`];
     if (method === 'POST' && ['auto-sync', 'github-webhook', 'actions-hook'].includes(action)) {
       requirePermission(scope.organizationId, 'webhooks.manage');

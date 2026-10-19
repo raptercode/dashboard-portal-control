@@ -1067,6 +1067,27 @@ dialog#deployment-log-dialog[open] { display: grid; grid-template-rows: auto min
 .project-delete-confirmation code { display: inline-block; width: fit-content; padding: 2px 8px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface-2); color: var(--text); font-size: 12.5px; }
 
 .domain-list-panel { display: grid; gap: 12px; }
+.domain-settings-modal { width: min(800px, calc(100vw - 32px)); }
+.domain-settings-body { display: grid; gap: 22px; }
+.domain-add-section { display: grid; gap: 9px; }
+.domain-add-section h3 { font-size: 14px; }
+.domain-add-input { display: flex; gap: 8px; }
+.domain-add-input input { flex: 1; min-width: 0; }
+.domain-add-input button { flex: none; min-width: 80px; }
+.domain-toolbar, .domain-statuses { display: flex; flex-wrap: wrap; gap: 8px; }
+#domain-dialog .domain-toolbar { display: flex; }
+#domain-dialog .domain-toolbar button { flex: 1; width: auto; white-space: nowrap; }
+.domain-dns-details { display: grid; gap: 10px; padding-top: 8px; }
+.domain-dns-details > summary, .domain-edge-details > summary { cursor: pointer; color: var(--text-2); font-size: 12.5px; }
+.domain-dns-details > :not(summary) { margin-top: 10px; }
+.domain-dns-scroll { max-width: 100%; overflow-x: auto; }
+.domain-dns-table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: left; }
+.domain-dns-table th, .domain-dns-table td { padding: 9px 8px; border-bottom: 1px solid var(--border); vertical-align: top; overflow-wrap: anywhere; }
+.domain-dns-table th { color: var(--text-3); font-weight: 500; }
+.domain-dns-table td:last-child { min-width: 170px; }
+.domain-dns-table code { display: inline-block; margin-right: 8px; overflow-wrap: anywhere; }
+.domain-copy { min-height: 26px; padding: 3px 7px; font-size: 11px; }
+.domain-edge-details .edge-check-list { margin-top: 10px; }
 .domain-list-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .domain-list-heading > div { display: grid; gap: 3px; }
 .domain-list-heading button { flex: none; }
@@ -1079,6 +1100,7 @@ dialog#deployment-log-dialog[open] { display: grid; grid-template-rows: auto min
 .domain-row-actions button { min-height: 28px; padding: 0 10px; font-size: 12px; }
 .domain-row-detail { color: var(--text-2); font-size: 12.5px; line-height: 1.45; }
 .domain-records { color: var(--text-3); font-family: var(--mono); font-size: 11.5px; overflow-wrap: anywhere; }
+#domain-sync-status[role="alert"] { padding: 12px 14px; border: 1px solid var(--danger-text); border-radius: var(--r-md); color: var(--danger-text); overflow-wrap: anywhere; }
 .edge-check-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
 .edge-check-list li { display: flex; gap: 8px; color: var(--text-2); font-size: 12.5px; line-height: 1.45; }
 .edge-check-mark { flex: none; font-family: var(--mono); font-weight: 600; }

@@ -1,11 +1,36 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { buildEdgeEvaluation, classifyHttpBody, probeLoopbackHttp, publicEdgeResult, renderUnmatchedNginx, summarizeManagedNginx } from '../scripts/nginx-edge.mjs';
+import { buildEdgeEvaluation, classifyHttpBody, probeLoopbackHttp, probeLoopbackTls, publicEdgeResult, renderUnmatchedNginx, summarizeManagedNginx } from '../scripts/nginx-edge.mjs';
+import { EventEmitter } from 'node:events';
 
 const hosts = ['helpdesk-api.vitemail.site'];
 const sitePath = '/etc/nginx/sites-available/hostmgr-helpdesk.conf';
 const enabledPath = '/etc/nginx/sites-enabled/hostmgr-helpdesk.conf';
+
+test('origin TLS probe uses SNI and certificate verification instead of trusting a loaded config', async () => {
+  const socket = new EventEmitter();
+  socket.authorized = true;
+  socket.getPeerCertificate = () => ({ valid_to: 'Jan 01 00:00:00 2027 GMT' });
+  socket.destroy = () => {};
+  const result = probeLoopbackTls('app.example.test', { connect: options => {
+    assert.equal(options.host, '127.0.0.1');
+    assert.equal(options.servername, 'app.example.test');
+    assert.equal(options.rejectUnauthorized, true);
+    return socket;
+  } });
+  socket.emit('secureConnect');
+  assert.deepEqual(await result, { status: 'valid', expiresAt: '2027-01-01T00:00:00.000Z' });
+});
+
+test('TLS errors and timeouts never report a valid certificate', async () => {
+  const socket = new EventEmitter();
+  socket.destroy = () => {};
+  const invalid = probeLoopbackTls('app.example.test', { connect: () => socket });
+  socket.emit('error', { code: 'ERR_TLS_CERT_ALTNAME_INVALID' });
+  assert.equal((await invalid).status, 'invalid');
+  assert.equal((await probeLoopbackTls('app.example.test', { connect: () => socket, timeoutMs: 10 })).status, 'unreachable');
+});
 
 const dump = `# configuration file /etc/nginx/nginx.conf:
 http {

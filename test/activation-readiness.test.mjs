@@ -73,3 +73,16 @@ test('edge activation failure captures the candidate journal before rollback and
   });
   assert.deepEqual(calls, ['journal', 'rollback']);
 });
+
+test('an app deployment keeps pending domains out of Nginx and certificate activation', async () => {
+  let activatedHosts;
+  const project = { slug: 'fixture', runtime: 'python', domains: { hosts: ['active.example.test', 'pending.example.test'], activeHosts: ['active.example.test'] }, deployment: { releases: [{ id: 'candidate', status: 'candidate' }] } };
+  const activate = vm.runInNewContext(`(${source.match(/async function activateProject\([^]*?\n\}/)[0]})`, {
+    loadProject: async () => project, validateReleaseId() {}, pythonSettings: () => ({}),
+    join: (...parts) => parts.join('/'), PROJECT_ROOT: '/projects', readTextOrEmpty: async () => '',
+    prepareProjectRelease: async () => ({ identity: {}, previousTarget: null }), startAndCheckProject: async () => {},
+    applyDomains: async project => { activatedHosts = Array.from(project.domains.hosts); }, pruneHistoricalReleases: async () => 0
+  });
+  await activate('fixture', 'candidate');
+  assert.deepEqual(activatedHosts, ['active.example.test']);
+});
