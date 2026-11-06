@@ -1,5 +1,5 @@
 export const SETTINGS_SECTIONS = {
-  account: { title: 'บัญชีและความปลอดภัย', description: 'จัดการรหัสผ่านของบัญชีที่กำลังใช้งาน' },
+  account: { title: 'บัญชีและความปลอดภัย', description: 'จัดการรหัสผ่านและสิทธิ์ CLI / AI ของบัญชีที่กำลังใช้งาน' },
   updates: { title: 'ระบบและการอัปเดต', description: 'ตรวจสอบเวอร์ชัน Portal โหมดการทำงาน และขั้นตอนอัปเดตบน host' },
   monitor: { title: 'เชื่อมต่อระบบภายนอก', description: 'จัดการ token สำหรับอ่านสถานะ deploy ของแต่ละโปรเจค' }
 };

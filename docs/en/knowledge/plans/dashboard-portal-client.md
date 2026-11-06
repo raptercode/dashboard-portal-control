@@ -2,7 +2,7 @@
 
 [ภาษาไทย](../../../th/knowledge/plans/dashboard-portal-client.md) · [Documentation index](../../README-index.md)
 
-- Status: **Proposed** — no client, write token, or new endpoint has been implemented
+- Status: **Historical proposal, implementation started 2026-11-06** — `dashboard-control-cli` now implements `dpctl` login, project/deploy/domain commands and atomic ENV patches. See the [current CLI guide](../../how-to/cli.md). The original phases and exclusions below are historical; host doctor/scoped checks remain future work. Production Linux/TLS acceptance remains outstanding.
 - Date: 2026-10-09
 - Goal: a separate CLI for Windows, Linux, and CI to inspect Portal/projects and change individual environment keys while Portal owns authorization, persistence, encryption, and audit
 

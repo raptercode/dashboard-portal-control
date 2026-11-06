@@ -7,6 +7,8 @@
 
 ## คู่มือทำงาน
 
+- [Strckro แบรนด์, deployments และการย้าย CLI](how-to/strckro.md)
+- [CLI สำหรับคน, CI และ AI agents](how-to/cli.md)
 - [สมาชิก องค์กร และสิทธิ์](how-to/access-control.md)
 - [Monitor API สำหรับ AI (reference ภาษาอังกฤษ)](how-to/monitor-api.md)
 - [เผยแพร่ bootstrap URL](how-to/bootstrap-hosting.md)

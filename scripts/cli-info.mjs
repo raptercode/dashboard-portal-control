@@ -5,7 +5,7 @@ import { promisify } from 'node:util';
 import { NODE_VERSIONS } from './node-versions.mjs';
 import { pnpmPaths } from './node-package-manager.mjs';
 
-const help = `Dashboard Portal CLI
+const help = `Strckro CLI
 
 Usage: dashboard-portal <command> [options]
 
@@ -38,7 +38,7 @@ if (!args.length || (args.length === 1 && ['-h', '--help'].includes(args[0])) ||
 } else if (args.length === 1 && ['-v', '--versions', '--version'].includes(args[0])) {
   let version = 'unavailable (Portal metadata cannot be read)';
   try { version = JSON.parse(await readFile('/opt/dashboard-portal/package.json', 'utf8')).version; } catch { /* No config or secrets are needed. */ }
-  console.log(`Dashboard Portal: ${version}\nCLI Node.js: ${process.version}`);
+  console.log(`Strckro: ${version}\nCLI Node.js: ${process.version}`);
   const run = promisify(execFile);
   for (const [label, command, commandArgs] of [
     ...Object.entries(NODE_VERSIONS).map(([major, version]) => [`Node ${major}`, `/opt/node-v${version}/bin/node`, ['--version']]),

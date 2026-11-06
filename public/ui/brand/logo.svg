@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <title>Strckro</title>
+  <rect width="64" height="64" rx="17" fill="#14221d"/>
+  <path d="M47 16H25l-9 9v3l30 10v3l-8 8H16" stroke="#d8ff70" stroke-width="8" stroke-linejoin="round"/>
+  <rect x="42" y="11" width="10" height="10" rx="2" fill="#a4d9bd"/>
+  <rect x="11" y="44" width="10" height="10" rx="2" fill="#a4d9bd"/>
+</svg>

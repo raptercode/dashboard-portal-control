@@ -10,6 +10,7 @@ test('dashboard URLs reload their matching application shell', async (t) => {
     '/': 'overview',
     '/setup': 'setup',
     '/projects': 'projects',
+    '/deployments': 'deployments',
     '/credentials': 'credentials',
     '/databases': 'databases',
     '/activity': 'activity',

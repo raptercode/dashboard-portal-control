@@ -7,6 +7,8 @@ import { renderMembersPage, bindInvitationAcceptance } from './members.js';
 import { settingsSection, SETTINGS_SECTIONS } from './settings-navigation.js';
 import { isWorkerProject, serviceFields, serviceRuntimeError } from './project-service-type.js';
 import { createDomainSettings } from './project-domains.js';
+import { renderCliAccess } from './cli-access.js';
+import { mountDeploymentFeed } from './deployments.js';
 
 const DRAFT_KEY = 'hostmgr.projectDraft';
 const SIDEBAR_COLLAPSED_KEY = 'hostmgr.sidebarCollapsed';
@@ -671,7 +673,9 @@ async function refresh() {
   if (page === 'overview') {
     renderOverview();
     await loadMetrics(state.metricsRange);
+    await mountDeploymentFeed({ api, root: $('[data-overview-deliveries]'), compact: true });
   }
+  if (page === 'deployments') await mountDeploymentFeed({ api, root: $('[data-deployment-feed]') });
   if (page === 'setup') renderSetup();
   if (view === 'projects') { renderProjects(); scheduleProjectProgress(); }
   if (page === 'credentials') renderCredentials();
@@ -1586,7 +1590,7 @@ const MAIL_DEMO = [
   },
   {
     id: 'm3', category: 'deploys', level: 'info', chip: { text: 'DEPLOY', tone: 'info' }, avatar: '🚀', unread: true,
-    from: 'Dashboard Portal', address: 'portal@ops.example.com', time: '18 นาที',
+    from: 'Strckro', address: 'portal@ops.example.com', time: '18 นาที',
     subject: 'Deploy สำเร็จ my-api v1.4.2 · health check ผ่านใน 4.2s',
     preview: 'Release a3f4c21 ถูก activate บนพอร์ต 3210 เก็บ release เดิม v1.4.1 ไว้สำหรับ rollback…',
     body: ['Release a3f4c21 ถูก activate บนพอร์ต 3210', 'Release เดิม v1.4.1 ยังเก็บไว้สำหรับ rollback หนึ่งคลิก'],
@@ -1608,7 +1612,7 @@ const MAIL_DEMO = [
   },
   {
     id: 'm6', category: 'deploys', level: 'info', chip: { text: 'DEPLOY', tone: 'info' }, avatar: '↩️', unread: false,
-    from: 'Dashboard Portal', address: 'portal@ops.example.com', time: '3 ชม.',
+    from: 'Strckro', address: 'portal@ops.example.com', time: '3 ชม.',
     subject: 'Rollback สำเร็จ landing-page → v0.8.9',
     preview: 'Candidate v0.9.1 ไม่ผ่าน health check 3 ครั้งติด ระบบย้อนกลับให้เรียบร้อย…',
     body: ['Candidate v0.9.1 ไม่ผ่าน health check 3 ครั้งติด', 'ระบบย้อนกลับเป็น v0.8.9 โดย release ที่ใช้งานอยู่ไม่สะดุด']
@@ -1891,7 +1895,7 @@ function renderMailReader() {
   root.replaceChildren(actions, subject, fromLine, content);
   if (message.related?.length) {
     const related = element('div', 'mail-related');
-    related.append(element('h3', '', '🔗 เหตุการณ์ที่เกี่ยวข้องจาก Dashboard Portal'));
+    related.append(element('h3', '', '🔗 เหตุการณ์ที่เกี่ยวข้องจาก Strckro'));
     for (const entry of message.related) {
       const row = element('div', 'mail-related-item');
       row.append(statusChip(entry.badge, entry.tone), element('span', '', entry.text), element('span', 'when', entry.when));
@@ -2616,12 +2620,13 @@ function renderSettings() {
   const detail = SETTINGS_SECTIONS[section];
   $('#settings-title').textContent = detail.title;
   $('#settings-description').textContent = detail.description;
-  document.title = `${detail.title} · Dashboard Portal`;
+  document.title = `${detail.title} · Strckro`;
   $$('[data-settings-link]').forEach((link) => {
     if (link.dataset.settingsLink === section) link.setAttribute('aria-current', 'page');
     else link.removeAttribute('aria-current');
   });
-  if (!isMaster() || section === 'account') return;
+  if (section === 'account') { renderCliAccess({ api, access: state.access, projects: state.projects, toast, showError }).catch(showError); return; }
+  if (!isMaster()) return;
   if (section === 'monitor') { renderMonitorTokens().catch(showError); return; }
   renderSoftwareUpdate();
   $('#settings-mode').textContent = state.mode === 'host' ? 'host' : 'sandbox';

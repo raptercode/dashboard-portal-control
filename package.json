@@ -1,6 +1,6 @@
 {
-  "name": "modern-host-manager",
-  "version": "1.0.3",
+  "name": "strckro-control",
+  "version": "1.0.4",
   "license": "MIT",
   "private": true,
   "type": "module",

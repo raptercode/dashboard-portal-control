@@ -3,11 +3,33 @@
     <div>
       <span class="page-eyebrow">การตั้งค่า</span>
       <h1 id="settings-title" class="page-title">บัญชีและความปลอดภัย</h1>
-      <p id="settings-description" class="page-subtitle">จัดการรหัสผ่านของบัญชีที่กำลังใช้งาน</p>
+      <p id="settings-description" class="page-subtitle">จัดการรหัสผ่านและสิทธิ์ CLI / AI ของบัญชีที่กำลังใช้งาน</p>
     </div>
   </header>
   {{> partials/settings-navigation.html}}
   <section class="settings-stack">
+    <article id="cli-access" class="setting-row" data-settings-section="account">
+      <div>
+        <h2>CLI และ AI access</h2>
+        <p>ใช้ skctl login --server https://your-portal เพื่อเชื่อมเครื่องนี้ หรือสร้าง token สำหรับ --token / STRCKRO_TOKEN ได้ที่นี่ สิทธิ์ของ token จะถูกตรวจร่วมกับสิทธิ์ปัจจุบันของบัญชีทุกครั้ง</p>
+      </div>
+      <section>
+        <div data-cli-approval hidden role="status"></div>
+        <form class="form-grid compact">
+          <label>ชื่อ token<input name="name" maxlength="80" required placeholder="AI assistant / CI / Laptop"></label>
+          <label>โปรเจค<select name="projectSlug"></select></label>
+          <label>อายุ (วัน)<input name="days" type="number" min="1" max="90" value="30" required></label>
+          <fieldset><legend>สิทธิ์ที่อนุญาต</legend><div data-cli-scopes></div></fieldset>
+          <button type="submit">สร้าง CLI token</button>
+        </form>
+        <div data-cli-secret hidden>
+          <p>แสดง token ครั้งเดียว คัดลอกไปเก็บใน secret manager</p>
+          <textarea readonly aria-label="CLI token" autocomplete="off" spellcheck="false"></textarea>
+          <button type="button" class="secondary" data-cli-hide-secret>ซ่อนและล้าง token</button>
+        </div>
+        <div data-cli-tokens></div>
+      </section>
+    </article>
     <article class="setting-row" data-settings-section="account">
       <div>
         <h2>เปลี่ยนรหัสผ่าน</h2>

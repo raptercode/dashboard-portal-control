@@ -1,8 +1,8 @@
 <aside id="portal-sidebar" class="sidebar" aria-label="Primary navigation">
   <div class="sidebar-head">
-    <a class="brand" href="/" aria-label="Dashboard Portal home">
-      <span class="brand-mark" aria-hidden="true">DP</span>
-      <span>Dashboard Portal</span>
+    <a class="brand" href="/" aria-label="Strckro home">
+      <img class="strckro-brand-icon" src="/ui/brand/logo.svg" alt="" width="32" height="32">
+      <span class="strckro-wordmark">Strckro<span>.</span></span>
     </a>
     <button id="sidebar-toggle" class="close-btn sidebar-toggle" type="button" aria-label="Collapse sidebar" aria-pressed="false" title="Collapse sidebar">
       <svg class="icon" aria-hidden="true"><use href="#icon-arrow-left"></use></svg>
@@ -11,8 +11,9 @@
   <nav class="nav" aria-label="Portal sections">
     <div class="nav-group">
     <div class="nav-section">งานและโปรเจค</div>
-    <a class="nav-link" data-nav="overview" href="/" title="Dashboard"><svg class="icon" aria-hidden="true"><use href="#icon-home"></use></svg><span>Dashboard</span></a>
+    <a class="nav-link" data-nav="overview" href="/" title="Overview"><svg class="icon" aria-hidden="true"><use href="#icon-home"></use></svg><span>Overview</span></a>
     <a class="nav-link" data-nav="projects" href="/projects" title="Projects"><svg class="icon" aria-hidden="true"><use href="#icon-grid"></use></svg><span>Projects</span><span id="sidebar-project-count" class="count" hidden></span></a>
+    <a class="nav-link" data-nav="deployments" href="/deployments" title="Deployments"><svg class="icon" aria-hidden="true"><use href="#icon-activity"></use></svg><span>Deployments</span></a>
     <a class="nav-link" data-nav="activity" href="/activity" title="Activity" hidden><svg class="icon" aria-hidden="true"><use href="#icon-activity"></use></svg><span>Activity</span></a>
     </div>
     <div class="nav-group">
@@ -35,7 +36,7 @@
   </nav>
   <div class="sidebar-bottom">
     <div class="sidebar-footer">
-      <div class="avatar" id="sidebar-avatar">DP</div>
+      <div class="avatar" id="sidebar-avatar">SK</div>
       <div><div id="sidebar-owner" class="owner-name">Owner</div><div id="mode-badge" class="status">…</div></div>
       <button id="logout" class="close-btn" type="button" aria-label="Sign out" title="Sign out"><svg class="icon" aria-hidden="true"><use href="#icon-log-out"></use></svg></button>
     </div>

@@ -21,6 +21,8 @@ export function authorizeRequest({ state, user, path, method, body = {} }) {
     return { project, organization, organizationId: organization.id };
   };
 
+  if (/^\/cli\/(tokens|devices)(?:\/|$)/.test(path)) return {};
+
   if (/^\/credentials(?:\/|$)/.test(path)) return authorizeCredentialRequest(state, current, path, method, body);
 
   if (method === 'POST' && path === '/projects/sync') {
@@ -80,7 +82,7 @@ export function authorizeRequest({ state, user, path, method, body = {} }) {
     return {};
   }
   if (current.role !== 'user') denied();
-  if (method === 'GET' && ['/access', '/projects', '/audit', '/notification-hooks', '/monitor-tokens'].includes(path)) return {};
+  if (method === 'GET' && ['/access', '/projects', '/deployments', '/audit', '/notification-hooks', '/monitor-tokens'].includes(path)) return {};
   if (method === 'POST' && ['/logout', '/settings/password'].includes(path)) return {};
 
   if (method === 'POST' && ['/git/branches', '/projects/runtime-detect'].includes(path)) {
@@ -113,10 +115,15 @@ export function authorizeRequest({ state, user, path, method, body = {} }) {
   if (projectRoute) {
     const scope = scopeProject(projectRoute[1]);
     const action = projectRoute[2];
+    if (method === 'GET' && action === 'environment/metadata') {
+      if (!has(scope.organizationId, 'env.read') && !has(scope.organizationId, 'env.write')) denied();
+      return scope;
+    }
     const permission = {
       'POST deploy': 'deploy.start', 'POST restart': 'deploy.start', 'POST rollback': 'deploy.rollback',
       'GET deploy-configuration': 'project.view', 'GET environment': 'env.read',
       'POST environment': 'env.write', 'GET logs': 'logs.read',
+      'PATCH environment': 'env.write',
       'POST domains': 'domains.manage', 'POST domains/check': 'domains.manage', 'POST domains/verify': 'domains.manage', 'POST edge/check': 'domains.manage'
     }[`${method} ${action}`];
     if (method === 'POST' && ['auto-sync', 'github-webhook', 'actions-hook'].includes(action)) {

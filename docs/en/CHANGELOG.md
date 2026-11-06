@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.4 — 2026-11-06
+
+- Introduce Strckro branding, a layered SVG logo, a redesigned login/Overview experience, and a dedicated deployment activity workspace with project/status filters and live metadata refresh.
+- Add scoped, expiring CLI credentials, browser/device login with explicit approval, token management/revocation, and bearer access to allowed project workflows. Existing organization permissions are rechecked at mutation commit.
+- Add atomic revision-checked ENV patches and a metadata-only deployment feed. Publish the renamed `strckro` CLI (`skctl` and `strckro`) with legacy config/credential compatibility.
+- Keep host service identifiers, paths, commands and signed update trust compatible. Publishing this release does not update an installed host; real Linux/systemd/Nginx/TLS acceptance remains separate from local fixtures.
+
 ## 1.0.3 — 2026-10-20
 
 - Restart the active native app process after a failed sync/deployment without creating another release or replacing its deployed ENV. Restart checks process stability and configured HTTP health, reports progress and failures, and blocks overlapping project operations.

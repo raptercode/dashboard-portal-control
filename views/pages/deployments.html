@@ -1,0 +1,21 @@
+<section class="page deployments-page" data-page="deployments">
+  <header class="page-header">
+    <div><span class="page-eyebrow">DELIVERY / ACTIVITY</span><h1 class="page-title">Deployments</h1><p class="page-subtitle">ทุก release บนโฮสต์นี้ ตั้งแต่เริ่ม build จนพร้อมรับ traffic</p></div>
+    <a class="btn btn-primary" href="/projects">เลือกโปรเจคเพื่อ deploy <span aria-hidden="true">↗</span></a>
+  </header>
+  <section class="delivery-intro">
+    <div><span class="delivery-kicker"><span></span> YOUR DEPLOYMENT CONTROL PLANE</span><h2>From source.<br>To serving.</h2><p>ติดตามสิ่งที่กำลังส่งขึ้นระบบ ตรวจ release ที่ทำงานอยู่ และกลับไปดูประวัติได้จากที่เดียว</p></div>
+    <div class="delivery-path" aria-label="Deployment lifecycle"><span>01 <strong>Source</strong></span><i></i><span>02 <strong>Build</strong></span><i></i><span>03 <strong>Health</strong></span><i></i><span class="delivery-path-live">04 <strong>Release</strong></span></div>
+  </section>
+  <section class="deployment-feed" data-deployment-feed>
+    <div class="deployment-metrics">
+      <article><span>Total deployments</span><strong data-delivery-total>0</strong><small>ประวัติที่บัญชีนี้เข้าถึงได้</small></article>
+      <article><span>In progress</span><strong data-delivery-active>0</strong><small>อยู่ในคิวหรือกำลังทำงาน</small></article>
+      <article><span>Succeeded</span><strong data-delivery-succeeded>0</strong><small>จบการทำงานสำเร็จ</small></article>
+      <article><span>Failed</span><strong data-delivery-failed>0</strong><small>ตรวจรายละเอียดในโปรเจค</small></article>
+    </div>
+    <div class="delivery-toolbar"><div><h2>Release activity</h2><p data-delivery-updated>กำลังอ่านข้อมูล…</p></div><div class="delivery-filters"><label><span class="sr-only">โปรเจค</span><select data-delivery-project><option value="">ทุกโปรเจค</option></select></label><label><span class="sr-only">สถานะ</span><select data-delivery-status><option value="">ทุกสถานะ</option><option value="running">In progress</option><option value="succeeded">Succeeded</option><option value="failed">Failed</option></select></label></div></div>
+    <p class="form-error" data-delivery-error hidden role="status"></p>
+    <div class="delivery-list" data-delivery-list aria-live="polite"><p class="empty-state">กำลังโหลด deployments…</p></div>
+  </section>
+</section>

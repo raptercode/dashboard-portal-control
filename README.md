@@ -1,4 +1,8 @@
-# Dashboard Portal
+# Strckro
+
+![Strckro](public/ui/brand/wordmark.svg)
+
+**Your stack. Under control.** A self-hosted deployment control plane for people, CLI workflows, and AI agents.
 
 [ภาษาไทย](docs/th/README.md) · [English](docs/en/README.md) · [เอกสาร / Documentation](docs/README.md) · [Changelog](CHANGELOG.md)
 
@@ -25,5 +29,9 @@ curl -fsSL https://dashboard-portal.cloud/install.sh | bash -s -- --version v0.8
 **ต้องใส่อีเมล:** ระบบถาม domain และ TLS email ใน terminal จึงไม่ต้องใส่ใน command line ใช้อีเมลจริงที่ติดต่อได้สำหรับ Let's Encrypt/Certbot และโดเมนที่ DNS ชี้ server นี้ อีเมล TLS แยกจากอีเมลบัญชี login ที่ตั้งภายหลัง ใช้ Node 24 เป็นค่าเริ่มต้น แล้วตรวจ checksum ก่อนติดตั้ง ดูการเตรียมเครื่องและสำรองข้อมูลใน [ภาษาไทย](docs/th/how-to/production-install.md) หรือ [English](docs/en/how-to/production-install.md)
 
 **Email is required:** enter a reachable email for Let's Encrypt/Certbot when the terminal prompts; it need not be in the command line. Also enter the Portal domain pointing to this server. TLS email is separate from the login email configured later. The bootstrap uses Node 24 by default and verifies the release checksum. See the guides above for prerequisites and backup/recovery. Public URL publishing is a separate [maintainer step](docs/en/how-to/bootstrap-hosting.md).
+
+Remote CLI (`skctl` / `strckro`): `npm install -g strckro` — login ผ่าน browser/`--no-browser`/`--token`, deployments, domain/TLS และ ENV สำหรับคนและ AI — [ภาษาไทย](docs/th/how-to/cli.md) · [English](docs/en/how-to/cli.md). Source อยู่ในโปรเจคข้างกัน `dashboard-control-cli`; ต้องอัปเดต backend ให้รองรับ CLI ก่อน
+
+Strckro v1.0.4 adds a deployment history workspace and a new brand identity. Existing `dashboard-portal` host commands, service names, signed update URLs and stored configuration remain compatible. See the [brand and migration notes](docs/en/how-to/strckro.md).
 
 Code: [MIT License](LICENSE). Runtime logo rights: [sources](public/ui/runtime-logos/SOURCES.md).

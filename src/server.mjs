@@ -5,7 +5,7 @@ import { basename, extname, isAbsolute, join, relative, resolve, sep } from 'nod
 import { fileURLToPath } from 'node:url';
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import os from 'node:os';
-import { parseEnvironmentDocument } from '../public/ui/environment-editor.js';
+import { parseEnvironmentDocument, updateEnvironmentDocument } from '../public/ui/environment-editor.js';
 import { spawn } from 'node:child_process';
 import { assertPythonSource, pythonSettings, pythonStartArgs } from '../scripts/python-project.mjs';
 import { assertPhpSource, phpSettings, phpStartArgs } from '../scripts/php-project.mjs';
@@ -36,6 +36,8 @@ import { authorizeRequest } from './authorization.mjs';
 import { handleCredentialsApi } from './credentials.mjs';
 import { prepareGitCredentials, assertSafeGitRepositoryConfig } from './git-credentials.mjs';
 import { requestContext } from './request-context.mjs';
+import { createCliAuth, cliIdentity, authorizeCliRequest } from './cli-auth.mjs';
+import { deploymentFeed } from './deployments.mjs';
 import { acquireMaintenanceLease, MaintenanceLockError } from '../scripts/maintenance-lock.mjs';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
@@ -45,11 +47,12 @@ const viewsDir = join(here, '..', 'views');
 const MAX_BUILD_LOG_BYTES = 48 * 1024;
 const MAX_COMMAND_OUTPUT_BYTES = 64 * 1024;
 const renderView = createRenderer(viewsDir);
-const contentTypes = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.json': 'application/json; charset=utf-8' };
+const contentTypes = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.json': 'application/json; charset=utf-8' };
 const pageTitles = {
   overview: 'ภาพรวม',
   setup: 'การตั้งค่า',
   projects: 'โปรเจค',
+  deployments: 'Deployments',
   credentials: 'Credentials',
   databases: 'Databases',
   activity: 'กิจกรรม',
@@ -138,6 +141,7 @@ export async function createApplication(options = {}) {
   const store = new StateStore(options.dataPath ?? process.env.HOSTMGR_DATABASE_PATH ?? process.env.HOSTMGR_DATA_PATH ?? join(here, '..', 'data', 'state.sqlite'));
   if (!['demo', 'host'].includes(mode)) throw new Error('HOSTMGR_MODE must be demo or host.');
   await store.load();
+  const cliAuth = createCliAuth({ store, readJson, sendJson });
   store.beforeMutation = (state) => assertRequestAuthorization(state);
   if (!store.snapshot().owner && explicitPassword) {
     const seeded = hashPassword(explicitPassword);
@@ -200,6 +204,10 @@ export async function createApplication(options = {}) {
   }
 
   function getSession(request) {
+    if (request.headers.authorization !== undefined) {
+      const match = request.headers.authorization.match(/^Bearer (\S+)$/i);
+      return match ? cliIdentity(store.snapshot(), match[1]) : null;
+    }
     const cookie = request.headers.cookie ?? '';
     const id = cookie.split(';').map((entry) => entry.trim()).find((entry) => entry.startsWith('hostmgr_session='))?.slice('hostmgr_session='.length);
     const idHash = id && sessionIdHash(id);
@@ -219,7 +227,7 @@ export async function createApplication(options = {}) {
       sendJson(response, 401, { error: 'Authentication required.' });
       return null;
     }
-    if (csrf && !constantEqual(request.headers['x-csrf-token'], session.csrf)) {
+    if (csrf && !session.cliTokenId && !constantEqual(request.headers['x-csrf-token'], session.csrf)) {
       sendJson(response, 403, { error: 'Invalid CSRF token.' });
       return null;
     }
@@ -248,6 +256,7 @@ export async function createApplication(options = {}) {
       // snapshots just like other host mutations despite their GET method.
       if (request.method === 'GET' && monitorDeploymentMatch) return await withHostLease(() => handleMonitorDeployment(request, response, monitorDeploymentMatch[1]));
       if (request.method === 'GET' && url.pathname === '/api/session') {
+        if (request.headers.authorization !== undefined) return sendJson(response, 403, { error: 'Use /api/access with CLI bearer tokens.' });
         const session = getSession(request);
         const owner = store.snapshot().owner;
         return sendJson(response, 200, {
@@ -263,6 +272,7 @@ export async function createApplication(options = {}) {
       }
       if (request.method === 'POST' && url.pathname === '/api/bootstrap') return await handleBootstrap(request, response);
       if (request.method === 'POST' && url.pathname === '/api/login') return await handleLogin(request, response);
+      if (await cliAuth.publicRequest(request, response, url.pathname)) return;
       const invitationAccept = request.method === 'POST' && url.pathname === '/api/invitations/accept';
       if (invitationAccept) {
         const ip = request.socket.remoteAddress ?? 'unknown';
@@ -278,12 +288,14 @@ export async function createApplication(options = {}) {
         if (!session) return;
         const context = requestContext.getStore();
         context.user = session.user;
+        context.cliTokenId = session.cliTokenId;
         const bodyRoutes = ['/api/projects/sync', '/api/git/branches', '/api/projects/runtime-detect', '/api/monitor-tokens', '/api/notification-hooks'];
         const credentialRoute = /^\/api\/credentials(?:\/|$)/.test(url.pathname);
         const body = credentialRoute && request.method === 'GET'
           ? { organizationId: url.searchParams.get('organizationId') || undefined }
           : (credentialRoute || (request.method === 'POST' && bodyRoutes.includes(url.pathname))) ? await readJson(request) : {};
         if (!getSession(request)) return sendJson(response, 401, { error: 'Session permissions changed. Sign in again.' });
+        if (session.cliTokenId) authorizeCliRequest(store.snapshot(), session.cliTokenId, url.pathname, request.method, body);
         const access = authorizeRequest({ state: store.snapshot(), user: session.user, path: url.pathname, method: request.method, body });
         const mutationSlug = url.pathname.match(/^\/api\/projects\/([a-z][a-z0-9-]{0,62})(?:\/|$)/)?.[1];
         if (!['GET', 'HEAD'].includes(request.method) && projectRestarts.has(url.pathname === '/api/projects/sync' ? body.slug : mutationSlug || body.slug)) throw new InputError('โปรเจคกำลัง Restart กรุณารอให้เสร็จก่อน');
@@ -293,6 +305,15 @@ export async function createApplication(options = {}) {
           body.organizationId = access.organization.id;
           body.organization = access.organization.name;
         }
+      }
+      if (await cliAuth.authenticatedRequest({ request, response, path: url.pathname, user: requestContext.getStore().user, cliTokenId: requestContext.getStore().cliTokenId })) return;
+      if (request.method === 'GET' && url.pathname === '/api/access' && requestContext.getStore().cliTokenId) {
+        const snapshot = store.snapshot();
+        const user = requestContext.getStore().user;
+        const token = snapshot.cliTokens.find(item => item.id === requestContext.getStore().cliTokenId);
+        const organizationId = token.projectSlug && resolveProjectOrganization(snapshot, snapshot.projects.find(item => item.slug === token.projectSlug))?.id;
+        const organizations = visibleOrganizations(snapshot, user).filter(org => !token.projectSlug || org.id === organizationId).map(org => ({ ...org, permissions: permissionsFor(snapshot, user, org.id).filter(scope => token.scopes.includes(scope)) }));
+        return sendJson(response, 200, { user: publicUser(user), organizations });
       }
       if (await handleAccessApi({ request, response, path: url.pathname, store, user: requestContext.getStore().user, readJson, sendJson })) return;
       if (await handleCredentialsApi({ request, response, url, store, user: requestContext.getStore().user, vault, readJson, sendJson })) return;
@@ -336,6 +357,12 @@ export async function createApplication(options = {}) {
         if (!requireSession(request, response)) return;
         return sendJson(response, 200, { projects: await publicProjectsWithRuntimeStatus() });
       }
+      if (request.method === 'GET' && url.pathname === '/api/deployments') {
+        const snapshot = store.snapshot();
+        const context = requestContext.getStore();
+        const token = snapshot.cliTokens?.find(item => item.id === context.cliTokenId);
+        return sendJson(response, 200, deploymentFeed(snapshot, context.user, { projectSlug: url.searchParams.get('project') || undefined, tokenProjectSlug: token?.projectSlug }));
+      }
       if (request.method === 'POST' && url.pathname === '/api/git/branches') return await handleGitBranches(request, response);
       if (request.method === 'POST' && url.pathname === '/api/projects/runtime-detect') return await handleProjectRuntimeDetect(request, response);
       if (request.method === 'POST' && url.pathname === '/api/projects/sync') return await handleProjectSync(request, response);
@@ -358,6 +385,12 @@ export async function createApplication(options = {}) {
       const deployConfigurationMatch = url.pathname.match(/^\/api\/projects\/([a-z][a-z0-9-]{0,62})\/deploy-configuration$/);
       if (request.method === 'GET' && deployConfigurationMatch) return await handleProjectDeployConfiguration(request, response, deployConfigurationMatch[1]);
       const envMatch = url.pathname.match(/^\/api\/projects\/([a-z][a-z0-9-]{0,62})\/environment$/);
+      const envMetadataMatch = url.pathname.match(/^\/api\/projects\/([a-z][a-z0-9-]{0,62})\/environment\/metadata$/);
+      if (request.method === 'GET' && envMetadataMatch) {
+        const environment = findProject(store.snapshot(), envMetadataMatch[1]).environment;
+        return sendJson(response, 200, { environment: environmentMetadata(environment) });
+      }
+      if (request.method === 'PATCH' && envMatch) return await handleProjectEnvironmentPatch(request, response, envMatch[1]);
       if (request.method === 'GET' && envMatch) return await handleProjectEnvironmentRead(request, response, envMatch[1]);
       if (request.method === 'POST' && envMatch) return await handleProjectEnvironment(request, response, envMatch[1]);
       const domainsCheckMatch = url.pathname.match(/^\/api\/projects\/([a-z][a-z0-9-]{0,62})\/domains\/check$/);
@@ -523,7 +556,7 @@ export async function createApplication(options = {}) {
     if (!verifyPassword(change.currentPassword, owner.password)) throw new InputError('Current password is incorrect.');
     if (mode === 'host' && owner.id === store.snapshot().legacyOwnerId) {
       const socketPath = process.env.HOSTMGR_DEPLOY_HELPER_SOCKET;
-      if (!socketPath) throw new InputError('Password management is not configured. Re-run the Dashboard Portal installer.');
+      if (!socketPath) throw new InputError('Password management is not configured. Re-run the Strckro installer.');
       const result = await callHostHelper(socketPath, { operation: 'set-admin-password', password: change.newPassword });
       if (!result.ok) throw new InputError('Password could not be updated.');
     }
@@ -753,7 +786,7 @@ export async function createApplication(options = {}) {
     if (attached.length && !force) throw new InputError(`This domain still has ${attached.length} mailbox(es). Delete them first or pass force=true.`);
     if (mode === 'host' && snapshot.mail?.configure?.status === 'configured') {
       const socketPath = process.env.HOSTMGR_DEPLOY_HELPER_SOCKET;
-      if (!socketPath) throw new InputError('Host mail cleanup is not configured. Re-run the Dashboard Portal installer.');
+      if (!socketPath) throw new InputError('Host mail cleanup is not configured. Re-run the Strckro installer.');
       const result = await callHostHelper(socketPath, { operation: 'remove-mail-domain', domain: domainName, force });
       if (!result.ok) throw new InputError(result.error || 'Host mail domain cleanup was rejected.');
     }
@@ -836,7 +869,7 @@ export async function createApplication(options = {}) {
     if (mode === 'host') {
       assertHostMailReadiness(mail);
       const socketPath = process.env.HOSTMGR_DEPLOY_HELPER_SOCKET;
-      if (!socketPath) throw new InputError('Host mail configuration is not available. Re-run the Dashboard Portal installer.');
+      if (!socketPath) throw new InputError('Host mail configuration is not available. Re-run the Strckro installer.');
       const result = await callHostHelper(socketPath, { operation: 'configure-mail' });
       if (!result.ok) throw new InputError(result.error || 'Host mail configuration was rejected.');
       hostConfiguration = result;
@@ -869,7 +902,7 @@ export async function createApplication(options = {}) {
     if (mail.mailboxes.some((item) => item.domain === domain && item.localPart === localPart)) throw new InputError('This mailbox address already exists.');
     if (mode === 'host') {
       const socketPath = process.env.HOSTMGR_DEPLOY_HELPER_SOCKET;
-      if (!socketPath) throw new InputError('Host mailbox provisioning is not available. Re-run the Dashboard Portal installer.');
+      if (!socketPath) throw new InputError('Host mailbox provisioning is not available. Re-run the Strckro installer.');
       const result = await callHostHelper(socketPath, { operation: 'create-mailbox', domain, localPart, password });
       if (!result.ok) throw new InputError(result.error || 'Host mailbox provisioning was rejected.');
     }
@@ -888,7 +921,7 @@ export async function createApplication(options = {}) {
     if (!mailbox) throw new NotFoundError('Mailbox was not found.');
     if (mode === 'host' && snapshot.mail?.configure?.status === 'configured') {
       const socketPath = process.env.HOSTMGR_DEPLOY_HELPER_SOCKET;
-      if (!socketPath) throw new InputError('Host mailbox removal is not available. Re-run the Dashboard Portal installer.');
+      if (!socketPath) throw new InputError('Host mailbox removal is not available. Re-run the Strckro installer.');
       const result = await callHostHelper(socketPath, { operation: 'delete-mailbox', domain: mailbox.domain, localPart: mailbox.localPart });
       if (!result.ok) throw new InputError(result.error || 'Host mailbox removal was rejected.');
     }
@@ -919,7 +952,7 @@ export async function createApplication(options = {}) {
           password: vault.decrypt(mail.relay.encryptedSecret),
           from,
           to,
-          subject: 'Dashboard Portal mail test',
+          subject: 'Strckro mail test',
           body: `Test message from ${from} sent through ${mail.relay.host}:${mail.relay.port} at ${new Date().toISOString()}.`
         });
         outcome = { status: 'passed', detail: result.reply };
@@ -928,7 +961,7 @@ export async function createApplication(options = {}) {
       }
     } else if (mode === 'host') {
       try {
-        const result = await mailSend({ host: '127.0.0.1', port: 25, username: null, password: null, from, to, subject: 'Dashboard Portal mail test', body: `Test message from ${from} at ${new Date().toISOString()}.` });
+        const result = await mailSend({ host: '127.0.0.1', port: 25, username: null, password: null, from, to, subject: 'Strckro mail test', body: `Test message from ${from} at ${new Date().toISOString()}.` });
         outcome = { status: 'passed', detail: result.reply };
       } catch (error) {
         outcome = { status: 'failed', detail: String(error?.message ?? 'SMTP submission failed.').slice(0, 240) };
@@ -947,7 +980,7 @@ export async function createApplication(options = {}) {
     const session = requireSession(request, response, true);
     if (!session) return;
     validateTool(tool);
-    if (TOOLS[tool].installable === false) throw new InputError(`${TOOLS[tool].label} is installed by the Dashboard Portal installer. Re-run the installer or update the Portal.`);
+    if (TOOLS[tool].installable === false) throw new InputError(`${TOOLS[tool].label} is installed by the Strckro installer. Re-run the installer or update the Portal.`);
     const body = await readJson(request);
     if (body.confirm !== true) throw new InputError('Explicit confirmation is required.');
     const result = mode === 'demo' ? demoInstall(tool) : await hostInstall(tool);
@@ -1042,7 +1075,8 @@ export async function createApplication(options = {}) {
       appendAudit(next, { action: 'project.sync_configure', outcome: syncFailed ? 'failure' : 'success', actor: 'owner', target: project.slug, detail: syncFailed ? 'Repository sync failed without changing an active release' : `${project.protocol.toUpperCase()} project sync configured` });
     });
     let autoDeploy = null;
-    if (!syncFailed && storedProject?.autoSync?.mode !== 'actions' && canAccess(store.snapshot(), requestContext.getStore().user, project.organizationId, 'deploy.start')) {
+    const cliToken = store.snapshot().cliTokens?.find(item => item.id === requestContext.getStore().cliTokenId);
+    if (!syncFailed && (!cliToken || cliToken.scopes.includes('deploy.start')) && storedProject?.autoSync?.mode !== 'actions' && canAccess(store.snapshot(), requestContext.getStore().user, project.organizationId, 'deploy.start')) {
       const current = store.snapshot().projects.find((item) => item.slug === project.slug);
       const currentRevision = current?.sync?.revision ?? null;
       const latestRelease = current?.deployment?.releases?.[0];
@@ -1320,7 +1354,7 @@ export async function createApplication(options = {}) {
     if (store.snapshot().jobs.some((item) => item.projectSlug === slug && ['queued', 'running'].includes(item.status))) throw new InputError('Wait for the queued deployment to finish before deleting this project.');
     if (mode === 'host') {
       const socketPath = process.env.HOSTMGR_DEPLOY_HELPER_SOCKET;
-      if (!socketPath) throw new InputError('Host project cleanup is not configured. Re-run the Dashboard Portal installer.');
+      if (!socketPath) throw new InputError('Host project cleanup is not configured. Re-run the Strckro installer.');
       const result = await callHostHelper(socketPath, { operation: 'delete-project', slug });
       if (!result.ok) throw new InputError('Host project cleanup was rejected. The project was not deleted.');
     }
@@ -1338,7 +1372,8 @@ export async function createApplication(options = {}) {
   async function publicProjectsWithRuntimeStatus() {
     const state = store.snapshot();
     const user = requestContext.getStore().user;
-    return Promise.all(state.projects.filter((project) => user.role === 'master' || canAccess(state, user, resolveProjectOrganization(state, project)?.id, 'project.view')).map(async (project) => ({
+    const token = state.cliTokens?.find(item => item.id === requestContext.getStore().cliTokenId);
+    return Promise.all(state.projects.filter(project => !token?.projectSlug || token.projectSlug === project.slug).filter((project) => user.role === 'master' || canAccess(state, user, resolveProjectOrganization(state, project)?.id, 'project.view')).map(async (project) => ({
       ...publicProject(project),
       runtimeStatus: await projectRuntimeStatus(project),
       deploymentProgress: projectDeploymentProgress(state.jobs, project.slug)
@@ -1815,6 +1850,33 @@ export async function createApplication(options = {}) {
     return sendJson(response, 200, { ok: true, project: publicProject(store.snapshot().projects.find((item) => item.slug === slug)) });
   }
 
+  async function handleProjectEnvironmentPatch(request, response, slug) {
+    if (!requireSession(request, response, true)) return;
+    if (!vault) throw new InputError('Credential vault is not configured.');
+    const body = await readJson(request, 1024 * 1024);
+    if (typeof body.revision !== 'string') throw new AccessError('Environment revision is required.', 428);
+    const set = body.set ?? {};
+    const unset = body.unset ?? [];
+    if (!set || typeof set !== 'object' || Array.isArray(set) || !Array.isArray(unset)) throw new InputError('Provide set object and unset array.');
+    const keys = [...Object.keys(set), ...unset];
+    if (!keys.length || keys.some(key => typeof key !== 'string' || !/^[A-Z_][A-Z0-9_]*$/.test(key)) || new Set(keys).size !== keys.length) throw new InputError('Environment keys must be unique uppercase names.');
+    if (Object.values(set).some(value => typeof value !== 'string' || /[\r\n\0]/.test(value))) throw new InputError('Environment values must be single-line strings.');
+    let metadata;
+    await store.update(state => {
+      const project = findProject(state, slug);
+      if (environmentMetadata(project.environment).revision !== body.revision) throw new AccessError('Environment changed. Read the latest revision and retry.', 412);
+      const content = project.environment?.encryptedContent ? vault.decrypt(project.environment.encryptedContent) : '';
+      const variables = new Map(parseEnvironmentDocument(content).variables.map(item => [item.key, item.value]));
+      for (const key of unset) variables.delete(key);
+      for (const [key, value] of Object.entries(set)) variables.set(key, value);
+      const environment = validateEnvironmentContent(updateEnvironmentDocument(content, [...variables].map(([key, value]) => ({ key, value }))));
+      project.environment = { keys: environment.keys, updatedAt: new Date().toISOString(), encryptedContent: vault.encrypt(environment.content) };
+      metadata = environmentMetadata(project.environment);
+      appendAudit(state, { action: 'project.patch_environment', outcome: 'success', actor: requestContext.getStore().user.id, target: slug, detail: `Set: ${Object.keys(set).join(', ')}; unset: ${unset.join(', ')}` });
+    });
+    return sendJson(response, 200, { ok: true, environment: metadata });
+  }
+
   async function handleProjectEnvironmentRead(request, response, slug) {
     if (!requireSession(request, response)) return;
     const project = findProject(store.snapshot(), slug);
@@ -1927,7 +1989,7 @@ export async function createApplication(options = {}) {
         passed: false,
         status: 'unavailable',
         hostname,
-        checks: [{ id: 'host', ok: false, detail: 'ตรวจ Nginx/proxy จริงได้เฉพาะเครื่องที่ติดตั้ง Dashboard Portal หลัง release' }]
+        checks: [{ id: 'host', ok: false, detail: 'ตรวจ Nginx/proxy จริงได้เฉพาะเครื่องที่ติดตั้ง Strckro หลัง release' }]
       }));
     }
     const socketPath = process.env.HOSTMGR_DEPLOY_HELPER_SOCKET;
@@ -2001,7 +2063,7 @@ export async function createApplication(options = {}) {
     const socketPath = process.env.HOSTMGR_DEPLOY_HELPER_SOCKET;
     let syncError = null;
     try {
-      if (!socketPath) syncError = 'ยังไม่ได้ตั้งค่า host deployment helper กรุณารัน installer ของ Dashboard Portal อีกครั้ง';
+      if (!socketPath) syncError = 'ยังไม่ได้ตั้งค่า host deployment helper กรุณารัน installer ของ Strckro อีกครั้ง';
       else {
         const result = await projectDomainHelper(socketPath, { operation: hosts.length ? 'sync-project-domains' : 'remove-project-domains', slug, ...(hosts.length ? { hosts } : {}) });
         if (!result.ok) syncError = String(result.error || 'Host helper rejected Nginx/TLS sync.').slice(0, 1000);
@@ -2041,7 +2103,7 @@ export async function createApplication(options = {}) {
 
   async function hostInstall(tool) {
     const socketPath = process.env.HOSTMGR_DEPLOY_HELPER_SOCKET;
-    if (!socketPath) throw new InputError('Host installer is not configured. Re-run the Dashboard Portal installer.');
+    if (!socketPath) throw new InputError('Host installer is not configured. Re-run the Strckro installer.');
     const result = await callHostHelper(socketPath, { operation: 'install-tool', tool });
     if (!result.ok) throw new InputError(result.error || 'Privileged helper rejected the operation.');
     return { version: result.version ?? 'Installed', detail: `Installed through allowlisted helper: ${tool}` };
@@ -2186,7 +2248,7 @@ async function checkMailInboundReadiness(mode, socketPath) {
     scope: 'local-firewall',
     checkedAt: new Date().toISOString(),
     externalReachability: 'unverified',
-    ports: [25, 587, 993].map((port) => ({ port, status: 'unknown', source: 'helper-unavailable', detail: 'Re-run the Dashboard Portal installer to enable the mail readiness helper.' }))
+    ports: [25, 587, 993].map((port) => ({ port, status: 'unknown', source: 'helper-unavailable', detail: 'Re-run the Strckro installer to enable the mail readiness helper.' }))
   };
   try {
     const result = await callHostHelper(socketPath, { operation: 'mail-port-readiness' });
@@ -2406,7 +2468,7 @@ export async function prepareNativeRelease(project, release, storedProject, vaul
       if (storedProject.environment?.encryptedContent && !vault) throw new InputError('Credential vault is not configured.');
       await writeFile(join(destination, '.env'), environmentContent, { mode: 0o600 });
     }
-    await runCandidateRuntime(project, ['--version'], {}, `The host ${runtimeLabel(project.runtime)} runtime is missing. Re-run the Dashboard Portal installer.`);
+    await runCandidateRuntime(project, ['--version'], {}, `The host ${runtimeLabel(project.runtime)} runtime is missing. Re-run the Strckro installer.`);
     if (manager === 'pnpm') {
       await reportPhase('dependencies', 'started', 'Checking the optional host pnpm installation.');
       try {
@@ -2534,7 +2596,7 @@ export async function healthCheckCandidate(cwd, project, storedProject, vault, r
       await delay(250);
     }
     const failureLog = redactBuildOutput([candidateOutput, startupError?.message].filter(Boolean).join('\n'), environmentContent);
-    if (startupError) throw new DeploymentFailure(`The host ${runtimeLabel(project.runtime)} runtime could not start the project. Re-run the Dashboard Portal installer.`, failureLog);
+    if (startupError) throw new DeploymentFailure(`The host ${runtimeLabel(project.runtime)} runtime could not start the project. Re-run the Strckro installer.`, failureLog);
     if (exited) throw new DeploymentFailure(`Candidate ${project.runtime === 'go' ? 'Go binary' : `start script "${project.startScript}"`} exited before the health check passed.`, failureLog);
     throw new DeploymentFailure(`Candidate health check did not pass before its timeout (port ${project.candidatePort}, path ${project.healthCheckPath}).`, failureLog);
   } finally {
@@ -2869,7 +2931,9 @@ function publicProject(project) {
     const org = resolveProjectOrganization(state, project);
     safe.organizationId = org?.id ?? null;
     safe.permissions = permissionsFor(state, context.user, org?.id);
-    if (context.user.role !== 'master' && !safe.permissions.includes('logs.read')) {
+    const token = state.cliTokens?.find(item => item.id === context.cliTokenId);
+    if (token) safe.permissions = safe.permissions.filter(permission => token.scopes.includes(permission));
+    if ((context.user.role !== 'master' || token) && !safe.permissions.includes('logs.read')) {
       if (safe.sync) delete safe.sync.detail;
       for (const release of safe.deployment?.releases ?? []) {
         delete release.failureLog;
@@ -3088,7 +3152,13 @@ function assertRequestAuthorization(state) {
   if (!context?.authorization) return;
   const current = state.users.find((item) => item.id === context.user?.id);
   if (!current || current.status !== 'active' || current.authVersion !== context.user.authVersion) throw new AccessError('Session permissions changed. Sign in again.', 401);
+  if (context.cliTokenId) authorizeCliRequest(state, context.cliTokenId, context.authorization.path, context.authorization.method, context.authorization.body);
   authorizeRequest({ state, user: current, ...context.authorization });
+}
+
+function environmentMetadata(environment) {
+  return { keys: environment?.keys ?? [], updatedAt: environment?.updatedAt ?? null,
+    revision: createHash('sha256').update(JSON.stringify(environment?.encryptedContent ?? null)).digest('hex') };
 }
 
 async function readJson(request, maxBytes = 64 * 1024) {
@@ -3120,7 +3190,7 @@ async function serveStatic(pathname, response, searchParams) {
     const html = await renderView.render(route.view, {
       page: route.page,
       view: route.view,
-      title: pageTitles[route.view] || pageTitles[route.page] || 'Dashboard Portal',
+      title: pageTitles[route.view] || pageTitles[route.page] || 'Strckro',
       flowMode: route.params.mode || '',
       editSlug: route.params.slug || ''
     }, route.page === 'mail' ? 'mail-layout' : 'layout');

@@ -2,6 +2,13 @@
 
 [English](../en/CHANGELOG.md)
 
+## 1.0.4 — 2026-11-06
+
+- เปลี่ยนแบรนด์เป็น Strckro พร้อมโลโก้ SVG ใหม่ หน้า login/Overview และหน้า Deployments ที่กรองโปรเจค/สถานะและอัปเดต metadata จากระบบจริง
+- เพิ่ม CLI token ที่จำกัด scope/โปรเจค/อายุได้, browser/device login ที่ต้องอนุมัติ, หน้าออก/ถอน token และ bearer API ที่ตรวจสิทธิ์องค์กรซ้ำก่อน commit
+- เพิ่ม atomic ENV patches พร้อม revision และ deployment feed ที่ไม่คืน logs/secrets พร้อม npm CLI ชื่อ `strckro` ใช้ `skctl` หรือ `strckro` โดยรองรับ config/credential เดิม
+- รักษาชื่อ service, paths, host commands และ signed update trust เดิม การเผยแพร่ release ไม่อัปเดตโฮสต์ที่ติดตั้งอยู่ และ local fixtures ไม่แทน acceptance Linux/systemd/Nginx/TLS จริง
+
 ## 1.0.3 — 2026-10-20
 
 - เพิ่ม Restart app สำหรับ process ของ active release หลัง Sync หรือ Deploy ล้มเหลว โดยตรวจความเสถียรของ process และ HTTP health ตามการตั้งค่า แสดงผลระหว่างทำและเมื่อจบ พร้อมกันงานจัดการโปรเจคซ้อนกัน

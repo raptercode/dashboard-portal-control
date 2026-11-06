@@ -1,7 +1,8 @@
 <section class="page" data-page="overview">
   <header class="page-header">
     <div>
-      <h1 class="page-title">Dashboard</h1>
+      <span class="page-eyebrow">STRCKRO / CONTROL PLANE</span>
+      <h1 class="page-title">Overview</h1>
       <p class="page-subtitle">ภาพรวมของ <span id="host-name" class="mono">…</span> <span id="host-platform" class="mono"></span></p>
     </div>
     <div class="page-header-actions">
@@ -11,6 +12,8 @@
 
   <aside id="sandbox-notice" class="notice" hidden><svg class="icon" aria-hidden="true"><use href="#icon-flask"></use></svg><div><strong>Sandbox</strong><p>คำสั่งติดตั้งบน host ถูกจำลองในโหมดนี้ ไม่มีการเปลี่ยนแปลงเครื่องจริง</p></div></aside>
 
+  <section class="stack-welcome"><div><span class="delivery-kicker"><span></span> BUILT TO SHIP. MADE TO STAY.</span><h2>Your stack.<br>Under control.</h2><p>Source, deployments, domains และ environment<br>จัดการทุกจังหวะของแอปจากที่เดียว</p><div class="stack-welcome-actions"><a href="/projects/new" class="btn btn-primary">เชื่อมโปรเจค <span aria-hidden="true">↗</span></a><a href="/deployments" class="stack-text-link">ดู deployments <span aria-hidden="true">→</span></a></div></div><div class="stack-welcome-art" aria-hidden="true"><div class="stack-orbit stack-orbit-one"></div><div class="stack-orbit stack-orbit-two"></div><img src="/ui/brand/logo-mono.svg" alt=""><span class="stack-art-label">SOURCE → SERVING</span></div></section>
+
   <section class="dashboard-stat-grid" aria-label="Project summary">
     <a class="dashboard-stat" href="/projects"><span class="label">โปรเจคทั้งหมด</span><strong id="status-total-count" class="value">0</strong><span class="delta">ที่ตั้งค่าไว้บนโฮสต์นี้</span></a>
     <a class="dashboard-stat" href="/projects?status=ready"><span class="label">Ready</span><strong id="status-ready-count" class="value">0</strong><span class="delta up">release ทำงานอยู่</span></a>
@@ -19,6 +22,8 @@
   </section>
 
   <section class="next-action" aria-labelledby="next-action-title"><div><h2 id="next-action-title">กำลังตรวจความพร้อม</h2><p id="next-action-copy">รอสักครู่</p></div><button id="next-action-button" class="btn btn-primary" type="button" hidden>ไปทำต่อ</button></section>
+
+  <section class="overview-deliveries card" data-overview-deliveries><header class="delivery-toolbar"><div><h2>Latest deployments</h2><p data-delivery-updated>ประวัติ release ของคุณ</p></div><a href="/deployments" class="stack-text-link">ดูทั้งหมด ↗</a></header><p class="form-error" data-delivery-error hidden role="status"></p><div data-delivery-list class="delivery-list" aria-live="polite"></div></section>
 
   <section class="dashboard-split">
     <article class="card history-panel">

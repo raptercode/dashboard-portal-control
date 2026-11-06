@@ -226,6 +226,8 @@ export class StateStore {
       audit: readPayloads('SELECT payload FROM audit_events ORDER BY occurred_at DESC'),
       jobs: readPayloads('SELECT payload FROM jobs ORDER BY created_at ASC'),
       monitorTokens: JSON.parse(meta('monitor_tokens', '[]')),
+      cliTokens: JSON.parse(meta('cli_tokens', '[]')),
+      cliDevices: JSON.parse(meta('cli_devices', '[]')),
       notificationHooks: JSON.parse(meta('notification_hooks', '[]')),
       mail: JSON.parse(meta('mail', 'null')),
       owner: JSON.parse(meta('owner', 'null')),
@@ -267,6 +269,8 @@ function persistedSections(state) {
       metaRow('invitations', JSON.stringify(state.invitations ?? [])),
       metaRow('legacy_owner_id', JSON.stringify(state.legacyOwnerId ?? null)),
       metaRow('monitor_tokens', JSON.stringify(state.monitorTokens ?? [])),
+      metaRow('cli_tokens', JSON.stringify(state.cliTokens ?? [])),
+      metaRow('cli_devices', JSON.stringify(state.cliDevices ?? [])),
       metaRow('notification_hooks', JSON.stringify(state.notificationHooks ?? [])),
       metaRow('mail', JSON.stringify(state.mail ?? initialMailState()))
     ] }

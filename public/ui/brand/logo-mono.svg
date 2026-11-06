@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="currentColor">
+  <title>Strckro monochrome mark</title>
+  <path d="M47 16H25l-9 9v3l30 10v3l-8 8H16" fill="none" stroke="currentColor" stroke-width="8" stroke-linejoin="round"/>
+  <rect x="42" y="11" width="10" height="10" rx="2"/><rect x="11" y="44" width="10" height="10" rx="2"/>
+</svg>

@@ -20,7 +20,7 @@ test('version aliases report available information even when host tools are abse
   for (const flag of ['-v', '--versions', '--version']) {
     const result = run(flag);
     assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stdout, /Dashboard Portal:/);
+    assert.match(result.stdout, /Strckro:/);
     assert.match(result.stdout, /CLI Node\.js: v/);
     for (const major of [20, 22, 24, 26]) assert.match(result.stdout, new RegExp(`Node ${major}:`));
   }

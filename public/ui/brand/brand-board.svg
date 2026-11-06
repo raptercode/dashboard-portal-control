@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+  <title>Strckro brand system</title>
+  <defs><symbol id="mark" viewBox="0 0 64 64"><path d="M47 16H25l-9 9v3l30 10v3l-8 8H16" fill="none" stroke="currentColor" stroke-width="8" stroke-linejoin="round"/><rect x="42" y="11" width="10" height="10" rx="2" fill="currentColor"/><rect x="11" y="44" width="10" height="10" rx="2" fill="currentColor"/></symbol></defs>
+  <rect width="1600" height="900" fill="#f4f5ef"/>
+  <text x="76" y="78" font-family="monospace" font-size="15" letter-spacing="3" fill="#60705b">STRCKRO / BRAND SYSTEM / 2026</text>
+  <rect x="76" y="128" width="1448" height="470" rx="28" fill="#14221d"/>
+  <use href="#mark" x="145" y="225" width="235" height="235" color="#d8ff70"/>
+  <text x="423" y="391" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="144" font-weight="600" letter-spacing="-8" fill="#f4f5ef">Strckro<tspan fill="#d8ff70">.</tspan></text>
+  <text x="430" y="465" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="29" fill="#a4b59b">Your stack. Under control.</text>
+  <text x="145" y="550" font-family="monospace" font-size="14" letter-spacing="3" fill="#94a58c">SOURCE → BUILD → HEALTH → RELEASE</text>
+  <rect x="76" y="630" width="342" height="182" rx="18" fill="#d8ff70"/>
+  <use href="#mark" x="99" y="652" width="110" height="110" color="#14221d"/>
+  <text x="104" y="786" font-family="monospace" font-size="13" fill="#14221d">RELEASE LIME / #D8FF70</text>
+  <rect x="444" y="630" width="342" height="182" rx="18" fill="#14221d"/>
+  <use href="#mark" x="467" y="652" width="110" height="110" color="#f4f5ef"/>
+  <text x="472" y="786" font-family="monospace" font-size="13" fill="#c5d1bd">INK / #14221D</text>
+  <rect x="812" y="630" width="342" height="182" rx="18" fill="#a4d9bd"/>
+  <use href="#mark" x="835" y="652" width="110" height="110" color="#14221d"/>
+  <text x="840" y="786" font-family="monospace" font-size="13" fill="#14221d">MUTED MINT / #A4D9BD</text>
+  <text x="1200" y="691" font-family="monospace" font-size="16" fill="#60705b">npm i -g strckro</text>
+  <text x="1200" y="733" font-family="monospace" font-size="26" fill="#14221d">skctl deploy</text>
+  <text x="1200" y="778" font-family="monospace" font-size="13" fill="#60705b">SELF-HOSTED DELIVERY</text>
+</svg>

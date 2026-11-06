@@ -2,6 +2,7 @@ export const pageRoutes = Object.freeze({
   overview: '/',
   setup: '/setup',
   projects: '/projects',
+  deployments: '/deployments',
   mail: '/mail',
   credentials: '/credentials',
   databases: '/databases',

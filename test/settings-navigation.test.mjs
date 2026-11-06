@@ -52,11 +52,13 @@ test('each settings route renders only its purpose and fetches monitor tokens on
     const links = ['account', 'updates', 'monitor'].map((section) => ({ dataset: { settingsLink: section }, setAttribute(key, value) { this[key] = value; }, removeAttribute(key) { delete this[key]; } }));
     let monitor = 0;
     let updates = 0;
+    let cli = 0;
     const render = runInNewContext(`${source}; renderSettings`, {
       settingsSection, SETTINGS_SECTIONS, location: { search }, isMaster: () => master,
       $: (selector) => { if (!nodes.has(selector)) nodes.set(selector, {}); return nodes.get(selector); },
       $$: () => links,
-      document: {}, state: { mode: 'demo' }, showError: (error) => { throw error; },
+      document: {}, state: { mode: 'demo' }, showError: (error) => { throw error; }, api: () => {}, toast: () => {},
+      renderCliAccess: async () => { cli++; },
       renderMonitorTokens: async () => { monitor++; }, renderSoftwareUpdate: () => { updates++; }
     });
     render();
@@ -64,5 +66,6 @@ test('each settings route renders only its purpose and fetches monitor tokens on
     assert.equal(links.filter((link) => link['aria-current'] === 'page')[0].dataset.settingsLink, expected);
     assert.equal(monitor, expected === 'monitor' ? 1 : 0);
     assert.equal(updates, expected === 'updates' ? 1 : 0);
+    assert.equal(cli, expected === 'account' ? 1 : 0);
   }
 });
