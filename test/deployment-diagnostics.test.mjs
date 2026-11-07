@@ -28,7 +28,7 @@ test('root helper and application use the same account mapping, installed with t
     validateSlug: () => {}, projectServiceUser, join, RUNTIME_ROOT: '/srv/hostmgr/projects', ENVIRONMENT_ROOT: '/etc/hostmgr/projects'
   });
   assert.equal(helperIdentity('seo-writer-contribute-api').user, projectIdentity('seo-writer-contribute-api').user);
-  const installer = await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8');
+  const installer = await readFile(new URL('../strckro.sh', import.meta.url), 'utf8');
   assert.match(installer, /install[^\n]*project-service-user\.mjs[^\n]*HELPER_ROOT/);
 });
 
@@ -67,7 +67,7 @@ test('synchronous uid/gid spawn rejection preserves the same diagnostics as asyn
 });
 
 test('only the root helper retains uid/gid capabilities while keeping NoNewPrivileges', async () => {
-  const installer = await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8');
+  const installer = await readFile(new URL('../strckro.sh', import.meta.url), 'utf8');
   const unit = installer.match(/cat > "\$HELPER_SERVICE_FILE" <<EOF[^]*?\nEOF/)[0];
   assert.match(unit, /NoNewPrivileges=true/);
   assert.match(unit, /AmbientCapabilities=CAP_SETUID CAP_SETGID/);

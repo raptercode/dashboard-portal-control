@@ -1,0 +1,257 @@
+/*
+  Strckro Signal — tokens and base.
+
+  One idea runs through the whole interface: a release is a track
+  (source → build → serving). Neutral surfaces stay quiet; the single lime
+  "signal" colour is reserved for what is alive or what you should press.
+*/
+:root {
+  color-scheme: light;
+
+  /* Paper */
+  --paper: #efede4;
+  --paper-sunk: #e5e2d5;
+  --card: #fbfaf5;
+  --card-raised: #fff;
+  --field: #fff;
+  --rule: #dcd8ca;
+  --rule-strong: #c5c0ad;
+
+  /* Ink */
+  --ink: #111b16;
+  --ink-2: #44534a;
+  --ink-3: #75837a;
+  --on-ink: #f6f5ee;
+
+  /* Signal */
+  --signal: #d8ff70;
+  --signal-hover: #c9f553;
+  --signal-edge: #b5e334;
+  --signal-ink: #15230a;
+  --signal-text: #3a6d05;
+  --signal-wash: #e7f5c3;
+  --focus: #3a6d05;
+
+  /* State */
+  --ok: #3d8710;
+  --ok-wash: #e2f0cb;
+  --warn: #a2650a;
+  --warn-wash: #f7e7c3;
+  --bad: #b83626;
+  --bad-wash: #f8dcd5;
+  --busy: #0a7b6a;
+  --busy-wash: #cbece4;
+  --idle: #8b958e;
+
+  /* Code */
+  --code-bg: #0d1511;
+  --code-ink: #d4e3d2;
+  --code-dim: #6b8176;
+
+  --shadow-pop: 0 24px 64px -16px rgb(17 27 22 / 0.35), 0 2px 8px rgb(17 27 22 / 0.08);
+  --shadow-card: 0 1px 0 rgb(17 27 22 / 0.04);
+  --glow: none;
+  --backdrop: rgb(17 27 22 / 0.5);
+
+  /* Shape and space */
+  --r-xs: 3px;
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-xl: 16px;
+  --strip-h: 52px;
+  --rail-w: 252px;
+  --page-w: 1240px;
+
+  /* Type. System fonts only: nothing is fetched from a third party. */
+  --font-sans:
+    "Segoe UI Variable Text", "Segoe UI", "SF Pro Text", Inter, -apple-system,
+    BlinkMacSystemFont, "Leelawadee UI", "Noto Sans Thai", "Sukhumvit Set",
+    system-ui, sans-serif;
+  --font-display:
+    "Segoe UI Variable Display", "Segoe UI", "SF Pro Display", Inter,
+    -apple-system, BlinkMacSystemFont, "Leelawadee UI", "Noto Sans Thai",
+    "Sukhumvit Set", system-ui, sans-serif;
+  --font-mono:
+    "Cascadia Code", "JetBrains Mono", "SF Mono", ui-monospace, Menlo,
+    Consolas, monospace;
+
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --paper: #080d0a;
+  --paper-sunk: #050806;
+  --card: #0e1511;
+  --card-raised: #131c17;
+  --field: #0a100d;
+  --rule: #1c2822;
+  --rule-strong: #2b3b33;
+
+  --ink: #e8eee4;
+  --ink-2: #a3b1a8;
+  --ink-3: #6e7e75;
+  --on-ink: #0b110e;
+
+  --signal: #d8ff70;
+  --signal-hover: #e6ff9c;
+  --signal-edge: #d8ff70;
+  --signal-ink: #11200a;
+  --signal-text: #d8ff70;
+  --signal-wash: #1b290f;
+  --focus: #d8ff70;
+
+  --ok: #c6f56a;
+  --ok-wash: #172410;
+  --warn: #ffc361;
+  --warn-wash: #2a200b;
+  --bad: #ff7b6a;
+  --bad-wash: #2c1511;
+  --busy: #6fe3c6;
+  --busy-wash: #0c2923;
+  --idle: #5d6c64;
+
+  --code-bg: #060a08;
+  --shadow-pop: 0 28px 80px -12px rgb(0 0 0 / 0.75), 0 0 0 1px rgb(255 255 255 / 0.04);
+  --shadow-card: inset 0 1px 0 rgb(255 255 255 / 0.03);
+  --glow: 0 0 0 1px rgb(216 255 112 / 0.5), 0 8px 28px -10px rgb(216 255 112 / 0.55);
+  --backdrop: rgb(2 5 3 / 0.66);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+body {
+  margin: 0;
+  min-height: 100dvh;
+  background: var(--paper);
+  color: var(--ink);
+  font: 400 14px/1.65 var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+button,
+a,
+input,
+select,
+textarea,
+summary {
+  touch-action: manipulation;
+}
+[hidden] {
+  display: none !important;
+}
+a {
+  color: inherit;
+  text-decoration: none;
+}
+h1,
+h2,
+h3,
+h4,
+p,
+dl,
+dd,
+figure {
+  margin: 0;
+}
+h1 {
+  font: 600 30px/1.2 var(--font-display);
+  letter-spacing: -0.02em;
+}
+h2 {
+  font: 600 15px/1.45 var(--font-display);
+  letter-spacing: -0.005em;
+}
+h3 {
+  font: 600 14px/1.5 var(--font-display);
+}
+p {
+  overflow-wrap: anywhere;
+}
+strong {
+  font-weight: 600;
+}
+small {
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--ink-3);
+}
+code,
+pre,
+kbd,
+.mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+pre {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+hr,
+.divider {
+  height: 1px;
+  border: 0;
+  background: var(--rule);
+  margin: 0;
+}
+.muted {
+  color: var(--ink-3);
+}
+.i {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  vertical-align: middle;
+}
+::selection {
+  background: var(--signal);
+  color: var(--signal-ink);
+}
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+:focus:not(:focus-visible) {
+  outline: none;
+}
+kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  border: 1px solid var(--rule-strong);
+  border-bottom-width: 2px;
+  border-radius: var(--r-xs);
+  color: var(--ink-3);
+  font-size: 10.5px;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--rule-strong);
+  border: 3px solid transparent;
+  border-radius: 99px;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}

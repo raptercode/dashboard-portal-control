@@ -13,7 +13,7 @@ const version = packageInfo.version;
 if (!/^\d+\.\d+\.\d+$/.test(version)) fatal('package.json version must use major.minor.patch format.');
 const output = resolve(options.out);
 await mkdir(output, { recursive: true, mode: 0o700 });
-const archiveName = `dashboard-portal-${version}.tar.gz`;
+const archiveName = `strckro-${version}.tar.gz`;
 const archive = join(output, archiveName);
 // Archive committed Git content rather than the local checkout.  This keeps
 // untracked files out and preserves the LF bytes stored for shell scripts when
@@ -31,8 +31,8 @@ const payload = {
 // The private signing material must never be placed in a shell history or
 // process argument list. Release workstations provide this path through a
 // process-local environment variable instead.
-const privateKeyPath = options['private-key'] ?? process.env.DASHBOARD_PORTAL_UPDATE_PRIVATE_KEY_PATH;
-if (!privateKeyPath) fatal('A release signing key path is required through DASHBOARD_PORTAL_UPDATE_PRIVATE_KEY_PATH.');
+const privateKeyPath = options['private-key'] ?? process.env.STRCKRO_UPDATE_PRIVATE_KEY_PATH ?? process.env.DASHBOARD_PORTAL_UPDATE_PRIVATE_KEY_PATH;
+if (!privateKeyPath) fatal('A release signing key path is required through STRCKRO_UPDATE_PRIVATE_KEY_PATH (DASHBOARD_PORTAL_UPDATE_PRIVATE_KEY_PATH still works).');
 const privateKey = await readFile(resolve(privateKeyPath), 'utf8');
 const signature = sign(null, Buffer.from(canonicalJson(payload)), privateKey).toString('base64');
 await writeFile(join(output, `${payload.channel}.json`), `${JSON.stringify({ payload, signature }, null, 2)}\n`, { mode: 0o644 });
@@ -67,7 +67,7 @@ async function digest(file) {
 }
 
 function usage() {
-  console.error('Usage: DASHBOARD_PORTAL_UPDATE_PRIVATE_KEY_PATH=/secure/key.pem npm run release:prepare -- --out=dist --archive-url=https://host/dashboard-portal-<version>.tar.gz [--channel=stable] [--notes=...]');
+  console.error('Usage: STRCKRO_UPDATE_PRIVATE_KEY_PATH=/secure/key.pem npm run release:prepare -- --out=dist --archive-url=https://host/strckro-<version>.tar.gz [--channel=stable] [--notes=...]');
   process.exit(64);
 }
 

@@ -5,6 +5,7 @@ import { dirname } from 'node:path';
 import { createCipheriv, createDecipheriv, randomBytes, randomUUID } from 'node:crypto';
 import { DatabaseSync } from '../scripts/sqlite.mjs';
 import { nodeMajorForProject } from '../scripts/node-versions.mjs';
+import { validateNodePackageManager } from '../scripts/node-package-manager.mjs';
 import { parseEnvironmentDocument } from '../public/ui/environment-editor.js';
 import { migrateAccessState } from './access.mjs';
 import { requestContext } from './request-context.mjs';
@@ -226,6 +227,8 @@ export class StateStore {
       audit: readPayloads('SELECT payload FROM audit_events ORDER BY occurred_at DESC'),
       jobs: readPayloads('SELECT payload FROM jobs ORDER BY created_at ASC'),
       monitorTokens: JSON.parse(meta('monitor_tokens', '[]')),
+      cliTokens: JSON.parse(meta('cli_tokens', '[]')),
+      cliDevices: JSON.parse(meta('cli_devices', '[]')),
       notificationHooks: JSON.parse(meta('notification_hooks', '[]')),
       mail: JSON.parse(meta('mail', 'null')),
       owner: JSON.parse(meta('owner', 'null')),
@@ -267,6 +270,8 @@ function persistedSections(state) {
       metaRow('invitations', JSON.stringify(state.invitations ?? [])),
       metaRow('legacy_owner_id', JSON.stringify(state.legacyOwnerId ?? null)),
       metaRow('monitor_tokens', JSON.stringify(state.monitorTokens ?? [])),
+      metaRow('cli_tokens', JSON.stringify(state.cliTokens ?? [])),
+      metaRow('cli_devices', JSON.stringify(state.cliDevices ?? [])),
       metaRow('notification_hooks', JSON.stringify(state.notificationHooks ?? [])),
       metaRow('mail', JSON.stringify(state.mail ?? initialMailState()))
     ] }
@@ -325,7 +330,10 @@ export function validateProjectSync(input) {
   if (project.serviceType === 'worker' && runtime === 'python' && (input.pythonMode ?? 'script') !== 'script') throw new InputError('Python workers must use the script run type.');
   let nodeMajor;
   if (runtime === 'node') {
-    try { nodeMajor = nodeMajorForProject(input.nodeMajor); }
+    try {
+      nodeMajor = nodeMajorForProject(input.nodeMajor);
+      validateNodePackageManager(input.nodePackageManager);
+    }
     catch (error) { throw new InputError(error.message); }
   }
   const framework = optionalText(input.framework, 16);
@@ -344,7 +352,7 @@ export function validateProjectSync(input) {
     credentialId: protocol === 'https' ? credentialId || null : null,
     sshKeyId: protocol === 'ssh' ? `deploy-key-${project.slug}` : null,
     runtime,
-    ...(runtime === 'node' ? { nodeMajor } : {}),
+    ...(runtime === 'node' ? { nodeMajor, ...(input.nodePackageManager !== undefined ? { nodePackageManager: input.nodePackageManager } : {}) } : {}),
     framework: framework || null,
     ...(runtime === 'go' ? { goPackage: validateGoPackage(input.goPackage) } : {}),
     ...(runtime === 'python' ? validatePythonProjectSettings(input) : {}),

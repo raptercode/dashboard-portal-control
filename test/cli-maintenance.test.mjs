@@ -43,7 +43,7 @@ for (const kind of ['reset', 'configure']) {
         try { await assert.rejects(run(), /Usage/); } finally { process.argv = ['node', 'password-config.mjs', '--reset-pwd']; }
       };
     } else {
-      run = await command('dashboard-portal-update.mjs', 'configureUpdate', {
+      run = await command('strckro-update.mjs', 'configureUpdate', {
         parseOptions: (options) => options, resolve: (value) => value,
         stat: async () => ({ isFile: () => true }), readFile: async () => 'BEGIN PUBLIC KEY',
         fatal: (message) => { throw new Error(message); }, withMaintenanceLease: gate,
@@ -73,7 +73,7 @@ for (const kind of ['reset', 'configure']) {
 }
 
 test('software updater installation avoids a shared lease that would deadlock its exclusive installer', async () => {
-  const source = await readFile(new URL('../scripts/dashboard-portal-update.mjs', import.meta.url), 'utf8');
+  const source = await readFile(new URL('../scripts/strckro-update.mjs', import.meta.url), 'utf8');
   const body = source.match(/async function update\(values\) \{[^]*?\n\}/)[0];
   assert.doesNotMatch(body, /withMaintenanceLease/);
 });

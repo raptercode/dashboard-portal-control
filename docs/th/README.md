@@ -14,7 +14,7 @@ Installer รับ Ubuntu 24.04/25.04 amd64 ต้อง domain ชี้ host 
 curl -fsSL https://dashboard-portal.cloud/install.sh | bash
 ```
 
-ถ้าต้องการระบุรุ่น ให้ใช้ `curl -fsSL https://dashboard-portal.cloud/install.sh | bash -s -- --version v0.8.3` โดยเปลี่ยน tag เป็นรุ่นที่เผยแพร่แล้วและใส่ `v` นำหน้า ต้องใส่อีเมลจริงสำหรับ Let's Encrypt/Certbot แต่กรอกเมื่อ terminal ถามได้ ไม่ต้องใส่ในคำสั่ง อีเมล TLS แยกจากบัญชี login อ่าน [version และข้อมูลที่ต้องกรอก](how-to/production-install.md) ก่อนติดตั้ง
+ถ้าต้องการระบุรุ่น ให้ใช้ `curl -fsSL https://dashboard-portal.cloud/install.sh | bash -s -- --version v1.1.0` โดยเปลี่ยน tag เป็นรุ่นที่เผยแพร่แล้วและใส่ `v` นำหน้า ต้องใส่อีเมลจริงสำหรับ Let's Encrypt/Certbot แต่กรอกเมื่อ terminal ถามได้ ไม่ต้องใส่ในคำสั่ง อีเมล TLS แยกจากบัญชี login อ่าน [version และข้อมูลที่ต้องกรอก](how-to/production-install.md) ก่อนติดตั้ง
 
 
 Bootstrap ถาม domain/email และใช้ Node 24 เป็นค่าเริ่มต้น ดาวน์โหลด release ตรวจ SHA-256 และเรียก installer จากนั้นถาม initial password และตรวจ HTTPS อ่าน [เตรียมเครื่อง/backup/recovery](how-to/production-install.md) และ [runtime versions](how-to/node-versions.md) ตรวจเครื่องมือจริงใน Setup/Doctor
@@ -50,8 +50,8 @@ Node ใช้ npm ci เมื่อ lock ใช้ได้ มิฉะนั
 ## Update และทดสอบ
 
 ```bash
-sudo dashboard-portal update --check
-sudo dashboard-portal update
+sudo strckro update --check
+sudo strckro update
 sudo systemctl is-active dashboard-portal hostmgr-deploy-helper nginx
 curl -fsS https://portal.example.com/api/health
 curl -fsSI https://portal.example.com/
@@ -62,7 +62,7 @@ Backup state+key ก่อน update Updater ตรวจ Ed25519/SHA-256 แล
 ```bash
 npm test
 node scripts/test-modules.mjs --list
-bash -n install.sh dashboard-portal.sh
+bash -n install.sh strckro.sh
 ```
 
 Windows ใช้ Git Bash Local tests ไม่แทน host acceptance ดู [testing](how-to/testing.md), [access control](how-to/access-control.md), [auto deploy](how-to/project-auto-deploy.md), [Go](how-to/go-projects.md), [Python](how-to/python-projects.md), [architecture](knowledge/context/architecture.md), [roadmap](knowledge/context/scope-and-roadmap.md), [ADR](knowledge/adr/README.md) และ [release guide](how-to/releasing-and-ai-handoff.md)

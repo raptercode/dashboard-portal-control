@@ -5,7 +5,7 @@ import { runInNewContext } from 'node:vm';
 import { nodeMajorForProject } from '../scripts/node-versions.mjs';
 
 test('installer includes the worker modules needed by the privileged helper', async () => {
-  const source = await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8');
+  const source = await readFile(new URL('../strckro.sh', import.meta.url), 'utf8');
   for (const name of ['worker-health', 'worker-activation']) assert.ok(source.includes(`install -m 0750 -o root -g root "$APP_ROOT/scripts/${name}.mjs" "$HELPER_ROOT/${name}.mjs"`));
 });
 
@@ -28,7 +28,7 @@ test('host activation uses the release Node major and defaults legacy releases t
 });
 
 test('installer systemd and Nginx heredocs contain no command substitutions', async () => {
-  const script = await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8');
+  const script = await readFile(new URL('../strckro.sh', import.meta.url), 'utf8');
   const heredocs = [...script.matchAll(/<<EOF\r?\n([\s\S]*?)\r?\nEOF/g)].map((match) => match[1]);
   assert.equal(heredocs.length, 5);
   for (const body of heredocs) {
@@ -38,7 +38,7 @@ test('installer systemd and Nginx heredocs contain no command substitutions', as
 });
 
 test('installer allows AF_NETLINK so host NIC enumeration works under systemd', async () => {
-  const script = await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8');
+  const script = await readFile(new URL('../strckro.sh', import.meta.url), 'utf8');
   const matches = [...script.matchAll(/RestrictAddressFamilies=([^\n]+)/g)].map((match) => match[1].trim());
   assert.equal(matches.length, 2);
   for (const value of matches) {
@@ -49,24 +49,57 @@ test('installer allows AF_NETLINK so host NIC enumeration works under systemd', 
 });
 
 test('installer keeps the deployed application root traversable by the service user', async () => {
-  const script = await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8');
+  const script = await readFile(new URL('../strckro.sh', import.meta.url), 'utf8');
   assert.match(script, /mv "\$STAGING_ROOT" "\$APP_ROOT"\r?\nchown -R root:root "\$APP_ROOT"\r?\n#.*\r?\n#.*\r?\nchmod 0755 "\$APP_ROOT"\r?\nchmod -R go-w "\$APP_ROOT"/);
 });
 
 test('installer syntax-checks the browser bundle before replacing the active application', async () => {
-  const script = await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8');
-  assert.match(script, /"\$PORTAL_NODE" --check "\$STAGING_ROOT\/public\/ui\/app\.js"/);
+  const script = await readFile(new URL('../strckro.sh', import.meta.url), 'utf8');
+  // The interface is a set of ES modules: every one is checked, not a single bundle.
+  assert.match(script, /while IFS= read -r -d '' ui_module; do\s+"\$PORTAL_NODE" --check "\$ui_module"\s+done < <\(find "\$STAGING_ROOT\/public\/ui" -type f -name '\*\.js' -print0\)/);
+  assert.doesNotMatch(script, /public\/ui\/app\.js/);
   assert.match(script, /if \[\[ "\$PORTAL_NODE_MAJOR" == '20' \]\]; then[\s\S]*"\$PORTAL_NPM" ci --omit=dev[\s\S]*fi\r?\n\r?\nrm -rf -- "\$APP_ROOT"/);
 });
 
+test('the host command is strckro; the old command and update script are removed, and restored if the install fails', async () => {
+  const script = await readFile(new URL('../strckro.sh', import.meta.url), 'utf8');
+  assert.match(script, /UPDATE_COMMAND='\/usr\/local\/sbin\/strckro'/);
+  assert.match(script, /UPDATE_SCRIPT='\/usr\/local\/lib\/dashboard-portal\/strckro-update\.mjs'/);
+  assert.match(script, /LEGACY_UPDATE_COMMAND='\/usr\/local\/sbin\/dashboard-portal'/);
+  assert.match(script, /rm -f -- "\$LEGACY_UPDATE_COMMAND" "\$HELPER_ROOT\/dashboard-portal-update\.mjs"/);
+  assert.match(script, /backup_item legacy-command "\$LEGACY_UPDATE_COMMAND"/);
+  assert.match(script, /restore_item legacy-command "\$LEGACY_UPDATE_COMMAND"/);
+  // The release must carry the renamed update script, and the sanity check must ask for that one.
+  assert.match(script, /-f scripts\/strckro-update\.mjs/);
+  assert.doesNotMatch(script, /-f scripts\/dashboard-portal-update\.mjs/);
+  assert.match(script, /install -m 0750 -o root -g root "\$APP_ROOT\/scripts\/strckro-update\.mjs" "\$UPDATE_SCRIPT"/);
+  const updater = await readFile(new URL('../scripts/strckro-update.mjs', import.meta.url), 'utf8');
+  assert.equal(updater.match(/'strckro\.sh'/g)?.length, 3, 'the updater runs, and checks for, strckro.sh in the archive');
+  assert.doesNotMatch(updater, /dashboard-portal\.sh/);
+  assert.match(updater, /Usage: sudo strckro update/);
+});
+
+test('the public bootstrap and the release tooling use the Strckro archive and installer names', async () => {
+  const bootstrap = await readFile(new URL('../install.sh', import.meta.url), 'utf8');
+  assert.match(bootstrap, /ARCHIVE="strckro-\$\{VERSION#v\}\.tar\.gz"/);
+  assert.match(bootstrap, /release\/strckro\.sh/);
+  assert.match(bootstrap, /bash \.\/strckro\.sh/);
+  assert.doesNotMatch(bootstrap, /dashboard-portal\.sh|dashboard-portal-\$\{/);
+  const prepare = await readFile(new URL('../scripts/prepare-release.mjs', import.meta.url), 'utf8');
+  assert.match(prepare, /`strckro-\$\{version\}\.tar\.gz`/);
+  assert.match(prepare, /STRCKRO_UPDATE_PRIVATE_KEY_PATH \?\? process\.env\.DASHBOARD_PORTAL_UPDATE_PRIVATE_KEY_PATH/);
+  const build = await readFile(new URL('../scripts/build-release.sh', import.meta.url), 'utf8');
+  assert.match(build, /strckro-\$\{VERSION\}\.tar\.gz/);
+});
+
 test('installer keeps long-running owner actions within the Nginx proxy budget', async () => {
-  const script = await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8');
+  const script = await readFile(new URL('../strckro.sh', import.meta.url), 'utf8');
   assert.match(script, /proxy_read_timeout 600s;/);
   assert.match(script, /proxy_send_timeout 600s;/);
 });
 
 test('installer replaces only the Ubuntu default Nginx symlink before adding its reject catch-all', async () => {
-  const script = await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8');
+  const script = await readFile(new URL('../strckro.sh', import.meta.url), 'utf8');
   assert.match(script, /NGINX_DEFAULT_ENABLED='\/etc\/nginx\/sites-enabled\/default'/);
   assert.match(script, /backup_item nginx-default-enabled "\$NGINX_DEFAULT_ENABLED"/);
   assert.match(script, /restore_item nginx-default-enabled "\$NGINX_DEFAULT_ENABLED"/);
@@ -74,8 +107,8 @@ test('installer replaces only the Ubuntu default Nginx symlink before adding its
 });
 
 test('privileged helper keeps shadow-utils and traversable managed roots compatible with systemd', async () => {
-  const script = await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8');
-  const helperUnit = script.match(/Description=Dashboard Portal privileged deployment helper[\s\S]*?\n\[Install\]/)?.[0] ?? '';
+  const script = await readFile(new URL('../strckro.sh', import.meta.url), 'utf8');
+  const helperUnit = script.match(/Description=Strckro privileged deployment helper[\s\S]*?\n\[Install\]/)?.[0] ?? '';
   assert.match(script, /ProtectSystem=false/);
   assert.doesNotMatch(helperUnit, /\nProtectSystem=full\r?\n/);
   assert.doesNotMatch(helperUnit, /\nReadWritePaths=/);
@@ -159,7 +192,7 @@ test('helper gives each project service account access to its release parent', a
 });
 
 test('installer provisions the reset-password command and stores the initial password encoded', async () => {
-  const script = await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8');
+  const script = await readFile(new URL('../strckro.sh', import.meta.url), 'utf8');
   assert.match(script, /PASSWORD_SCRIPT='\/usr\/local\/lib\/dashboard-portal\/password-config\.mjs'/);
   assert.match(script, /ssl_reject_handshake on;/);
   assert.match(script, /hostmgr-unmatched\.conf/);
@@ -172,19 +205,19 @@ test('installer provisions the reset-password command and stores the initial pas
 });
 
 test('installer restarts active services so an update cannot retain old Node modules', async () => {
-  const script = await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8');
+  const script = await readFile(new URL('../strckro.sh', import.meta.url), 'utf8');
   assert.match(script, /systemctl enable hostmgr-deploy-helper\.service\r?\nsystemctl restart hostmgr-deploy-helper\.service\r?\nsystemctl enable dashboard-portal\.service\r?\nsystemctl restart dashboard-portal\.service/);
   assert.doesNotMatch(script, /systemctl enable --now dashboard-portal\.service/);
 });
 
 test('installer configures the SQLite source of truth for a clean data cutover', async () => {
-  const script = await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8');
+  const script = await readFile(new URL('../strckro.sh', import.meta.url), 'utf8');
   assert.match(script, /HOSTMGR_DATABASE_PATH=\$\{DATA_ROOT\}\/state\.sqlite/);
   assert.match(script, /set_config_value HOSTMGR_DATABASE_PATH "\$DATA_ROOT\/state\.sqlite"/);
 });
 
 test('installer snapshots only small control-plane state files, not project workspaces', async () => {
-  const script = await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8');
+  const script = await readFile(new URL('../strckro.sh', import.meta.url), 'utf8');
   assert.doesNotMatch(script, /backup_item data-root "\$DATA_ROOT"/);
   assert.doesNotMatch(script, /restore_item data-root "\$DATA_ROOT"/);
   assert.match(script, /backup_item state-db "\$DATA_ROOT\/state\.sqlite"/);
@@ -194,7 +227,7 @@ test('installer snapshots only small control-plane state files, not project work
 });
 
 test('installer provisions a checksum-verified Bun runtime for Bun projects', async () => {
-  const script = await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8');
+  const script = await readFile(new URL('../strckro.sh', import.meta.url), 'utf8');
   assert.match(script, /BUN_VERSION='1\.3\.13'/);
   assert.match(script, /BUN_SHA256='9d8a24292a7068090205daac0a5a223f5f69736f5287e37bf88d3b4031edc750'/);
   assert.match(script, /bun-linux-x64-baseline\.zip/);
@@ -203,7 +236,7 @@ test('installer provisions a checksum-verified Bun runtime for Bun projects', as
 });
 
 test('Go remains optional while the helper activates only an executable release binary', async () => {
-  const script = await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8');
+  const script = await readFile(new URL('../strckro.sh', import.meta.url), 'utf8');
   const helper = await readFile(new URL('../scripts/hostmgr-deploy-helper.mjs', import.meta.url), 'utf8');
   assert.doesNotMatch(script, /go_archive=/);
   assert.doesNotMatch(script, /\/opt\/go/);
@@ -214,7 +247,7 @@ test('Go remains optional while the helper activates only an executable release 
 });
 
 test('PHP remains optional while Composer install drops privileges before any PHP command', async () => {
-  const script = await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8');
+  const script = await readFile(new URL('../strckro.sh', import.meta.url), 'utf8');
   const helper = await readFile(new URL('../scripts/hostmgr-deploy-helper.mjs', import.meta.url), 'utf8');
   assert.doesNotMatch(script, /php-cli composer/);
   assert.match(helper, /const options = phpUserOptions\(identity, destination\)/);
@@ -223,7 +256,7 @@ test('PHP remains optional while Composer install drops privileges before any PH
 });
 
 test('Python remains optional while project execution drops privileges before any Python command', async () => {
-  const script = await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8');
+  const script = await readFile(new URL('../strckro.sh', import.meta.url), 'utf8');
   const helper = await readFile(new URL('../scripts/hostmgr-deploy-helper.mjs', import.meta.url), 'utf8');
   const server = await readFile(new URL('../src/server.mjs', import.meta.url), 'utf8');
   const client = await readFile(new URL('../src/helper-client.mjs', import.meta.url), 'utf8');
@@ -251,7 +284,7 @@ test('Python remains optional while project execution drops privileges before an
 });
 
 test('installer enrolls new hosts in the signed stable update channel without a manual configure step', async () => {
-  const script = await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8');
+  const script = await readFile(new URL('../strckro.sh', import.meta.url), 'utf8');
   assert.match(script, /UPDATE_PUBLIC_KEY_SOURCE='scripts\/dashboard-portal-update-public\.pem'/);
   assert.match(script, /DEFAULT_UPDATE_MANIFEST_URL='https:\/\/github\.com\/raptercode\/dashboard-portal-control\/releases\/latest\/download\/stable\.json'/);
   assert.match(script, /install -m 0644 -o root -g root "\$APP_ROOT\/\$UPDATE_PUBLIC_KEY_SOURCE" "\$UPDATE_PUBLIC_KEY_FILE"/);

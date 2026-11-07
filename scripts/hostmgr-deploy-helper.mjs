@@ -316,7 +316,7 @@ async function removeMailDomain(domain, force) {
 
 async function assertMailInstallation() {
   if (await exists(MAIL_INSTALL_MARKER)) return;
-  if (!await hasManualMailToolCertification()) throw new HelperError('Install mail packages through Dashboard Portal before configuring mail.');
+  if (!await hasManualMailToolCertification()) throw new HelperError('Install mail packages through Strckro before configuring mail.');
   if (!await mailPackagesAvailable()) throw new HelperError('Certified mail packages are no longer available on this host.');
   await mkdir(MAIL_ROOT, { recursive: true, mode: 0o750 });
   await chmod(MAIL_ROOT, 0o750);
@@ -511,6 +511,7 @@ async function activateProject(slug, releaseId) {
   if (!release || !['candidate', 'healthy'].includes(release.status)) throw new HelperError('The requested release is not eligible for activation.');
   if ((release.serviceType ?? 'web') !== (project.serviceType ?? 'web')) throw new HelperError('The release service type does not match this project.');
   if (project.runtime === 'node' && (!release.runtime || release.runtime === 'node')) {
+    project.nodePackageManager = release.nodePackageManager ?? 'auto';
     try { project.nodeMajor = nodeMajorForProject(release.nodeMajor); }
     catch (error) { throw new HelperError(error.message); }
   }
@@ -719,7 +720,7 @@ async function prepareProjectRelease(project, releaseId) {
     }
   }
   if (project.runtime === 'node') {
-    project.packageManager = await readNodePackageManager(destination, project.nodeMajor || 24);
+    project.packageManager = await readNodePackageManager(destination, project.nodeMajor || 24, project.nodePackageManager);
     if (project.packageManager.name === 'pnpm') {
       // Project config is untrusted code; never run pnpm as the root helper.
       await assertPnpmAvailable(project, run, { cwd: destination, uid: identity.uid, gid: identity.gid, timeout: 10_000, env: nodeRuntimeEnvironment(project.nodeMajor, { ...process.env, HOME: identity.root }) });
@@ -1043,7 +1044,7 @@ async function issueCertificate(project) {
 async function acmeEmail() {
   const content = await readFile(CONFIG_PATH, 'utf8').catch(() => '');
   const match = content.match(/^HOSTMGR_ACME_EMAIL=([^\r\n]+)$/m);
-  if (!match || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(match[1])) throw new HelperError('The ACME email is not configured. Re-run the Dashboard Portal installer.');
+  if (!match || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(match[1])) throw new HelperError('The ACME email is not configured. Re-run the Strckro installer.');
   return match[1];
 }
 

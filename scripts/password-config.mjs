@@ -66,7 +66,7 @@ async function loadHashPassword() {
     const { hashPassword } = await import(pathToFileURL(candidate).href);
     return hashPassword;
   }
-  throw new Error('Dashboard Portal auth module was not found.');
+  throw new Error('Strckro auth module was not found.');
 }
 
 export async function invalidateStoredSessions(databasePath = DEFAULT_STATE_DATABASE_PATH, password = null) {
@@ -119,26 +119,26 @@ function restartDashboardService() {
   return new Promise((resolve, reject) => {
     const child = spawn('/usr/bin/systemctl', ['restart', 'dashboard-portal.service'], { stdio: 'ignore' });
     child.once('error', reject);
-    child.once('close', (code) => code === 0 ? resolve() : reject(new Error('Dashboard Portal service could not be restarted.')));
+    child.once('close', (code) => code === 0 ? resolve() : reject(new Error('Strckro service could not be restarted.')));
   });
 }
 
 async function runResetCommand() {
   if (process.getuid?.() !== 0) throw new Error('Run this command with sudo.');
-  if (process.argv.length !== 3 || process.argv[2] !== '--reset-pwd') throw new Error('Usage: dashboard-portal --reset-pwd');
+  if (process.argv.length !== 3 || process.argv[2] !== '--reset-pwd') throw new Error('Usage: strckro --reset-pwd');
   await withMaintenanceLease(async () => {
     const password = generateResetPassword();
     await updateStoredPassword(password);
     const email = await invalidateStoredSessions(DEFAULT_STATE_DATABASE_PATH, password);
     await restartDashboardService();
     const who = email ? ` for ${email}` : '';
-    process.stdout.write(`Dashboard Portal password reset${who}. Store this password now; it will not be shown again:\n${password}\n`);
+    process.stdout.write(`Strckro password reset${who}. Store this password now; it will not be shown again:\n${password}\n`);
   });
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   runResetCommand().catch((error) => {
-    process.stderr.write(`Dashboard Portal password reset failed: ${error.message}\n`);
+    process.stderr.write(`Strckro password reset failed: ${error.message}\n`);
     process.exitCode = 1;
   });
 }

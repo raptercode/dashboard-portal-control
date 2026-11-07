@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VERSION="$(sed -nE 's/^[[:space:]]*"version":[[:space:]]*"([^"]+)".*/\1/p' "$ROOT/package.json" | head -n 1)"
 [[ -n "$VERSION" ]] || { echo 'Could not read package version.' >&2; exit 1; }
 OUTPUT_DIR="${ROOT}/dist"
-OUTPUT="${OUTPUT_DIR}/dashboard-portal-${VERSION}.tar.gz"
+OUTPUT="${OUTPUT_DIR}/strckro-${VERSION}.tar.gz"
 CHECKSUM="${OUTPUT}.sha256"
 mkdir -p "$OUTPUT_DIR"
 rm -f -- "$OUTPUT" "$CHECKSUM"

@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 214" fill="none" role="img" aria-label="Source to build to serving">
+  <title>Source, build, serving</title>
+  <style>
+    .ghost { stroke: #d8ff70; stroke-opacity: .09; stroke-width: 2; stroke-linejoin: round; }
+    .rail { stroke: #d8ff70; stroke-opacity: .32; stroke-width: 3; stroke-linejoin: round; }
+    .packet {
+      stroke: #d8ff70; stroke-width: 3.5; stroke-linecap: round;
+      stroke-dasharray: 54 1400; stroke-dashoffset: 54;
+      animation: run 6s cubic-bezier(.55, 0, .3, 1) infinite;
+    }
+    @keyframes run { 12% { stroke-dashoffset: 54; } 88%, 100% { stroke-dashoffset: -740; } }
+    .ring { fill: #070c09; stroke: #d8ff70; stroke-width: 3; }
+    .core { fill: #d8ff70; }
+    .mint { fill: #7fcba7; }
+    .ping {
+      fill: none; stroke: #d8ff70; stroke-width: 2;
+      transform-box: fill-box; transform-origin: center;
+      animation: ping 2.6s ease-out infinite;
+    }
+    @keyframes ping { from { transform: scale(1); opacity: .7; } to { transform: scale(3); opacity: 0; } }
+    text { font: 500 10px ui-monospace, "Cascadia Code", Consolas, monospace; letter-spacing: .16em; fill: #93aa9d; }
+    .sub { fill: #5b7165; letter-spacing: .05em; font-size: 10px; }
+    @media (prefers-reduced-motion: reduce) { .packet, .ping { animation: none; } .packet { stroke-dasharray: none; stroke-opacity: .0; } }
+  </style>
+
+  <path class="ghost" d="M30 40H190L230 80H420L460 120H730" transform="translate(0 26)"/>
+  <path class="ghost" d="M30 40H190L230 80H420L460 120H730" transform="translate(0 52)"/>
+  <path class="rail" d="M30 40H190L230 80H420L460 120H730"/>
+  <path class="packet" d="M30 40H190L230 80H420L460 120H730"/>
+
+  <circle class="mint" cx="110" cy="66" r="3"/>
+  <circle class="mint" cx="330" cy="106" r="3"/>
+  <circle class="mint" cx="600" cy="146" r="3"/>
+
+  <g>
+    <circle class="ring" cx="30" cy="40" r="8"/><circle class="core" cx="30" cy="40" r="3.4"/>
+    <text x="30" y="14">SOURCE</text>
+  </g>
+  <g>
+    <circle class="ring" cx="325" cy="80" r="8"/><circle class="core" cx="325" cy="80" r="3.4"/>
+    <text x="325" y="54" text-anchor="middle">BUILD</text>
+  </g>
+  <g>
+    <circle class="ping" cx="730" cy="120" r="8"/>
+    <circle class="ring" cx="730" cy="120" r="8"/><circle class="core" cx="730" cy="120" r="3.4"/>
+    <text x="730" y="94" text-anchor="end">SERVING</text>
+  </g>
+
+  <text class="sub" x="30" y="206">git push  →  install  →  build  →  nginx</text>
+</svg>

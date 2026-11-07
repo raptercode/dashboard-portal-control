@@ -1,6 +1,6 @@
 {
-  "name": "modern-host-manager",
-  "version": "1.0.3",
+  "name": "strckro-control",
+  "version": "1.1.0",
   "license": "MIT",
   "private": true,
   "type": "module",
@@ -18,7 +18,9 @@
     "test:watch": "node --test --watch",
     "docs:check": "node scripts/check-docs.mjs",
     "release:prepare": "node scripts/prepare-release.mjs",
-    "release:keygen": "node scripts/generate-update-key.mjs"
+    "release:keygen": "node scripts/generate-update-key.mjs",
+    "preview:ui": "node scripts/preview-ui.mjs",
+    "test:ui": "node --test test/browser/workbench.test.mjs"
   },
   "optionalDependencies": {
     "better-sqlite3": "11.10.0"

@@ -7,6 +7,8 @@ How-to contains procedures; knowledge holds architecture/context, ADRs, designs 
 
 ## How-to guides
 
+- [Strckro brand, deployments, and migration](how-to/strckro.md)
+- [CLI for people, CI and AI agents](how-to/cli.md)
 - [Members, organizations, and permissions](how-to/access-control.md)
 - [Monitor API reference for AI clients](how-to/monitor-api.md)
 - [Publish the bootstrap URL](how-to/bootstrap-hosting.md)

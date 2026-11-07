@@ -10,7 +10,7 @@ npm test
 node scripts/test-modules.mjs --list
 node scripts/test-modules.mjs installer
 node scripts/test-modules.mjs access-api org-credentials-api
-bash -n install.sh dashboard-portal.sh
+bash -n install.sh strckro.sh
 ```
 
 Use Git Bash for shell checks on Windows. Discover current module names with `--list`; `--all` selects `*.test.mjs` only. Unknown names fail before execution. Each file is a module; `test/support/server.mjs` supplies isolated temporary state and loopback HTTP fixtures with real session/CSRF handling.

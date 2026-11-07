@@ -2,6 +2,22 @@
 
 [English](../en/CHANGELOG.md)
 
+## 1.1.0 — 2026-11-07
+
+- เปลี่ยน frontend เป็น Signal พร้อม host strip และ rail ร่วมกัน รายการแอปที่ปรับตามหน้าจอ แถบ source → build → serving เกจสุขภาพ ไทม์ไลน์ release และธีมสว่าง/มืดตามระบบ
+- โหลด workspace และ API เมื่อใช้ นำทางในหน้าเดียว พัก polling เมื่อซ่อนแท็บ ป้องกันการทิ้งฟอร์มและ ENV ที่ยังไม่บันทึก เพิ่มค้นหาผ่านคีย์บอร์ดและพรีวิวผ่าน loopback ที่ใช้ข้อมูลชั่วคราว
+- คืนสถานะ DNS, Cloudflare proxy และ TLS ของ origin รายโดเมน แยก Refresh/Verify ลองลบใหม่เมื่อถูกปฏิเสธ แสดง progress โดยเปิด log เมื่อกด และยืนยัน Restart/Rollback พร้อม release/commit
+- เพิ่มเมนู runtime/framework พร้อมโลโก้และตรวจจาก repository เลือก Auto/npm/pnpm ได้โดยเก็บค่าใน deployment และ rollback และปฏิเสธค่าที่ขัดกับ packageManager
+- ใช้ชื่อ Strckro ใน installer คำสั่งโฮสต์และ archive ครบถ้วน โฮสต์ที่ใช้ updater ชื่อ dashboard-portal เดิมต้องรัน strckro.sh หนึ่งครั้ง โดยคง paths, services และ signing trust เดิม ดูคู่มือย้ายรุ่น
+- แทน tests ที่อิง markup เดิมด้วย model tests และ browser workflows จริง ผลทดสอบในเครื่องไม่ยืนยัน Ubuntu/systemd/Nginx/TLS การติดตั้งใหม่หรือ reboot และการเผยแพร่ไม่อัปเดตโฮสต์ที่ติดตั้งอยู่
+
+## 1.0.4 — 2026-11-06
+
+- เปลี่ยนแบรนด์เป็น Strckro พร้อมโลโก้ SVG ใหม่ หน้า login/Overview และหน้า Deployments ที่กรองโปรเจค/สถานะและอัปเดต metadata จากระบบจริง
+- เพิ่ม CLI token ที่จำกัด scope/โปรเจค/อายุได้, browser/device login ที่ต้องอนุมัติ, หน้าออก/ถอน token และ bearer API ที่ตรวจสิทธิ์องค์กรซ้ำก่อน commit
+- เพิ่ม atomic ENV patches พร้อม revision และ deployment feed ที่ไม่คืน logs/secrets พร้อม npm CLI ชื่อ `strckro` ใช้ `skctl` หรือ `strckro` โดยรองรับ config/credential เดิม
+- รักษาชื่อ service, paths, host commands และ signed update trust เดิม การเผยแพร่ release ไม่อัปเดตโฮสต์ที่ติดตั้งอยู่ และ local fixtures ไม่แทน acceptance Linux/systemd/Nginx/TLS จริง
+
 ## 1.0.3 — 2026-10-20
 
 - เพิ่ม Restart app สำหรับ process ของ active release หลัง Sync หรือ Deploy ล้มเหลว โดยตรวจความเสถียรของ process และ HTTP health ตามการตั้งค่า แสดงผลระหว่างทำและเมื่อจบ พร้อมกันงานจัดการโปรเจคซ้อนกัน

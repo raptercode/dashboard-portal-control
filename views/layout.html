@@ -1,60 +1,41 @@
 <!doctype html>
 <html lang="th">
   <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="color-scheme" content="light dark">
-    <meta name="theme-color" content="#0b0d10">
-    <title>{{title}} · Dashboard Portal</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#efede4" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#080d0a" media="(prefers-color-scheme: dark)" />
+    <title>{{title}} · Strckro</title>
     <script>
       (function () {
+        var theme = "";
         try {
-          var theme = localStorage.getItem('hostmgr.theme');
-          if (theme !== 'light' && theme !== 'dark') {
-            theme = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
-          }
-          document.documentElement.setAttribute('data-theme', theme);
-          var meta = document.querySelector('meta[name="theme-color"]');
-          if (meta) meta.setAttribute('content', theme === 'light' ? '#f3f4f6' : '#0b0d10');
-        } catch (e) { /* localStorage unavailable */ }
+          theme = localStorage.getItem("strckro.theme") || "";
+        } catch (error) {}
+        if (theme !== "light" && theme !== "dark")
+          theme = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        document.documentElement.dataset.theme = theme;
       })();
     </script>
-    <link rel="stylesheet" href="/ui/app.css">
+    <link rel="icon" type="image/svg+xml" href="/ui/brand/favicon.svg" />
+    <link rel="stylesheet" href="/ui/css/tokens.css" />
+    <link rel="stylesheet" href="/ui/css/components.css" />
+    <link rel="stylesheet" href="/ui/css/shell.css" />
+    <link rel="stylesheet" href="/ui/css/screens.css" />
+    <link rel="modulepreload" href="/ui/core/dom.js" />
+    <script type="module" src="/ui/main.js"></script>
   </head>
-  <body data-page="{{page}}" data-view="{{view}}" data-flow-mode="{{flowMode}}" data-edit-slug="{{editSlug}}">
-    {{> partials/icons.html}}
-    <div class="app-shell">
-      {{> partials/auth-views.html}}
-      <section id="dashboard-view" class="app" hidden>
-        {{> partials/sidebar.html}}
-        <div class="workspace">
-          <header class="topbar">
-            <div class="topbar-left">
-              <button id="mobile-menu" class="close-btn portal-mobile-menu" type="button" aria-label="เปิดเมนูหลัก" aria-expanded="false" aria-controls="portal-sidebar">
-                <svg class="icon" aria-hidden="true"><use href="#icon-menu"></use></svg>
-              </button>
-              <div class="breadcrumb"><span>Host</span><code id="host-breadcrumb">…</code></div>
-            </div>
-            <div class="topbar-right">
-              <span id="tls-badge" class="mode-pill"><span class="dot" aria-hidden="true"></span>Connecting</span>
-              <button id="theme-toggle" class="close-btn theme-toggle" type="button" aria-label="สลับเป็นโหมดมืด" title="สลับเป็นโหมดมืด">
-                <svg class="icon" aria-hidden="true"><use href="#icon-moon"></use></svg>
-              </button>
-              <div id="owner-avatar" class="avatar" title="บัญชีผู้ใช้">DP</div>
-            </div>
-          </header>
-          <main class="main">
-            <div id="page-loader" class="page-loader" hidden>
-              <div class="page-loader-spinner" aria-hidden="true"></div>
-              <p>กำลังโหลด…</p>
-            </div>
-            {{{body}}}
-          </main>
-        </div>
-      </section>
+  <body data-page="{{page}}" data-view="{{view}}">
+    <div id="strckro">
+      <div class="skeleton boot" role="status">
+        <span></span>
+        <span></span>
+        <span></span>
+        <p>Opening your workspace…</p>
+      </div>
+      {{{body}}}
     </div>
-    {{> partials/dialogs.html}}
-    <div id="toast" class="toast" role="status" aria-live="polite"></div>
-    <script type="module" src="/ui/app.js"></script>
+    <div id="notifications" aria-live="polite" aria-atomic="false"></div>
   </body>
 </html>

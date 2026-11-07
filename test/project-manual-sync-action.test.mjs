@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { hasNewerSyncedRevision } from '../public/ui/project-manual-sync-action.js';
+import { hasNewerSyncedRevision } from '../public/ui/core/model.js';
 
 test('a newer synced revision is visible even when auto deploy is enabled', () => {
   assert.equal(hasNewerSyncedRevision({

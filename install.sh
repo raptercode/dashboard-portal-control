@@ -11,8 +11,8 @@ die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 usage() {
   printf '%s\n' \
     'Latest stable: curl -fsSL https://dashboard-portal.cloud/install.sh | bash' \
-    'Specific version: curl -fsSL https://dashboard-portal.cloud/install.sh | bash -s -- --version v0.8.3' \
-    'Version tags must include v (e.g. v0.8.3). Domain and a valid TLS email are required and prompted in the terminal.' \
+    'Specific version: curl -fsSL https://dashboard-portal.cloud/install.sh | bash -s -- --version v1.1.0' \
+    'Version tags must include v (e.g. v1.1.0). Domain and a valid TLS email are required and prompted in the terminal.' \
     'Portal Node major defaults to 24; advanced option: --node-major=20|22|24|26.'
 }
 while (( $# )); do
@@ -27,7 +27,7 @@ while (( $# )); do
     *) usage >&2; die "Unknown option: $1" ;;
   esac
 done
-[[ -z "$VERSION" || "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || die 'Version must look like v0.8.3.'
+[[ -z "$VERSION" || "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || die 'Version must look like v1.1.0.'
 [[ "$NODE_MAJOR" =~ ^(20|22|24|26)$ ]] || die 'Node major must be 20, 22, 24 or 26.'
 [[ "$(uname -s)" == 'Linux' ]] || die 'Run on an Ubuntu server.'
 source /etc/os-release
@@ -38,7 +38,7 @@ if [[ $EUID -ne 0 ]]; then command -v sudo >/dev/null || die 'A sudo-capable acc
 # stdin contains the script when invoked through curl | bash. Keep every prompt,
 # sudo and the underlying password setup on the controlling terminal instead.
 { exec 3<>/dev/tty; } 2>/dev/null || die 'An interactive terminal is required; run the command over an interactive SSH session.'
-printf 'Dashboard Portal installation\n' >&3
+printf 'Strckro installation\n' >&3
 read -r -p 'Portal domain (e.g. portal.example.com): ' DOMAIN <&3
 read -r -p 'Email for TLS certificates: ' EMAIL <&3
 [[ "$DOMAIN" =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$ ]] || die 'A lower-case fully qualified domain is required.'
@@ -49,12 +49,12 @@ if [[ -z "$VERSION" ]]; then
   VERSION="${RELEASE_URL##*/}"
   [[ "$RELEASE_URL" == "$REPO/releases/tag/$VERSION" && "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || die 'Could not resolve the latest stable release.'
 fi
-TMP_DIR="$(mktemp -d /tmp/dashboard-portal-bootstrap.XXXXXX)"
+TMP_DIR="$(mktemp -d /tmp/strckro-bootstrap.XXXXXX)"
 trap '[[ -z "$TMP_DIR" ]] || rm -rf -- "$TMP_DIR"' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
-ARCHIVE="dashboard-portal-${VERSION#v}.tar.gz"
-printf 'Downloading Dashboard Portal %s...\n' "$VERSION" >&3
+ARCHIVE="strckro-${VERSION#v}.tar.gz"
+printf 'Downloading Strckro %s...\n' "$VERSION" >&3
 download "$REPO/releases/download/$VERSION/$ARCHIVE" -o "$TMP_DIR/$ARCHIVE"
 download "$REPO/releases/download/$VERSION/$ARCHIVE.sha256" -o "$TMP_DIR/$ARCHIVE.sha256"
 # Check exactly one digest for the requested archive; never execute filenames
@@ -66,10 +66,10 @@ EXPECTED_HASH="${BASH_REMATCH[1]}"
 printf '%s  %s\n' "$EXPECTED_HASH" "$TMP_DIR/$ARCHIVE" | sha256sum --check --status || die 'Release checksum verification failed.'
 mkdir "$TMP_DIR/release"
 tar --extract --gzip --file "$TMP_DIR/$ARCHIVE" --directory "$TMP_DIR/release" --no-same-owner --no-same-permissions
-[[ -f "$TMP_DIR/release/dashboard-portal.sh" && -f "$TMP_DIR/release/package.json" ]] || die 'Release is missing the installer or package metadata.'
+[[ -f "$TMP_DIR/release/strckro.sh" && -f "$TMP_DIR/release/package.json" ]] || die 'Release is missing the installer or package metadata.'
 cd "$TMP_DIR/release"
 if [[ $EUID -eq 0 ]]; then
-  bash ./dashboard-portal.sh "--domain=$DOMAIN" "--email=$EMAIL" "--node-major=$NODE_MAJOR" <&3
+  bash ./strckro.sh "--domain=$DOMAIN" "--email=$EMAIL" "--node-major=$NODE_MAJOR" <&3
 else
-  sudo -- bash ./dashboard-portal.sh "--domain=$DOMAIN" "--email=$EMAIL" "--node-major=$NODE_MAJOR" <&3
+  sudo -- bash ./strckro.sh "--domain=$DOMAIN" "--email=$EMAIL" "--node-major=$NODE_MAJOR" <&3
 fi

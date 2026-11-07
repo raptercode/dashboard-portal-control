@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 330 76" fill="none">
+  <title>Strckro — deployment control plane</title>
+  <rect x="6" y="6" width="64" height="64" rx="17" fill="#14221d"/>
+  <g transform="translate(6 6)"><path d="M47 16H25l-9 9v3l30 10v3l-8 8H16" stroke="#d8ff70" stroke-width="8" stroke-linejoin="round"/><rect x="42" y="11" width="10" height="10" rx="2" fill="#a4d9bd"/><rect x="11" y="44" width="10" height="10" rx="2" fill="#a4d9bd"/></g>
+  <text x="88" y="50" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="43" font-weight="650" letter-spacing="-2" fill="#14221d">Strckro<tspan fill="#669747">.</tspan></text>
+</svg>

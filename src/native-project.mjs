@@ -3,7 +3,7 @@ import { phpExecutable, phpStartArgs } from '../scripts/php-project.mjs';
 import { projectServiceUser } from '../scripts/project-service-user.mjs';
 import { randomUUID } from 'node:crypto';
 import { nodeBin, nodeMajorForProject } from '../scripts/node-versions.mjs';
-import { pnpmServiceStart } from '../scripts/node-package-manager.mjs';
+import { pnpmServiceStart, validateNodePackageManager } from '../scripts/node-package-manager.mjs';
 import { InputError, validateProject, validateGoPackage, validatePythonProjectSettings, validatePhpProjectSettings } from './core.mjs';
 
 export function validateNativeProject(input) {
@@ -14,7 +14,11 @@ export function validateNativeProject(input) {
   if (project.serviceType === 'worker' && runtime === 'python' && (input.pythonMode ?? 'script') !== 'script') throw new InputError('Python workers must use the script run type.');
   let nodeMajor;
   if (runtime === 'node') {
-    try { nodeMajor = nodeMajorForProject(input.nodeMajor); }
+    try {
+      nodeMajor = nodeMajorForProject(input.nodeMajor);
+      validateNodePackageManager(input.nodePackageManager);
+      if (input.nodePackageManager !== undefined) project.nodePackageManager = input.nodePackageManager;
+    }
     catch (error) { throw new InputError(error.message); }
   }
   const buildScript = ['go', 'python', 'php'].includes(runtime) || input.buildScript === '' || input.buildScript === null
@@ -96,7 +100,7 @@ export function createRelease(projectInput, revision = null) {
     revision,
     runtime: project.runtime,
     serviceType: project.serviceType ?? 'web',
-    ...(project.runtime === 'node' ? { nodeMajor: project.nodeMajor } : {}),
+    ...(project.runtime === 'node' ? { nodeMajor: project.nodeMajor, nodePackageManager: project.nodePackageManager ?? 'auto' } : {}),
     ...(project.runtime === 'python' ? validatePythonProjectSettings(project) : {}),
     ...(project.runtime === 'php' ? validatePhpProjectSettings(project) : {}),
     buildScript: project.buildScript ?? null,

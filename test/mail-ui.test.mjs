@@ -1,71 +1,28 @@
-import test from 'node:test';
-import assert from 'node:assert/strict';
-import { execFile as execFileCallback } from 'node:child_process';
-import { mkdtemp, readFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { promisify } from 'node:util';
-import { createApplication } from '../src/server.mjs';
-
-const execFile = promisify(execFileCallback);
-
-test('Mail UI script remains syntactically valid before it can block session bootstrap', async () => {
-  await execFile(process.execPath, ['--check', fileURLToPath(new URL('../public/ui/app.js', import.meta.url))]);
-});
-
-test('Mail Setup keeps its desktop content inside a bounded vertical scroll container', async () => {
-  const css = await readFile(new URL('../public/ui/app.css', import.meta.url), 'utf8');
-  const match = css.match(/\.mail-app-main > \.mail-setup-page\s*\{([\s\S]*?)\n\}/);
-  assert.ok(match, 'Mail Setup needs its own desktop layout rule');
-  assert.match(match[1], /height:\s*100%;/, 'the page must stay bounded by the Mail app viewport');
-  assert.match(match[1], /min-height:\s*0;/, 'the page must be allowed to shrink inside the grid');
-  assert.match(match[1], /overflow-y:\s*auto;/, 'long wizard content must remain vertically scrollable');
-});
-
-test('Mail routes render a standalone shell while the Portal navigation opens them in a new tab', async (t) => {
-  const dir = await mkdtemp(join(tmpdir(), 'hostmgr-mail-ui-'));
-  const app = await createApplication({
-    dataPath: join(dir, 'state.json'),
-    password: 'correct-horse-battery-staple',
-    secretKey: Buffer.alloc(32, 7).toString('base64'),
-    mode: 'demo',
-    sandboxClone: false,
-    metricsEnabled: false
-  });
-  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
-  t.after(() => app.close());
-  const base = `http://127.0.0.1:${app.server.address().port}`;
-
-  const mail = await (await fetch(`${base}/mail`)).text();
-  assert.match(mail, /<section id="dashboard-view" class="mail-app" hidden>/);
-  assert.match(mail, /class="topbar mail-app-topbar"/);
-  assert.match(mail, /id="mail-preview" class="mail-preview"[^>]*hidden/);
-  assert.match(mail, /ตัวอย่าง inbox ก่อนติดตั้ง/);
-  assert.match(mail, /class="[^"]*\bmail-management-panel\b[^"]*"/);
-  assert.match(mail, /id="mail-management"[^>]*hidden/);
-  assert.match(mail, /id="mail-mailbox-manage"/);
-  assert.match(mail, /id="mail-rows"/);
-  assert.match(mail, /ops\.example\.com/);
-  assert.doesNotMatch(mail, /aria-label="Primary navigation"/);
-
-  const setup = await (await fetch(`${base}/mail/setup`)).text();
-  assert.match(setup, /<section id="dashboard-view" class="mail-app" hidden>/);
-  assert.match(setup, /class="page mail-setup-page" data-page="mail"/);
-  assert.match(setup, /id="wizard-body"/);
-  assert.match(setup, /<dialog id="confirm-dialog"/);
-  assert.match(setup, /<div id="toast" class="toast"/);
-  assert.doesNotMatch(setup, /aria-label="Primary navigation"/);
-
-  const portal = await (await fetch(`${base}/projects`)).text();
-  assert.match(portal, /aria-label="Primary navigation"/);
-  assert.match(portal, /data-nav="mail" href="\/mail" target="_blank" rel="noopener noreferrer"/);
-});
-
-test('Mail fixture inbox is visible only before the service is configured', async () => {
-  const app = await readFile(new URL('../public/ui/app.js', import.meta.url), 'utf8');
-  assert.match(app, /\bMAIL_DEMO\b/);
-  assert.match(app, /preview\.hidden = configured/);
-  assert.match(app, /management\.hidden = !configured/);
-  assert.match(app, /ตัวอย่างก่อนติดตั้ง ยังไม่ได้ส่งอีเมลจริง/);
+import test from "node:test";
+import assert from "node:assert/strict";
+import { mailStepAvailable } from "../public/ui/screens/mail.js";
+test("mail setup allows identity before DNS but gates activation and mailbox operations on saved state", () => {
+  const m = {
+    hostname: null,
+    domains: [],
+    outboundMode: null,
+    configure: null,
+    mailboxes: [],
+  };
+  assert.equal(mailStepAvailable(1, m), true);
+  assert.equal(mailStepAvailable(2, m), true);
+  assert.equal(mailStepAvailable(3, m), false);
+  m.hostname = "mail.example.com";
+  m.domains.push({ domain: "example.com" });
+  assert.equal(mailStepAvailable(3, m), true);
+  assert.equal(mailStepAvailable(4, m), true);
+  assert.equal(mailStepAvailable(5, m), false);
+  m.outboundMode = "relay-587";
+  assert.equal(mailStepAvailable(5, m), true);
+  assert.equal(mailStepAvailable(6, m), false);
+  m.configure = { status: "configured" };
+  assert.equal(mailStepAvailable(6, m), true);
+  assert.equal(mailStepAvailable(7, m), false);
+  m.mailboxes.push({ id: "mailbox" });
+  assert.equal(mailStepAvailable(7, m), true);
 });

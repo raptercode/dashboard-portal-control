@@ -25,7 +25,7 @@ class BootstrapChecks(unittest.TestCase):
     def run_bootstrap(self, *, version=True, mode='ok', answers=None, tty=True, unprivileged=False, node_major=None):
         with tempfile.TemporaryDirectory(prefix='portal-bootstrap-test-') as fixture:
             base = Path(fixture)
-            archive = base / 'dashboard-portal-0.8.3.tar.gz'
+            archive = base / 'strckro-0.8.3.tar.gz'
             installer = b'''#!/usr/bin/env bash
 set -euo pipefail
 printf '%s\\n' "$@" > "$FIXTURE_ROOT/arguments"
@@ -34,8 +34,8 @@ read -r -p 'Fixture password: ' password
 printf 'Fixture installer completed\\n'
 '''
             with tarfile.open(archive, 'w:gz') as tar:
-                for name, content in [('dashboard-portal.sh', installer), ('package.json', b'{"version":"0.8.3"}')]:
-                    if mode == 'missing-installer' and name == 'dashboard-portal.sh':
+                for name, content in [('strckro.sh', installer), ('package.json', b'{"version":"0.8.3"}')]:
+                    if mode == 'missing-installer' and name == 'strckro.sh':
                         continue
                     info = tarfile.TarInfo(name)
                     info.size = len(content)

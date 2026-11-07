@@ -5,7 +5,7 @@ import { start } from './support/server.mjs';
 test('Settings direct and legacy URLs render only the requested category after a reload', async t => {
   const { app, base } = await start();
   t.after(() => app.close());
-  const markers = { account: 'id="password-change-form"', updates: 'id="software-update"', monitor: 'id="monitor-token-form"' };
+  const markers = Object.fromEntries(['account','updates','monitor'].map(section => [section, `data-route="settings-${section}"`]));
   for (const section of ['account', 'updates', 'monitor']) {
     const paths = [`/settings/${section}`, `/settings?section=${section}`, ...(section === 'account' ? ['/settings', '/settings?section=unknown'] : [])];
     for (const path of paths) {

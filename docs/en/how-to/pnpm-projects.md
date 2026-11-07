@@ -14,8 +14,14 @@ sudo /usr/local/bin/npm install --global --prefix /usr/local --ignore-scripts pn
 /usr/local/bin/pnpm --version
 ```
 
-Choose **Node.js** as the project runtime, then pin the package manager in the
-application's `package.json`:
+Choose **Node.js** as the project runtime, then select **pnpm** in **Package
+manager** under the run settings. This choice is saved per project and used for
+installation, build and startup. **Auto** keeps the existing repository detection;
+**npm** explicitly selects npm. A manual choice must match `packageManager` when
+the repository declares it; a conflict stops deployment with an actionable error.
+Each release keeps its choice for activation and rollback.
+
+To pin the pnpm version, set the application's `package.json`:
 
 ```json
 {

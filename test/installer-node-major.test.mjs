@@ -7,7 +7,7 @@ import { spawnSync } from 'node:child_process';
 
 const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash';
 const available = spawnSync(bash, ['--version']).status === 0;
-const source = (await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8')).replaceAll('\r\n', '\n');
+const source = (await readFile(new URL('../strckro.sh', import.meta.url), 'utf8')).replaceAll('\r\n', '\n');
 const shellPath = (path) => path.replaceAll('\\', '/').replace(/^([A-Za-z]):/, (_, drive) => `/${drive.toLowerCase()}`);
 const selection = source.slice(source.indexOf('if [[ -z "$PORTAL_NODE_MAJOR" ]]'), source.indexOf('[[ -n "$DOMAIN"'));
 const provision = source.slice(source.indexOf('install_node_version()'), source.indexOf('# Bun is a project runtime'));

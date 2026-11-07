@@ -10,6 +10,7 @@ test('dashboard URLs reload their matching application shell', async (t) => {
     '/': 'overview',
     '/setup': 'setup',
     '/projects': 'projects',
+    '/deployments': 'deployments',
     '/credentials': 'credentials',
     '/databases': 'databases',
     '/activity': 'activity',
@@ -23,7 +24,7 @@ test('dashboard URLs reload their matching application shell', async (t) => {
     assert.match(response.headers.get('content-type'), /text\/html/);
     const html = await response.text();
     assert.match(html, new RegExp(`data-page="${page}"`));
-    assert.match(html, /\/ui\/app\.js/);
+    assert.match(html, /\/ui\/main\.js/);
   }
   for (const path of ['/projects/new', '/projects/new/repository', '/projects/new/review']) {
     const response = await fetch(`${base}${path}`);
@@ -33,6 +34,18 @@ test('dashboard URLs reload their matching application shell', async (t) => {
   assert.equal((await fetch(`${base}/not-a-dashboard-page`)).status, 404);
   assert.equal((await fetch(`${base}/index.html`)).status, 404);
   assert.equal((await fetch(`${base}/app.js`)).status, 404);
+  for (const removed of ['app.js', 'app.css', 'router.js', 'project-domains.js', 'workspace-navigation.js', 'workbench.css']) {
+    assert.equal((await fetch(`${base}/ui/${removed}`)).status, 404, removed);
+  }
+  assert.equal((await fetch(`${base}/ui/main.js`)).status, 200);
+  for (const sheet of ['tokens', 'components', 'shell', 'screens']) {
+    const response = await fetch(`${base}/ui/css/${sheet}.css`);
+    assert.equal(response.status, 200, sheet);
+    assert.match(response.headers.get('content-type'), /text\/css/, sheet);
+  }
+  assert.equal((await fetch(`${base}/ui/brand/hero-track.svg`)).status, 200);
+  const shell = await (await fetch(`${base}/projects`)).text();
+  for (const sheet of ['tokens', 'components', 'shell', 'screens']) assert.match(shell, new RegExp(`/ui/css/${sheet}\\.css`), sheet);
 });
 
 test('UI assets support nested paths without exposing files outside public UI', async (t) => {

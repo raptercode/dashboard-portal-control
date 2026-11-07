@@ -5,18 +5,28 @@ import { nodeBin } from './node-versions.mjs';
 export const PNPM_VERSION = '11.19.0';
 export const PNPM_PATH = '/usr/local/bin/pnpm';
 
-export async function readNodePackageManager(directory, nodeMajor = 24) {
-  const manifest = JSON.parse(await readFile(join(directory, 'package.json'), 'utf8'));
-  const pnpmLock = await stat(join(directory, 'pnpm-lock.yaml')).then(item => item.isFile()).catch(() => false);
-  return selectNodePackageManager(manifest, pnpmLock, nodeMajor);
+export function validateNodePackageManager(value = 'auto') {
+  if (!['auto', 'npm', 'pnpm'].includes(value)) throw new Error('Node package manager must be auto, npm or pnpm.');
+  return value;
 }
 
-export function selectNodePackageManager(manifest, pnpmLock, nodeMajor = 24) {
+export async function readNodePackageManager(directory, nodeMajor = 24, preference = 'auto') {
+  const manifest = JSON.parse(await readFile(join(directory, 'package.json'), 'utf8'));
+  const pnpmLock = await stat(join(directory, 'pnpm-lock.yaml')).then(item => item.isFile()).catch(() => false);
+  return selectNodePackageManager(manifest, pnpmLock, nodeMajor, preference);
+}
+
+export function selectNodePackageManager(manifest, pnpmLock, nodeMajor = 24, preference = 'auto') {
+  validateNodePackageManager(preference);
   const declared = manifest.packageManager;
   if (declared !== undefined && (typeof declared !== 'string' || !/^(npm|pnpm)@/.test(declared))) {
     throw new Error('Node projects support npm or pnpm in packageManager. Select the Bun runtime for Bun projects.');
   }
-  if (declared?.startsWith('npm@') || (!declared && !pnpmLock)) return { name: 'npm' };
+  if (preference !== 'auto' && declared && !declared.startsWith(`${preference}@`)) {
+    throw new Error(`Selected ${preference} conflicts with package.json packageManager. Select Auto or update packageManager in the repository.`);
+  }
+  const name = preference === 'auto' ? (declared ? declared.split('@')[0] : pnpmLock ? 'pnpm' : 'npm') : preference;
+  if (name === 'npm') return { name: 'npm' };
   const version = declared ? /^pnpm@(\d+\.\d+\.\d+)$/.exec(declared)?.[1] : null;
   if (declared && !version) throw new Error('Set packageManager to an exact pnpm version, for example pnpm@11.19.0.');
   if (version) validatePnpmVersion(version, nodeMajor);

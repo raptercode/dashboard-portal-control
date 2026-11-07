@@ -2,7 +2,7 @@
 
 [English](../../../en/knowledge/plans/dashboard-portal-client.md) · [สารบัญ](../../README-index.md)
 
-- สถานะ: **Proposed** — ยังไม่ได้สร้าง client, token สำหรับเขียน หรือ endpoint ใหม่
+- สถานะ: **แผนเดิม เริ่มพัฒนาแล้ว 2026-11-06** — `dashboard-control-cli` มี `dpctl` login, project/deploy/domain และ atomic ENV patches แล้ว ดู [คู่มือ CLI ปัจจุบัน](../../how-to/cli.md) phases/exclusions ด้านล่างเป็นแผนเก่า ส่วน host doctor/scoped checks และ acceptance Linux/TLS จริงยังรอดำเนินการ
 - วันที่: 2026-10-09
 - เป้าหมาย: CLI แยกโปรเจกต์สำหรับ Windows/Linux/CI ใช้ตรวจ Portal และโปรเจกต์ รวมถึงแก้ ENV แบบระบุ key โดยให้ Portal เป็นผู้ตรวจสิทธิ์ บันทึก และเข้ารหัส
 

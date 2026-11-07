@@ -163,7 +163,7 @@ install in `host` mode), and refresh status after.
 
 The CLI shown below is a **planned interface only** — there is no `hostmgr`
 binary in this repository today. The only real command-line entry points are
-`dashboard-portal.sh` (installer) and the `dashboard-portal` command it
+`strckro.sh` (installer) and the `strckro` command it
 provisions on the host (`update`, `configure-update`, `--reset-pwd`, help and version reporting). Treat
 the block below as a design placeholder, not a usable command:
 

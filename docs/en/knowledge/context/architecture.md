@@ -60,7 +60,7 @@ Docker on a development machine is used for repeatable, isolated integration tes
 
 Ubuntu 24.04 or 25.04 host acceptance tests are required for paths that depend on a real host: apt/package state, systemd, privileged helper, Nginx reload, file permissions, and reboot persistence. A Docker container is not a sufficient stand-in for a systemd host.
 
-Production deployment uses `dashboard-portal.sh` to install the service directly on Ubuntu 24.04 or 25.04. The application binds only to loopback and host Nginx owns public HTTP/HTTPS. A direct install fails closed unless domain resolution, a Certbot certificate, HTTPS redirect/HSTS, and an HTTPS health check succeed. It never removes unrelated Nginx virtual hosts.
+Production deployment uses `strckro.sh` to install the service directly on Ubuntu 24.04 or 25.04. The application binds only to loopback and host Nginx owns public HTTP/HTTPS. A direct install fails closed unless domain resolution, a Certbot certificate, HTTPS redirect/HSTS, and an HTTPS health check succeed. It never removes unrelated Nginx virtual hosts.
 
 Pinned Node 20/22/24/26 runtimes live under `/opt/node-v<version>`. Portal
 services use the installer-selected major; projects choose independently.

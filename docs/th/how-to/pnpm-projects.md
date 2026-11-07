@@ -13,7 +13,13 @@ sudo /usr/local/bin/npm install --global --prefix /usr/local --ignore-scripts pn
 /usr/local/bin/pnpm --version
 ```
 
-เลือก runtime **Node.js** แล้วระบุเวอร์ชันใน `package.json` ของแอป:
+เลือก runtime **Node.js** แล้วเลือก **pnpm** ในช่อง **Package manager** ใต้การรัน
+ระบบบันทึกแยกต่อโปรเจกต์และใช้ติดตั้ง dependencies, build และรันแอป เลือก
+**อัตโนมัติจาก repository** เพื่อใช้การตรวจแบบเดิม หรือ **npm** เพื่อระบุ npm
+ถ้า repository ระบุ `packageManager` ไว้ ค่าที่เลือกต้องตรงกัน มิฉะนั้น deploy
+จะหยุดพร้อมข้อความให้แก้ไข แต่ละ release เก็บตัวเลือกไว้สำหรับ activate และ rollback
+
+หากต้องการระบุเวอร์ชัน pnpm ให้ตั้งค่าใน `package.json` ของแอป:
 
 ```json
 {

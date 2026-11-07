@@ -2,7 +2,7 @@
 
 [English](../../en/how-to/production-install.md)
 
-หลังติดตั้งใช้ `dashboard-portal -h` หรือ `--help` ดูคำสั่ง CLI ทั้งหมด และ `dashboard-portal -v` หรือ `--versions` ดู Portal/runtime versions โดยไม่ต้อง sudo ใช้ `dashboard-portal update --help` ดูคู่มือได้เช่นกัน ส่วน update, configure-update และ reset password ยังต้อง sudo
+หลังติดตั้งใช้ `strckro -h` หรือ `--help` ดูคำสั่ง CLI ทั้งหมด และ `strckro -v` หรือ `--versions` ดู Portal/runtime versions โดยไม่ต้อง sudo ใช้ `dashboard-portal update --help` ดูคู่มือได้เช่นกัน ส่วน update, configure-update และ reset password ยังต้อง sudo
 
 
 คู่มือนี้ใช้กับ **Ubuntu Server 24.04 หรือ 25.04, amd64** ที่ผ่านเงื่อนไข installer การติดตั้งจริงใช้ systemd และ Nginx; Docker Compose ใน repository ใช้ทดลองบนเครื่องพัฒนา
@@ -28,13 +28,13 @@ curl -fsSL https://dashboard-portal.cloud/install.sh | bash
 
 ### ระบุเวอร์ชัน
 
-ถ้าไม่ระบุ `--version` จะใช้ latest stable ที่เผยแพร่บน GitHub หากต้องการติดตั้งรุ่นที่แน่นอน เช่น v0.8.3 ใช้คำสั่งบรรทัดเดียวนี้:
+ถ้าไม่ระบุ `--version` จะใช้ latest stable ที่เผยแพร่บน GitHub หากต้องการติดตั้งรุ่นที่แน่นอน เช่น v1.1.0 ใช้คำสั่งบรรทัดเดียวนี้:
 
 ```bash
-curl -fsSL https://dashboard-portal.cloud/install.sh | bash -s -- --version v0.8.3
+curl -fsSL https://dashboard-portal.cloud/install.sh | bash -s -- --version v1.1.0
 ```
 
-`bash -s` ให้อ่าน script จาก pipe และ `--` แยก arguments ที่ส่งให้ installer ระบุ tag แบบ `v<major>.<minor>.<patch>` เช่น `v0.8.3` ไม่ใช่ `0.8.3` เลือกเฉพาะ release ที่มี archive และ checksum เผยแพร่แล้ว หากไม่พบเวอร์ชันหรือดาวน์โหลดไม่ได้จะหยุด ไม่เปลี่ยนไปใช้ latest แทน ดูรุ่นที่มีใน [GitHub Releases](https://github.com/raptercode/dashboard-portal-control/releases)
+`bash -s` ให้อ่าน script จาก pipe และ `--` แยก arguments ที่ส่งให้ installer ระบุ tag แบบ `v<major>.<minor>.<patch>` เช่น `v1.1.0` ไม่ใช่ `0.8.3` เลือกเฉพาะ release ที่มี archive และ checksum เผยแพร่แล้ว หากไม่พบเวอร์ชันหรือดาวน์โหลดไม่ได้จะหยุด ไม่เปลี่ยนไปใช้ latest แทน ดูรุ่นที่มีใน [GitHub Releases](https://github.com/raptercode/dashboard-portal-control/releases)
 
 ### ต้องใส่อีเมลและข้อมูลอะไรบ้าง
 
@@ -102,9 +102,9 @@ Snapshot ของ installer เก็บ managed config/service/application แ
 ## อัปเดตผ่าน SSH
 
 ```bash
-sudo dashboard-portal update --check
-sudo dashboard-portal update
-sudo dashboard-portal update --check
+sudo strckro update --check
+sudo strckro update
+sudo strckro update --check
 ```
 
 Updater ตรวจ signed manifest และ SHA-256 แล้วใช้ installer ตามขั้นตอนปกติ พร้อมคง Node major จาก config หน้าเว็บตรวจและแจ้งเวอร์ชันได้ แต่ไม่สั่งอัปเดต Portal หลังอัปเดตให้ทำ health/static checks ด้านบนและตรวจ project เดิม
@@ -114,7 +114,7 @@ Updater ตรวจ signed manifest และ SHA-256 แล้วใช้ ins
 Stable feed ตั้งอัตโนมัติเป็น [latest stable manifest](https://github.com/raptercode/dashboard-portal-control/releases/latest/download/stable.json) ใช้ `configure-update` เฉพาะ custom feed:
 
 ```bash
-sudo dashboard-portal configure-update \
+sudo strckro configure-update \
   --manifest=https://releases.example.com/dashboard-portal/stable.json \
   --public-key=/secure/download/dashboard-portal-update-public.pem
 ```
@@ -147,7 +147,7 @@ getent ahosts portal.example.com
 - **API ผ่านแต่หน้าเว็บ 500:** ตรวจสิทธิ์อ่าน/traverse ของ application root และ static assets
 - **Node 20 dependency ไม่พร้อม:** อ่านขั้น staging dependency install; ตรวจ network และ compiler prerequisite ก่อน retry
 - **Signature/checksum ไม่ผ่าน:** หยุดและตรวจแหล่ง release, asset และ public key
-- **ลืมรหัสผ่าน:** ใช้ `sudo dashboard-portal --reset-pwd` ผ่าน SSH คำสั่งแสดงรหัสใหม่ครั้งเดียวและยกเลิก sessions เดิม
+- **ลืมรหัสผ่าน:** ใช้ `sudo strckro --reset-pwd` ผ่าน SSH คำสั่งแสดงรหัสใหม่ครั้งเดียวและยกเลิก sessions เดิม
 
 อย่าเปิด port 3100 สู่สาธารณะเพื่อข้ามปัญหา HTTPS เก็บ logs โดยปิดบัง secrets ก่อนส่งให้ผู้อื่น
 

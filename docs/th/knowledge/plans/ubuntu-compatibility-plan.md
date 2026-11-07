@@ -17,8 +17,8 @@
 
 ## สิ่งที่ตรวจแล้ว
 
-- Installer ปัจจุบันอนุญาตเฉพาะ `ubuntu` รุ่น `24.04` หรือ `25.04` และ `amd64`; รุ่นอื่นจะหยุดก่อนติดตั้ง ดู [dashboard-portal.sh](../../../../dashboard-portal.sh)
-- Installer ใช้ apt, systemd และ Nginx; ติดตั้ง Node.js `24.18.0` กับ Bun `1.3.13` แบบ Linux x64 โดยตรวจ SHA-256 ส่วนตัวแปร Go `1.27.1` มีในไฟล์แต่ไม่ได้แปลว่ามีขั้นตอนติดตั้ง Go ดู [installer](../../../../dashboard-portal.sh)
+- Installer ปัจจุบันอนุญาตเฉพาะ `ubuntu` รุ่น `24.04` หรือ `25.04` และ `amd64`; รุ่นอื่นจะหยุดก่อนติดตั้ง ดู [strckro.sh](../../../../strckro.sh)
+- Installer ใช้ apt, systemd และ Nginx; ติดตั้ง Node.js `24.18.0` กับ Bun `1.3.13` แบบ Linux x64 โดยตรวจ SHA-256 ส่วนตัวแปร Go `1.27.1` มีในไฟล์แต่ไม่ได้แปลว่ามีขั้นตอนติดตั้ง Go ดู [installer](../../../../strckro.sh)
 - Go, Python/venv และ PHP/Composer เป็น prerequisite ที่ต้องเตรียมบน host แยก ดู [TOOLS](../../../../src/core.mjs)
 - ตรวจ HTTP availability ของ Node checksum manifest, Bun baseline archive และ Go archive ได้ HTTP 200; ค่า Node linux-x64 ใน manifest ตรงค่าที่ pin ใน installer แต่ยังไม่ได้ดาวน์โหลดและรัน binary บนแต่ละ OS
 - เครื่องทำงานมี WSL Ubuntu 24.04.1 ที่ตรวจ `/etc/os-release` แบบอ่านอย่างเดียวแล้ว; Docker daemon ยังเชื่อมต่อไม่ได้ จึงยังไม่มี container/VM acceptance run จากงานนี้

@@ -10,7 +10,7 @@ the Portal and production-host updates are separate operations.
 
 - Repository: [raptercode/dashboard-portal-control](https://github.com/raptercode/dashboard-portal-control).
 - Stable feed: [latest/download/stable.json](https://github.com/raptercode/dashboard-portal-control/releases/latest/download/stable.json).
-- Every release contains exactly three assets: `dashboard-portal-<VERSION>.tar.gz`,
+- Every release contains exactly three assets: `strckro-<VERSION>.tar.gz`,
   its `.sha256`, and signed `stable.json`.
 - Publish a new increasing version; never replace assets under an existing tag.
 - Build from a clean, committed, tagged checkout. Preserve unrelated work by
@@ -51,7 +51,7 @@ project environment values require explicit access grants.
 ```powershell
 npm ci
 npm test
-bash -n install.sh dashboard-portal.sh
+bash -n install.sh strckro.sh
 npm run docs:check
 git diff --check
 ```
@@ -96,11 +96,11 @@ From the clean release checkout:
 ```powershell
 $version = node -p "require('./package.json').version"
 $releaseDir = Join-Path $HOME ".dashboard-portal\releases\v$version"
-$env:DASHBOARD_PORTAL_UPDATE_PRIVATE_KEY_PATH = Join-Path $HOME '.dashboard-portal\release-signing\dashboard-portal-update-private.pem'
+$env:STRCKRO_UPDATE_PRIVATE_KEY_PATH = Join-Path $HOME '.dashboard-portal\release-signing\dashboard-portal-update-private.pem'
 try {
-  npm run release:prepare -- "--out=$releaseDir" "--archive-url=https://github.com/raptercode/dashboard-portal-control/releases/download/v$version/dashboard-portal-$version.tar.gz" --notes="Describe the user-visible change"
+  npm run release:prepare -- "--out=$releaseDir" "--archive-url=https://github.com/raptercode/dashboard-portal-control/releases/download/v$version/strckro-$version.tar.gz" --notes="Describe the user-visible change"
 } finally {
-  Remove-Item Env:DASHBOARD_PORTAL_UPDATE_PRIVATE_KEY_PATH
+  Remove-Item Env:STRCKRO_UPDATE_PRIVATE_KEY_PATH
 }
 ```
 
@@ -121,7 +121,7 @@ Do not hand-edit the signed manifest.
 Write human-readable release notes to a file outside the checkout, then:
 
 ```powershell
-gh release create "v$version" "$releaseDir\dashboard-portal-$version.tar.gz" "$releaseDir\dashboard-portal-$version.tar.gz.sha256" "$releaseDir\stable.json" --repo raptercode/dashboard-portal-control --title "Dashboard Portal v$version" --notes-file "$releaseDir\release-notes.md" --verify-tag
+gh release create "v$version" "$releaseDir\strckro-$version.tar.gz" "$releaseDir\strckro-$version.tar.gz.sha256" "$releaseDir\stable.json" --repo raptercode/dashboard-portal-control --title "Dashboard Portal v$version" --notes-file "$releaseDir\release-notes.md" --verify-tag
 gh release view "v$version" --repo raptercode/dashboard-portal-control
 ```
 

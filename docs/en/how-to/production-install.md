@@ -9,7 +9,7 @@ The current installer accepts Ubuntu 24.04 or 25.04, amd64. Use root or a sudo-c
 
 ## Install
 
-After installation, `dashboard-portal -h` or `--help` lists all CLI commands. Use `dashboard-portal -v` or `--versions` for installed Portal and runtime versions. These informational commands do not require sudo. `dashboard-portal update --help` also shows the command reference; update, configuration changes and password reset still require sudo.
+After installation, `strckro -h` or `--help` lists all CLI commands. Use `strckro -v` or `--versions` for installed Portal and runtime versions. These informational commands do not require sudo. `dashboard-portal update --help` also shows the command reference; update, configuration changes and password reset still require sudo.
 
 ```bash
 curl -fsSL https://dashboard-portal.cloud/install.sh | bash
@@ -20,10 +20,10 @@ curl -fsSL https://dashboard-portal.cloud/install.sh | bash
 Without `--version`, the command selects GitHub's latest published stable release. To pin a release, use this single-line command:
 
 ```bash
-curl -fsSL https://dashboard-portal.cloud/install.sh | bash -s -- --version v0.8.3
+curl -fsSL https://dashboard-portal.cloud/install.sh | bash -s -- --version v1.1.0
 ```
 
-`bash -s` reads the script from the pipe; `--` separates arguments passed to the installer. Use the published tag format `v<major>.<minor>.<patch>`, such as `v0.8.3`, including the `v` prefix. The release must have its archive and checksum published. Missing releases/download failures stop installation rather than falling back to latest. Check available versions in [GitHub Releases](https://github.com/raptercode/dashboard-portal-control/releases).
+`bash -s` reads the script from the pipe; `--` separates arguments passed to the installer. Use the published tag format `v<major>.<minor>.<patch>`, such as `v1.1.0`, including the `v` prefix. The release must have its archive and checksum published. Missing releases/download failures stop installation rather than falling back to latest. Check available versions in [GitHub Releases](https://github.com/raptercode/dashboard-portal-control/releases).
 
 ### Required inputs and email
 
@@ -78,17 +78,17 @@ Also back up application data under `/srv/hostmgr/projects`, `/etc/hostmgr/proje
 ## Update over SSH
 
 ```bash
-sudo dashboard-portal update --check
-sudo dashboard-portal update
-sudo dashboard-portal update --check
+sudo strckro update --check
+sudo strckro update
+sudo strckro update --check
 ```
 
 The updater verifies Ed25519 and SHA-256 and preserves the configured Portal Node major. The UI reports available versions; it cannot apply Portal updates. Both SQLite drivers retain the existing schema/file; no data conversion is required. Repeat health/static/project checks after updating.
 
-The default stable feed is [GitHub stable.json](https://github.com/raptercode/dashboard-portal-control/releases/latest/download/stable.json). A custom feed uses `sudo dashboard-portal configure-update --manifest=https://releases.example.com/dashboard-portal/stable.json --public-key=/secure/download/dashboard-portal-update-public.pem`. Never replace a verification key just to bypass a signature error. For pre-v0.7.0 installations, independently validate the replacement key/fingerprint from a trusted release before installing it.
+The default stable feed is [GitHub stable.json](https://github.com/raptercode/dashboard-portal-control/releases/latest/download/stable.json). A custom feed uses `sudo strckro configure-update --manifest=https://releases.example.com/dashboard-portal/stable.json --public-key=/secure/download/dashboard-portal-update-public.pem`. Never replace a verification key just to bypass a signature error. For pre-v0.7.0 installations, independently validate the replacement key/fingerprint from a trusted release before installing it.
 
 ## Troubleshoot
 
-Inspect `journalctl -u dashboard-portal -u hostmgr-deploy-helper -n 100 --no-pager`, `sudo nginx -t`, host DNS and certificate issuance. HTTP 301 redirecting to healthy HTTPS is expected. An API success does not prove static files or login work. Reset a lost password with `sudo dashboard-portal --reset-pwd`; it generates a new random password, displays it once in the terminal, revokes old sessions and restarts Portal. Store the displayed password securely before closing the terminal. Keep port 3100 private and redact secrets in shared logs.
+Inspect `journalctl -u dashboard-portal -u hostmgr-deploy-helper -n 100 --no-pager`, `sudo nginx -t`, host DNS and certificate issuance. HTTP 301 redirecting to healthy HTTPS is expected. An API success does not prove static files or login work. Reset a lost password with `sudo strckro --reset-pwd`; it generates a new random password, displays it once in the terminal, revokes old sessions and restarts Portal. Store the displayed password securely before closing the terminal. Keep port 3100 private and redact secrets in shared logs.
 
 Maintainers: [release guide](releasing-and-ai-handoff.md), [bootstrap hosting](bootstrap-hosting.md), [Node versions](node-versions.md).

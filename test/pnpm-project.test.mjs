@@ -5,8 +5,9 @@ import { tmpdir } from 'node:os';
 import { join, basename } from 'node:path';
 import vm from 'node:vm';
 import { selectNodePackageManager, readNodePackageManager, assertPnpmAvailable, pnpmServiceStart, PNPM_PATH, PNPM_VERSION } from '../scripts/node-package-manager.mjs';
-import { installCandidateDependencies, prepareNativeRelease, probeHostTools } from '../src/server.mjs';
-import { TOOLS, createInitialState } from '../src/core.mjs';
+import { createApplication, installCandidateDependencies, prepareNativeRelease, probeHostTools } from '../src/server.mjs';
+import { TOOLS, createInitialState, validateProjectSync } from '../src/core.mjs';
+import { createRelease, validateNativeProject } from '../src/native-project.mjs';
 import { nodeRuntimeEnvironment } from '../scripts/node-versions.mjs';
 
 test('Node manager selection follows an explicit declaration before the lockfile', () => {
@@ -17,6 +18,75 @@ test('Node manager selection follows an explicit declaration before the lockfile
   assert.throws(() => selectNodePackageManager({ packageManager: 'pnpm@latest' }, true), /exact pnpm/);
   assert.throws(() => selectNodePackageManager({ packageManager: 'pnpm@11.19.0' }, true, 20), /requires Node/);
   assert.throws(() => selectNodePackageManager({ packageManager: 'pnpm@11.19.0;touch evil' }, true), /exact pnpm/);
+});
+
+test('manual Node manager selection works without metadata and rejects conflicting pins', async t => {
+  assert.deepEqual(selectNodePackageManager({}, false, 24, 'pnpm'), { name: 'pnpm', version: null });
+  assert.deepEqual(selectNodePackageManager({}, true, 24, 'npm'), { name: 'npm' });
+  assert.deepEqual(selectNodePackageManager({ packageManager: 'pnpm@12.9.1' }, true, 24, 'pnpm'), { name: 'pnpm', version: '12.9.1' });
+  for (const [declared, preference] of [['npm@11.16.0', 'pnpm'], ['pnpm@12.9.1', 'npm']]) {
+    assert.throws(() => selectNodePackageManager({ packageManager: declared }, true, 24, preference), /conflicts with package.json/);
+  }
+  assert.throws(() => selectNodePackageManager({}, false, 24, 'yarn'), /must be auto, npm or pnpm/);
+  const root = await mkdtemp(join(tmpdir(), 'pnpm-choice-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await writeFile(join(root, 'package.json'), '{}');
+  assert.deepEqual(await readNodePackageManager(root, 24, 'pnpm'), { name: 'pnpm', version: null });
+});
+
+test('Node manager choice survives validation and is captured for release activation and rollback', () => {
+  const input = { name: 'Choice', slug: 'choice', repository: 'https://github.com/example/choice.git', port: 3800, runtime: 'node', nodePackageManager: 'pnpm' };
+  assert.equal(validateProjectSync(input).nodePackageManager, 'pnpm');
+  assert.equal(validateNativeProject(input).nodePackageManager, 'pnpm');
+  assert.equal(createRelease(input).nodePackageManager, 'pnpm');
+  assert.equal(createRelease({ ...input, nodePackageManager: undefined }).nodePackageManager, 'auto');
+  assert.throws(() => validateProjectSync({ ...input, nodePackageManager: 'yarn' }), /must be auto, npm or pnpm/);
+  assert.throws(() => validateNativeProject({ ...input, nodePackageManager: {} }), /must be auto, npm or pnpm/);
+  assert.equal(validateProjectSync({ ...input, runtime: 'bun' }).nodePackageManager, undefined);
+});
+
+test('project API saves pnpm choice and uses it in deployment commands', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'pnpm-choice-api-'));
+  const app = await createApplication({ dataPath: join(root, 'state.sqlite'), password: 'correct-horse-battery-staple', secretKey: Buffer.alloc(32, 7).toString('base64'), mode: 'demo', sandboxClone: false, metricsEnabled: false, portAvailability: async () => true });
+  t.after(() => app.close());
+  await app.store.update(state => {
+    state.tools.git.status = 'Installed';
+    state.git.identity = { name: 'Test owner', email: 'owner@example.com' };
+  });
+  await new Promise(resolve => app.server.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${app.server.address().port}`;
+  const login = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'owner@local.test', password: 'correct-horse-battery-staple' }) });
+  const { csrfToken } = await login.json();
+  const headers = { cookie: login.headers.get('set-cookie').split(';')[0], 'content-type': 'application/json', 'x-csrf-token': csrfToken };
+  const project = { name: 'Choice', slug: 'choice', repository: 'https://github.com/example/choice.git', port: 3800, runtime: 'node', buildScript: 'build', startScript: 'start' };
+  for (const nodePackageManager of ['pnpm', 'npm', 'auto']) {
+    const response = await fetch(`${base}/api/projects/sync`, { method: 'POST', headers, body: JSON.stringify({ ...project, nodePackageManager }) });
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).project.nodePackageManager, nodePackageManager);
+    const configuration = await (await fetch(`${base}/api/projects/choice/deploy-configuration`, { headers })).json();
+    const expected = nodePackageManager === 'pnpm' ? 'pnpm' : 'npm';
+    assert.equal(configuration.configuration.startScript, `${expected} run start`);
+    assert.equal(configuration.configuration.buildScript, `${expected} run build`);
+    assert.equal(configuration.configuration.packageManager, `${expected} install`);
+  }
+});
+
+test('host activation uses the release manager even when project settings changed', async () => {
+  const source = await readFile(new URL('../scripts/hostmgr-deploy-helper.mjs', import.meta.url), 'utf8');
+  const activation = source.match(/async function activateProject\([^]*?\n\}/)[0];
+  for (const nodePackageManager of ['pnpm', 'npm', undefined]) {
+    const project = { runtime: 'node', nodePackageManager: 'pnpm', domains: { hosts: [] }, deployment: { releases: [{ id: 'release', status: 'healthy', nodePackageManager }] } };
+    let prepared;
+    const activate = vm.runInNewContext(`(${activation})`, {
+      loadProject: async () => structuredClone(project), validateReleaseId() {},
+      nodeMajorForProject: () => 24, readTextOrEmpty: async () => '', join, PROJECT_ROOT: '/projects',
+      prepareProjectRelease: async input => { prepared = input; return { identity: {} }; },
+      startAndCheckProject: async () => {}, applyDomains: async () => {}, pruneHistoricalReleases: async () => 0,
+      HelperError: Error
+    });
+    await activate('fixture', 'release');
+    assert.equal(prepared.nodePackageManager, nodePackageManager ?? 'auto');
+  }
 });
 
 test('pnpm is optional and doctor observes its actual presence', async () => {
@@ -82,7 +152,7 @@ test('only an explicit pnpm Setup request installs the fixed version without lif
   assert.equal(calls[0][0], '/usr/local/bin/npm');
   assert.ok(calls[0][1].includes('--ignore-scripts'));
   assert.ok(calls[0][1].includes('pnpm@11.19.0'));
-  const installer = await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8');
+  const installer = await readFile(new URL('../strckro.sh', import.meta.url), 'utf8');
   assert.doesNotMatch(installer, /(?:npm|npx).*install.*pnpm|pnpm.*setup/);
   assert.match(installer, /node-package-manager\.mjs[^\n]*HELPER_ROOT/);
 });

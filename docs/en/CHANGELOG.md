@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.1.0 — 2026-11-07
+
+- Replace the monolithic frontend with the Signal interface: shared host strip and rail, responsive application inventory, source → build → serving tracks, health gauges, release timelines and system-aware light/dark themes.
+- Load workspaces and APIs on demand, keep navigation in one document, pause polling in hidden tabs, and protect unsaved forms and ENV edits. Add keyboard search and a loopback-only preview with isolated temporary data.
+- Restore per-domain DNS, Cloudflare proxy and origin TLS status, explicit Refresh/Verify and removal retries, deployment progress with on-demand logs, and release/commit confirmations for Restart and Rollback.
+- Add runtime/framework logo menus and repository-driven detection, plus explicit Auto/npm/pnpm selection retained through deployment and rollback. Reject conflicting packageManager declarations.
+- Complete Strckro installer, host-command and archive naming. Hosts using the legacy dashboard-portal updater must run strckro.sh once; existing host paths, services and signing trust are retained. See the migration guide.
+- Replace obsolete markup assertions with model tests and real browser workflows. Local validation does not establish Ubuntu/systemd/Nginx/TLS, fresh-install or reboot acceptance; publication does not update installed hosts.
+
+## 1.0.4 — 2026-11-06
+
+- Introduce Strckro branding, a layered SVG logo, a redesigned login/Overview experience, and a dedicated deployment activity workspace with project/status filters and live metadata refresh.
+- Add scoped, expiring CLI credentials, browser/device login with explicit approval, token management/revocation, and bearer access to allowed project workflows. Existing organization permissions are rechecked at mutation commit.
+- Add atomic revision-checked ENV patches and a metadata-only deployment feed. Publish the renamed `strckro` CLI (`skctl` and `strckro`) with legacy config/credential compatibility.
+- Keep host service identifiers, paths, commands and signed update trust compatible. Publishing this release does not update an installed host; real Linux/systemd/Nginx/TLS acceptance remains separate from local fixtures.
+
 ## 1.0.3 — 2026-10-20
 
 - Restart the active native app process after a failed sync/deployment without creating another release or replacing its deployed ENV. Restart checks process stability and configured HTTP health, reports progress and failures, and blocks overlapping project operations.

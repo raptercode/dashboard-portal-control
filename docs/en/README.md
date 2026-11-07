@@ -63,7 +63,7 @@ Install the latest stable release with one command:
 curl -fsSL https://dashboard-portal.cloud/install.sh | bash
 ```
 
-To pin a published release, use `curl -fsSL https://dashboard-portal.cloud/install.sh | bash -s -- --version v0.8.3` with its `v`-prefixed tag. A reachable TLS email is required for Let's Encrypt/Certbot, but enter it when prompted rather than in the command line. It is separate from the login email. See [version selection and required inputs](how-to/production-install.md).
+To pin a published release, use `curl -fsSL https://dashboard-portal.cloud/install.sh | bash -s -- --version v1.1.0` with its `v`-prefixed tag. A reachable TLS email is required for Let's Encrypt/Certbot, but enter it when prompted rather than in the command line. It is separate from the login email. See [version selection and required inputs](how-to/production-install.md).
 
 
 Run on the server in an interactive SSH terminal as root or a sudo-capable user. The bootstrap asks for the Portal domain and TLS email, uses Node 24 by default, downloads the release, verifies SHA-256 and invokes the host installer. See the [installation guide](../th/how-to/production-install.md) for preparation, backup and recovery.
@@ -91,8 +91,8 @@ Related guides: [access control](how-to/access-control.md), [automatic deploymen
 The UI can report available updates. An administrator applies them over SSH on the host:
 
 ```bash
-sudo dashboard-portal update --check
-sudo dashboard-portal update
+sudo strckro update --check
+sudo strckro update
 sudo systemctl is-active dashboard-portal hostmgr-deploy-helper nginx
 curl -fsS https://portal.example.com/api/health
 curl -fsSI https://portal.example.com/
@@ -106,7 +106,7 @@ The updater checks the Ed25519 signature and SHA-256 checksum before installing,
 npm ci
 npm test
 node scripts/test-modules.mjs --list
-bash -n install.sh dashboard-portal.sh
+bash -n install.sh strckro.sh
 ```
 
 On Windows, use Git Bash for the shell-script syntax check. Local unit and API tests do not verify apt, systemd, Nginx, TLS, or Ubuntu file permissions. See the [testing guide](../th/how-to/testing.md).

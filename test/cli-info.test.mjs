@@ -20,7 +20,7 @@ test('version aliases report available information even when host tools are abse
   for (const flag of ['-v', '--versions', '--version']) {
     const result = run(flag);
     assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stdout, /Dashboard Portal:/);
+    assert.match(result.stdout, /Strckro:/);
     assert.match(result.stdout, /CLI Node\.js: v/);
     for (const major of [20, 22, 24, 26]) assert.match(result.stdout, new RegExp(`Node ${major}:`));
   }
@@ -28,7 +28,7 @@ test('version aliases report available information even when host tools are abse
 });
 
 test('installed wrapper routes read-only flags ahead of privileged operations', async () => {
-  const source = await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8');
+  const source = await readFile(new URL('../strckro.sh', import.meta.url), 'utf8');
   const wrapper = source.match(/cat > "\$UPDATE_COMMAND" <<EOF\r?\n([^]*?)\r?\nEOF/)[1];
   assert.ok(wrapper.indexOf('CLI_INFO_SCRIPT') < wrapper.indexOf('PASSWORD_SCRIPT'));
   assert.match(source, /chmod 0755 "\$UPDATE_COMMAND"/);
@@ -64,7 +64,7 @@ test('version report probes the host Go executable used by native deployment', (
 test('generated Bash wrapper dispatches help and versions without invoking updater or password reset', async (t) => {
   const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash';
   if (spawnSync(bash, ['--version']).status !== 0) return t.skip('Bash unavailable');
-  const source = await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8');
+  const source = await readFile(new URL('../strckro.sh', import.meta.url), 'utf8');
   const wrapper = source.match(/cat > "\$UPDATE_COMMAND" <<EOF\r?\n([^]*?)\r?\nEOF/)[1]
     .replaceAll('\\$', '$').replaceAll('${PORTAL_NODE}', 'node').replaceAll('${CLI_INFO_SCRIPT}', 'readonly-info')
     .replaceAll('${PASSWORD_SCRIPT}', 'password-reset').replaceAll('${UPDATE_SCRIPT}', 'privileged-updater');

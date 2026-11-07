@@ -7,7 +7,7 @@
 
 ## ข้อตกลง
 
-Repository คือ [raptercode/dashboard-portal-control](https://github.com/raptercode/dashboard-portal-control) Stable feed คือ latest/download/stable.json ทุก release มี archive `dashboard-portal-<VERSION>.tar.gz`, `.sha256` และ signed `stable.json` รวมสาม assets ใช้เวอร์ชันเพิ่มขึ้นและห้ามแทน asset ใต้ tag เดิม สร้างจาก clean committed tagged checkout และเก็บ private signing key/token นอก Git, archive, logs และ arguments Host รับเฉพาะ public key `package.json` เป็น private ไม่ publish npm
+Repository คือ [raptercode/dashboard-portal-control](https://github.com/raptercode/dashboard-portal-control) Stable feed คือ latest/download/stable.json ทุก release มี archive `strckro-<VERSION>.tar.gz`, `.sha256` และ signed `stable.json` รวมสาม assets ใช้เวอร์ชันเพิ่มขึ้นและห้ามแทน asset ใต้ tag เดิม สร้างจาก clean committed tagged checkout และเก็บ private signing key/token นอก Git, archive, logs และ arguments Host รับเฉพาะ public key `package.json` เป็น private ไม่ publish npm
 
 ## 1. ตรวจและเตรียม
 
@@ -27,7 +27,7 @@ gh release list --repo raptercode/dashboard-portal-control --limit 5
 ```powershell
 npm ci
 npm test
-bash -n install.sh dashboard-portal.sh
+bash -n install.sh strckro.sh
 git diff --check
 ```
 
@@ -49,7 +49,7 @@ git push origin "v$version"
 
 ## 4. Sign นอก repository
 
-ใช้ Ed25519 key เดิมใต้ `$HOME/.dashboard-portal/release-signing` ตรวจ derived public key ตรงกับ `scripts/dashboard-portal-update-public.pem` ห้ามแสดง private key หรือสร้างใหม่สำหรับ release ธรรมดา ตั้ง `DASHBOARD_PORTAL_UPDATE_PRIVATE_KEY_PATH` แบบ process-local แล้วเรียก `npm run release:prepare -- --out=<outside-repo> --archive-url=https://github.com/raptercode/dashboard-portal-control/releases/download/v<VERSION>/dashboard-portal-<VERSION>.tar.gz --notes=<description>` ลบ environment variable ใน finally
+ใช้ Ed25519 key เดิมใต้ `$HOME/.dashboard-portal/release-signing` ตรวจ derived public key ตรงกับ `scripts/dashboard-portal-update-public.pem` ห้ามแสดง private key หรือสร้างใหม่สำหรับ release ธรรมดา ตั้ง `STRCKRO_UPDATE_PRIVATE_KEY_PATH` แบบ process-local แล้วเรียก `npm run release:prepare -- --out=<outside-repo> --archive-url=https://github.com/raptercode/dashboard-portal-control/releases/download/v<VERSION>/dashboard-portal-<VERSION>.tar.gz --notes=<description>` ลบ environment variable ใน finally
 
 Script ใช้ `git archive HEAD` รักษา LF ของ shell scripts ตรวจ `parseSignedManifest`, nested `payload` version/channel/archiveUrl/archiveSha256 และ checksum จริง ตรวจ archive มี source, lock, LICENSE, docs, installers แต่ไม่มี .env, state, dependencies หรือ key ห้ามแก้ signed manifest ด้วยมือ
 

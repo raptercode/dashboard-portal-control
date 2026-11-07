@@ -6,13 +6,13 @@ import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 
 const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash';
-const source = (await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8')).replaceAll('\r\n', '\n');
+const source = (await readFile(new URL('../strckro.sh', import.meta.url), 'utf8')).replaceAll('\r\n', '\n');
 const functions = source.slice(source.indexOf('die()'), source.indexOf('[[ $EUID'));
 const snapshot = source.slice(source.indexOf('if systemctl is-active --quiet dashboard-portal.service; then PREVIOUS_SERVICE_ACTIVE'), source.indexOf('# /run is cleared at boot.'));
 const resources = {
   SERVICE_FILE: 'service', HELPER_SERVICE_FILE: 'helper-service', HELPER_ROOT: 'helper-root',
   MAINTENANCE_TMPFILES: 'maintenance-tmpfiles',
-  CLI_INFO_ROOT: 'cli-info-root', UPDATE_COMMAND: 'update-command', NGINX_SITE: 'nginx-site',
+  CLI_INFO_ROOT: 'cli-info-root', UPDATE_COMMAND: 'update-command', LEGACY_UPDATE_COMMAND: 'legacy-command', NGINX_SITE: 'nginx-site',
   NGINX_ENABLED: 'nginx-enabled', NGINX_DEFAULT_ENABLED: 'nginx-default-enabled',
   NGINX_CATCHALL_SITE: 'nginx-catchall-site', NGINX_CATCHALL_ENABLED: 'nginx-catchall-enabled',
   APP_ROOT: 'app-root', CONFIG_ROOT: 'config'

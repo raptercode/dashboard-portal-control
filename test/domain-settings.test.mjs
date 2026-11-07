@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { runInNewContext } from 'node:vm';
 import { start, login, request } from './support/server.mjs';
 import { resolvePublicDomainAddresses } from '../scripts/domain-dns.mjs';
-import { domainDnsStatus, domainProxyStatus, domainReadiness, domainDnsRecords } from '../public/ui/project-domains.js';
+import { domainDnsStatus, domainProxyStatus, domainReadiness, domainDnsRecords } from '../public/ui/core/domains.js';
 import { preserveManagedTlsForChallenge } from '../scripts/nginx-edge.mjs';
 
 const helper = await readFile(new URL('../scripts/hostmgr-deploy-helper.mjs', import.meta.url), 'utf8');
@@ -259,6 +259,6 @@ test('domains saved before the first deployment explicitly report pending activa
 });
 
 test('installer copies the DNS fallback dependency into the root-owned helper directory', async () => {
-  const installer = await readFile(new URL('../dashboard-portal.sh', import.meta.url), 'utf8');
+  const installer = await readFile(new URL('../strckro.sh', import.meta.url), 'utf8');
   assert.match(installer, /install -m 0644 -o root -g root "\$APP_ROOT\/scripts\/domain-dns\.mjs" "\$HELPER_ROOT\/domain-dns\.mjs"/);
 });
