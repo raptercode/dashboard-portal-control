@@ -1,9 +1,9 @@
 export const DEFAULT_NODE_MAJOR = 24;
 export const NODE_VERSIONS = Object.freeze({
   20: '20.20.2',
-  22: '22.23.3',
-  24: '24.18.0',
-  26: '26.10.0'
+  22: '22.23.4',
+  24: '24.22.2',
+  26: '26.13.0'
 });
 
 export function nodeMajorForProject(value) {

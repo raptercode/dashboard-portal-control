@@ -15,6 +15,7 @@ const resources = {
   CLI_INFO_ROOT: 'cli-info-root', UPDATE_COMMAND: 'update-command', LEGACY_UPDATE_COMMAND: 'legacy-command', NGINX_SITE: 'nginx-site',
   NGINX_ENABLED: 'nginx-enabled', NGINX_DEFAULT_ENABLED: 'nginx-default-enabled',
   NGINX_CATCHALL_SITE: 'nginx-catchall-site', NGINX_CATCHALL_ENABLED: 'nginx-catchall-enabled',
+  NGINX_REALIP_CONF: 'nginx-realip', NGINX_LIMITS_CONF: 'nginx-limits', NGINX_PROXY_SNIPPET: 'nginx-proxy-snippet',
   APP_ROOT: 'app-root', CONFIG_ROOT: 'config'
 };
 

@@ -7,8 +7,8 @@ import vm from 'node:vm';
 import { selectNodePackageManager, readNodePackageManager, assertPnpmAvailable, pnpmServiceStart, PNPM_PATH, PNPM_VERSION } from '../scripts/node-package-manager.mjs';
 import { createApplication, installCandidateDependencies, prepareNativeRelease, probeHostTools } from '../src/server.mjs';
 import { TOOLS, createInitialState, validateProjectSync } from '../src/core.mjs';
-import { createRelease, validateNativeProject } from '../src/native-project.mjs';
-import { nodeRuntimeEnvironment } from '../scripts/node-versions.mjs';
+import { createRelease, validateNativeProject, PROJECT_UNIT_LIMITS } from '../src/native-project.mjs';
+import { nodeRuntimeEnvironment, NODE_VERSIONS } from '../scripts/node-versions.mjs';
 
 test('Node manager selection follows an explicit declaration before the lockfile', () => {
   assert.deepEqual(selectNodePackageManager({}, false), { name: 'npm' });
@@ -159,9 +159,9 @@ test('only an explicit pnpm Setup request installs the fixed version without lif
 
 test('pnpm service launcher preserves selected Node and disables package manager downloads', async () => {
   const source = await readFile(new URL('../scripts/hostmgr-deploy-helper.mjs', import.meta.url), 'utf8');
-  const render = vm.runInNewContext(`(${source.match(/function renderProjectUnit\(project, identity\) \{[^]*?\n\}/)[0]})`, { pnpmServiceStart });
+  const render = vm.runInNewContext(`(${source.match(/function renderProjectUnit\(project, identity\) \{[^]*?\n\}/)[0]})`, { pnpmServiceStart, PROJECT_UNIT_LIMITS });
   const unit = render({ runtime: 'node', nodeMajor: 22, packageManager: { name: 'pnpm' }, startScript: 'start:prod', slug: 'fixture', port: 39999 }, { current: '/srv/fixture/current', root: '/srv/fixture', user: 'fixture', environmentFile: '/etc/fixture.env' });
-  assert.match(unit, /PATH=\/opt\/node-v22\.23\.3\/bin:[^\n]+ \/usr\/local\/bin\/pnpm --config.manage-package-manager-versions=false --config.pm-on-fail=error --config.verify-deps-before-run=false run start:prod/);
+  assert.match(unit, new RegExp(`PATH=/opt/node-v${NODE_VERSIONS[22].replaceAll('.', '\\.')}/bin:[^\\n]+ /usr/local/bin/pnpm --config.manage-package-manager-versions=false --config.pm-on-fail=error --config.verify-deps-before-run=false run start:prod`));
   assert.match(unit, /User=fixture/);
 });
 
@@ -231,12 +231,12 @@ test('real pnpm candidate installs, builds and passes HTTP health with the selec
 
 test('pnpm 12 installed beside selected Node is resolved and reused by service startup', async () => {
   const project = { nodeMajor: 24, startScript: 'start:prod', packageManager: selectNodePackageManager({ packageManager: 'pnpm@12.9.1' }, true) };
-  const path = '/opt/node-v24.18.0/bin/pnpm';
+  const path = `/opt/node-v${NODE_VERSIONS[24]}/bin/pnpm`;
   const version = await assertPnpmAvailable(project, async command => {
     if (command !== path) throw new Error('ENOENT');
     return '12.9.1';
   });
   assert.equal(version, '12.9.1');
   assert.equal(project.packageManager.executable, path);
-  assert.match(pnpmServiceStart(project), /\/opt\/node-v24\.18\.0\/bin\/pnpm /);
+  assert.ok(pnpmServiceStart(project).includes(`${path} `), 'service start must name the pnpm beside the selected Node');
 });

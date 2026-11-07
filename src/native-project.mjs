@@ -50,6 +50,15 @@ export function defaultCandidatePort(port) {
   return port <= 55_535 ? port + 10_000 : port - 1_000;
 }
 
+// Containment lines of a project unit. scripts/hostmgr-deploy-helper.mjs writes the real unit and
+// cannot import from src/, so it carries an identical copy; a test keeps the two equal.
+// The reasoning for each line and for what is left out is documented beside that copy.
+export const PROJECT_UNIT_LIMITS = [
+  'ProtectControlGroups=true', 'ProtectKernelModules=true', 'ProtectKernelTunables=true', 'ProtectKernelLogs=true',
+  'LockPersonality=true', 'RestrictSUIDSGID=true', 'RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK',
+  'MemoryMax=85%', 'TasksMax=4096'
+].join('\n') + '\n';
+
 export function renderSystemdUnit(input) {
   const project = validateNativeProject(input);
   const identity = projectIdentity(project.slug);
@@ -64,7 +73,7 @@ export function renderSystemdUnit(input) {
           : project.runtime === 'node' && project.nodeMajor !== 24
           ? `/usr/bin/env PATH=${nodeBin(project.nodeMajor)}:/usr/local/bin:/usr/bin:/bin ${nodeBin(project.nodeMajor)}/npm run ${project.startScript}`
           : `${runtimeExecutable(project.runtime)} run ${project.startScript}`;
-  return `[Unit]\nDescription=Host Manager project ${project.slug}\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nUser=${identity.user}\nGroup=${identity.user}\nWorkingDirectory=${identity.root}/current\nEnvironmentFile=${identity.environmentFile}\n${project.serviceType === 'worker' ? '' : 'Environment=PORT=' + project.port + '\n'}ExecStart=${start}\nRestart=on-failure\nRestartSec=5\nNoNewPrivileges=true\nPrivateTmp=true\nProtectHome=true\nProtectSystem=strict\nReadWritePaths=${identity.root}\n\n[Install]\nWantedBy=multi-user.target\n`;
+  return `[Unit]\nDescription=Host Manager project ${project.slug}\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nUser=${identity.user}\nGroup=${identity.user}\nWorkingDirectory=${identity.root}/current\nEnvironmentFile=${identity.environmentFile}\n${project.serviceType === 'worker' ? '' : 'Environment=PORT=' + project.port + '\n'}ExecStart=${start}\nRestart=on-failure\nRestartSec=5\nNoNewPrivileges=true\nPrivateTmp=true\nProtectHome=true\nProtectSystem=strict\nReadWritePaths=${identity.root}\n${PROJECT_UNIT_LIMITS}\n[Install]\nWantedBy=multi-user.target\n`;
 }
 
 /**

@@ -104,7 +104,7 @@ try {
 }
 ```
 
-The script archives committed `HEAD` with Git, preserving shell-script LF bytes.
+The script archives committed `HEAD` with Git, preserving shell-script LF bytes. Because only committed files ship, it first refuses to continue when a file under `src/`, `scripts/`, `public/` or `views/` (or `strckro.sh`, `package.json`, `package-lock.json`, `Dockerfile`) is untracked: a Portal whose `server.mjs` imports a file that never reached `HEAD` fails to start on the host that installs the release. Commit or remove the file; pass `--allow-untracked=yes` only when leaving it out is intended. Uncommitted edits to tracked files are listed as a warning, since they are not in the archive either.
 Verify all of these before uploading:
 
 - Signature parses with `parseSignedManifest` from `scripts/software-update.mjs`

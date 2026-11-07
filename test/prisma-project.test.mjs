@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { detectPrismaProject } from '../scripts/prisma-project.mjs';
 import { generateCandidatePrisma } from '../src/server.mjs';
+import { NODE_VERSIONS } from '../scripts/node-versions.mjs';
 
 async function fixture(t) {
   const directory = await mkdtemp(join(tmpdir(), 'portal-prisma-'));
@@ -73,7 +74,7 @@ test('schema and package declarations trigger local generate with deployment env
     await generateCandidatePrisma({ runtime: 'node', nodeMajor: 24, candidatePort: 40419 }, directory, manifest,
       'DATABASE_URL=fixture-secret\n', (...event) => events.push(event), async (command, args, options) => {
         calls++;
-        assert.equal(command, '/opt/node-v24.18.0/bin/node');
+        assert.equal(command, `/opt/node-v${NODE_VERSIONS[24]}/bin/node`);
         assert.deepEqual(args, [join(directory, 'node_modules/prisma/build/index.js'), 'generate']);
         assert.equal(options.env.DATABASE_URL, 'fixture-secret');
         assert.equal(options.env.PRISMA_GENERATE_SKIP_AUTOINSTALL, '1');

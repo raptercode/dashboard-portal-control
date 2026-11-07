@@ -1,4 +1,4 @@
-import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
+import { randomBytes, scrypt, scryptSync, timingSafeEqual } from 'node:crypto';
 import { InputError } from './core.mjs';
 
 const SCRYPT_PARAMS = Object.freeze({ N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 });
@@ -60,6 +60,53 @@ export function verifyPassword(password, stored) {
   } catch {
     return false;
   }
+}
+
+// The same check on the libuv thread pool. scryptSync holds the one JavaScript thread for tens of
+// milliseconds, which is fine for an authenticated password change but not for sign-in, which a
+// stranger can ask for as fast as they like: every guess would stall every other request.
+export function verifyPasswordAsync(password, stored) {
+  if (!stored || stored.algorithm !== 'scrypt' || typeof stored.salt !== 'string' || typeof stored.hash !== 'string') return Promise.resolve(false);
+  if (typeof password !== 'string') return Promise.resolve(false);
+  return new Promise((resolve) => {
+    try {
+      const expected = Buffer.from(stored.hash, 'base64');
+      scrypt(password, Buffer.from(stored.salt, 'base64'), 64, stored.params ?? SCRYPT_PARAMS, (error, actual) => {
+        resolve(!error && actual.length === expected.length && timingSafeEqual(actual, expected));
+      });
+    } catch {
+      resolve(false);
+    }
+  });
+}
+
+export class GateFullError extends Error {
+  constructor() { super('Too many sign-ins are being checked at once.'); this.name = 'GateFullError'; }
+}
+
+// Runs at most `limit` tasks at a time and keeps at most `maxQueue` more waiting; past that it
+// refuses at once instead of letting an unbounded line build up. Used so that a flood of password
+// checks occupies a couple of pool threads and cannot starve everything else that needs one.
+// A `trusted` task may also use `reservedQueue` extra places, so a flood that fills the ordinary
+// queue still leaves room for someone the caller has reason to believe is not part of it.
+export function createGate(limit, maxQueue, reservedQueue = 0) {
+  let active = 0;
+  const waiting = [];
+  const release = () => {
+    const next = waiting.shift();
+    if (next) next();
+    else active -= 1;
+  };
+  return async function run(task, { trusted = false } = {}) {
+    if (active >= limit) {
+      if (waiting.length >= maxQueue + (trusted ? reservedQueue : 0)) throw new GateFullError();
+      // The slot is handed over by release(), which leaves `active` unchanged for the next task.
+      await new Promise((resolve) => waiting.push(resolve));
+    } else {
+      active += 1;
+    }
+    try { return await task(); } finally { release(); }
+  };
 }
 
 export function publicOwner(owner) {

@@ -1123,6 +1123,21 @@ async function clearPasswordLock() {
   await rm('/etc/.pwd.lock', { force: true });
 }
 
+// Containment for a deployed project, which is code the Portal did not write. Chosen so that
+// ordinary web apps, workers and build tools keep working:
+//  - MemoryMax / TasksMax bound a runaway or hostile project to its own cgroup, so it is
+//    killed there instead of starving the Portal, the helper and every other project.
+//  - The kernel-facing switches close interfaces no application needs. AF_NETLINK stays
+//    allowed because getifaddrs(), and with it os.networkInterfaces(), uses it.
+// Deliberately absent: IPAddressDeny (Nginx reaches the project over loopback, and an
+// app on a cloud host may legitimately call its metadata service), RestrictNamespaces
+// (Chromium-based tools need it) and MemoryDenyWriteExecute (it breaks JIT runtimes such as Node).
+const PROJECT_UNIT_LIMITS = [
+  'ProtectControlGroups=true', 'ProtectKernelModules=true', 'ProtectKernelTunables=true', 'ProtectKernelLogs=true',
+  'LockPersonality=true', 'RestrictSUIDSGID=true', 'RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK',
+  'MemoryMax=85%', 'TasksMax=4096'
+].join('\n') + '\n';
+
 function renderProjectUnit(project, identity) {
   const start = project.runtime === 'python'
     ? `${identity.current}/.venv/bin/python ${pythonStartArgs(project, project.port).join(' ')}`
@@ -1139,7 +1154,7 @@ function renderProjectUnit(project, identity) {
   const workingDirectory = bunRuntime ? identity.runtimeApplicationPath : identity.current;
   const bunSandbox = bunRuntime ? `RuntimeDirectory=${identity.runtimeDirectory}/app\nRuntimeDirectoryMode=0750\nBindPaths=${identity.current}:${identity.runtimeApplicationPath}\n` : '';
   const portEnvironment = project.serviceType === 'worker' ? '' : `Environment=PORT=${project.port}\n`;
-  return `[Unit]\nDescription=Dashboard Portal project ${project.slug}\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nUser=${identity.user}\nGroup=${identity.user}\n${bunSandbox}WorkingDirectory=${workingDirectory}\nEnvironmentFile=${identity.environmentFile}\n${portEnvironment}ExecStart=${start}\nRestart=on-failure\nRestartSec=5\nNoNewPrivileges=true\nPrivateTmp=true\nProtectHome=true\nProtectSystem=strict\nReadWritePaths=${identity.root}\n\n[Install]\nWantedBy=multi-user.target\n`;
+  return `[Unit]\nDescription=Dashboard Portal project ${project.slug}\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nUser=${identity.user}\nGroup=${identity.user}\n${bunSandbox}WorkingDirectory=${workingDirectory}\nEnvironmentFile=${identity.environmentFile}\n${portEnvironment}ExecStart=${start}\nRestart=on-failure\nRestartSec=5\nNoNewPrivileges=true\nPrivateTmp=true\nProtectHome=true\nProtectSystem=strict\nReadWritePaths=${identity.root}\n${PROJECT_UNIT_LIMITS}\n[Install]\nWantedBy=multi-user.target\n`;
 }
 
 async function readWorkerState(identity) {

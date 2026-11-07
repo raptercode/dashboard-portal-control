@@ -2,6 +2,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { InputError, appendAudit, validateProjectSync } from './core.mjs';
 import { isDeepStrictEqual } from 'node:util';
 import { AccessError } from './access-api.mjs';
+import { clientBucket } from './client-address.mjs';
 import { canAccess, resolveProjectOrganization, visibleOrganizations } from './access.mjs';
 
 export const CLI_SCOPES = Object.freeze([
@@ -15,7 +16,9 @@ export const publicCliToken = ({ tokenHash, authVersion, ...token }) => token;
 
 export function cliIdentity(state, value, now = Date.now()) {
   if (typeof value !== 'string' || !/^dp_[A-Za-z0-9_-]{43}$/.test(value)) return null;
-  const token = state.cliTokens?.find(item => item.tokenHash === hash(value));
+  // Hash once: this runs for anonymous callers too, and the digest does not depend on the stored token.
+  const digest = hash(value);
+  const token = state.cliTokens?.find(item => item.tokenHash === digest);
   const user = token && state.users.find(item => item.id === token.userId);
   if (!active(token, now) || !user || user.status !== 'active' || user.authVersion !== token.authVersion) return null;
   return { user, cliTokenId: token.id };
@@ -75,12 +78,12 @@ export function authorizeCliRequest(state, id, path, method, body = {}, now = Da
   return token;
 }
 
-export function createCliAuth({ store, readJson, sendJson, now = Date.now }) {
+export function createCliAuth({ store, readJson, sendJson, now = Date.now, proxyToken }) {
   const attempts = new Map();
   function rate(request, kind, limit) {
     const time = now();
     for (const [key, item] of attempts) if (item.until <= time) attempts.delete(key);
-    const key = `${kind}:${request.socket.remoteAddress}`;
+    const key = `${kind}:${clientBucket(request, proxyToken)}`;
     const record = attempts.get(key) ?? { count: 0, until: time + 15 * 60_000 };
     if (record.count >= limit || attempts.size > 10_000) throw new AccessError('Too many CLI login requests. Try again later.', 429);
     record.count++;
@@ -136,7 +139,17 @@ export function createCliAuth({ store, readJson, sendJson, now = Date.now }) {
       } else {
         const body = await readJson(request);
         if (typeof body.deviceCode !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(body.deviceCode)) throw new InputError('Invalid device code.');
+        // Anyone can poll with any well-formed code, so this is throttled per visitor, and a
+        // poll that cannot change anything is answered from a read. Only a real device whose
+        // interval has elapsed pays for a write, which clones and persists the whole state.
+        rate(request, 'poll', 1200);
         const digest = hash(body.deviceCode);
+        const known = store.read(state => {
+          const device = state.cliDevices?.find(item => item.deviceHash === digest);
+          return device && { consumed: device.consumed, expiresAt: device.expiresAt, nextPollAt: device.nextPollAt };
+        });
+        if (!known || known.consumed || known.expiresAt <= now()) throw new AccessError('CLI login expired. Run login again.', 410);
+        if (known.nextPollAt > now()) throw new AccessError('Poll interval is two seconds.', 429);
         let result;
         await store.update(state => {
           const device = state.cliDevices?.find(item => item.deviceHash === digest);

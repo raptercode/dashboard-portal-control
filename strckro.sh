@@ -48,9 +48,21 @@ NGINX_ENABLED='/etc/nginx/sites-enabled/dashboard-portal'
 NGINX_DEFAULT_ENABLED='/etc/nginx/sites-enabled/default'
 NGINX_CATCHALL_SITE='/etc/nginx/sites-available/hostmgr-unmatched.conf'
 NGINX_CATCHALL_ENABLED='/etc/nginx/sites-enabled/hostmgr-unmatched.conf'
+# http-level: lets Nginx report the visitor's address when Cloudflare Proxy is in front.
+NGINX_REALIP_CONF='/etc/nginx/conf.d/strckro-realip.conf'
+# Root-only (0600): holds the secret Nginx stamps on proxied requests so the portal
+# can tell Nginx from any other process on this host. Never put it in the site file.
+NGINX_PROXY_SNIPPET='/etc/nginx/snippets/strckro-proxy.conf'
+# http-level: the request-rate zone the portal site applies, so one address cannot flood the API.
+NGINX_LIMITS_CONF='/etc/nginx/conf.d/strckro-limits.conf'
+# Where pinned Node.js runtimes live and what may still point at them (overridden only by tests).
+NODE_RUNTIME_ROOT='/opt'
+SERVICE_UNIT_DIR='/etc/systemd/system'
+PROJECT_CONFIG_DIR='/etc/hostmgr'
+PROC_DIR='/proc'
 PORT='3100'
-NODE_VERSION='24.18.0'
-NODE_SHA256='55aa7153f9d88f28d765fcdad5ae6945b5c0f98a36881703817e4c450fa76742'
+NODE_VERSION='24.22.2'
+NODE_SHA256='48cc0e21e048790e54c0cf5749c2725005313d652651c40b7a21feb9697aaf75'
 BUN_VERSION='1.3.13'
 BUN_SHA256='9d8a24292a7068090205daac0a5a223f5f69736f5287e37bf88d3b4031edc750'
 GO_VERSION='1.27.1'
@@ -121,6 +133,9 @@ rollback() {
     restore_item nginx-default-enabled "$NGINX_DEFAULT_ENABLED"
     restore_item nginx-catchall-site "$NGINX_CATCHALL_SITE"
     restore_item nginx-catchall-enabled "$NGINX_CATCHALL_ENABLED"
+    restore_item nginx-realip "$NGINX_REALIP_CONF"
+    restore_item nginx-limits "$NGINX_LIMITS_CONF"
+    restore_item nginx-proxy-snippet "$NGINX_PROXY_SNIPPET"
     restore_item app-root "$APP_ROOT"
     restore_item config "$CONFIG_ROOT"
     restore_item state-db "$DATA_ROOT/state.sqlite"
@@ -168,7 +183,7 @@ fi
 [[ "$PORTAL_NODE_MAJOR" =~ ^(20|22|24|26)$ ]] || die 'Portal Node.js major must be 20, 22, 24 or 26.'
 [[ -n "$DOMAIN" && "$DOMAIN" =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$ ]] || die 'A lower-case FQDN is required in --domain.'
 [[ -n "$EMAIL" && "$EMAIL" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]] || die 'A valid --email is required. HTTPS is mandatory for a public login.'
-[[ -f package.json && -f package-lock.json && -d src && -d public && -f scripts/hostmgr-deploy-helper.mjs && -f scripts/sqlite.mjs && -f scripts/node-versions.mjs && -f scripts/maintenance-lock.mjs && -f scripts/worker-health.mjs && -f scripts/worker-activation.mjs && -f scripts/mail-host-config.mjs && -f scripts/nginx-edge.mjs && -f scripts/domain-dns.mjs && -f scripts/password-config.mjs && -f scripts/strckro-update.mjs && -f scripts/software-update.mjs && -f "$UPDATE_PUBLIC_KEY_SOURCE" ]] || die 'Run this script from an extracted Strckro release directory.'
+[[ -f package.json && -f package-lock.json && -d src && -d public && -f scripts/hostmgr-deploy-helper.mjs && -f scripts/sqlite.mjs && -f scripts/node-versions.mjs && -f scripts/maintenance-lock.mjs && -f scripts/worker-health.mjs && -f scripts/worker-activation.mjs && -f scripts/mail-host-config.mjs && -f scripts/nginx-edge.mjs && -f scripts/domain-dns.mjs && -f scripts/nginx-realip.mjs &&-f scripts/password-config.mjs && -f scripts/strckro-update.mjs && -f scripts/software-update.mjs && -f "$UPDATE_PUBLIC_KEY_SOURCE" ]] || die 'Run this script from an extracted Strckro release directory.'
 source /etc/os-release
 [[ "${ID:-}" == 'ubuntu' && ( "${VERSION_ID:-}" == '24.04' || "${VERSION_ID:-}" == '25.04' ) ]] || die 'This installer supports Ubuntu 24.04 or 25.04 only.'
 [[ "$(dpkg --print-architecture)" == 'amd64' ]] || die 'This release currently supports amd64 only.'
@@ -229,6 +244,9 @@ backup_item nginx-enabled "$NGINX_ENABLED"
 backup_item nginx-default-enabled "$NGINX_DEFAULT_ENABLED"
 backup_item nginx-catchall-site "$NGINX_CATCHALL_SITE"
 backup_item nginx-catchall-enabled "$NGINX_CATCHALL_ENABLED"
+backup_item nginx-realip "$NGINX_REALIP_CONF"
+backup_item nginx-limits "$NGINX_LIMITS_CONF"
+backup_item nginx-proxy-snippet "$NGINX_PROXY_SNIPPET"
 backup_item app-root "$APP_ROOT"
 backup_item config "$CONFIG_ROOT"
 backup_item state-db "$DATA_ROOT/state.sqlite"
@@ -251,17 +269,30 @@ export DEBIAN_FRONTEND=noninteractive
 chmod 1777 /tmp
 apt-get update
 apt-get install -y --no-install-recommends nginx certbot python3-certbot-nginx curl ca-certificates xz-utils unzip git
-if [[ "$PORTAL_NODE_MAJOR" == '20' ]]; then apt-get install -y --no-install-recommends build-essential python3; fi
-if [[ "$PORTAL_NODE_MAJOR" == '26' ]]; then apt-get install -y --no-install-recommends libatomic1; fi
+if [[ "$PORTAL_NODE_MAJOR" == '20' ]]; then
+  apt-get install -y --no-install-recommends build-essential python3
+  echo 'WARNING: Node.js 20 is end of life and the October 2026 Node.js security release has no 20.x build. Move the Portal to Node.js 24 when you can (--node-major=24, after a backup).' >&2
+fi
+# libatomic1 is needed by any provisioned Node.js 26, not only a Portal running on it.
+if [[ "$PORTAL_NODE_MAJOR" == '26' ]] || compgen -G '/opt/node-v26.*' >/dev/null; then apt-get install -y --no-install-recommends libatomic1; fi
+
+# Pinned Linux x64 runtimes. Checksums come from the signed SHASUMS256.txt of each
+# release on nodejs.org; scripts/node-versions.mjs must name the same versions
+# (a test compares them).
+node_pin() {
+  case "$1" in
+    20) NODE_PIN_VERSION='20.20.2'; NODE_PIN_SHA='df770b2a6f130ed8627c9782c988fda9669fa23898329a61a871e32f965e007d' ;;
+    22) NODE_PIN_VERSION='22.23.4'; NODE_PIN_SHA='1805bcd35e6815559bd2eb97db438d3fdb0eb3a5e6a977b7c1badca76337e9ce' ;;
+    24) NODE_PIN_VERSION="$NODE_VERSION"; NODE_PIN_SHA="$NODE_SHA256" ;;
+    26) NODE_PIN_VERSION='26.13.0'; NODE_PIN_SHA='d28a96af6c38596f6d9d97c0ee531c13d238d757742387d1928de822d959e997' ;;
+    *) die "Unsupported Node.js major: $1" ;;
+  esac
+}
 
 install_node_version() {
   local major="$1" version sha archive target
-  case "$major" in
-    20) version='20.20.2'; sha='df770b2a6f130ed8627c9782c988fda9669fa23898329a61a871e32f965e007d' ;;
-    22) version='22.23.3'; sha='df450af89261115ef9f9e3830c3eeb2cc9213b63c720b1af623cb5dcbe2e02de' ;;
-    24) version="$NODE_VERSION"; sha="$NODE_SHA256" ;;
-    26) version='26.10.0'; sha='ca70e9e349de048b9522abb3adc05b3bd6f43c5ffd3ec57916c7da292f59f022' ;;
-  esac
+  node_pin "$major"
+  version="$NODE_PIN_VERSION"; sha="$NODE_PIN_SHA"
   target="/opt/node-v${version}"
   if [[ ! -x "$target/bin/node" ]]; then
     archive="node-v${version}-linux-x64.tar.xz"
@@ -274,13 +305,95 @@ install_node_version() {
   "$target/bin/node" --version | grep -qx "v${version}" || die "Node.js ${version} installation is incomplete."
   [[ -x "$target/bin/npm" ]] || die "Node.js ${version} installation is missing npm."
 }
-install_node_version "$PORTAL_NODE_MAJOR"
-case "$PORTAL_NODE_MAJOR" in
-  20) PORTAL_NODE='/opt/node-v20.20.2/bin/node'; PORTAL_NPM='/opt/node-v20.20.2/bin/npm' ;;
-  22) PORTAL_NODE='/opt/node-v22.23.3/bin/node'; PORTAL_NPM='/opt/node-v22.23.3/bin/npm' ;;
-  24) PORTAL_NODE='/opt/node-v24.18.0/bin/node'; PORTAL_NPM='/opt/node-v24.18.0/bin/npm' ;;
-  26) PORTAL_NODE='/opt/node-v26.10.0/bin/node'; PORTAL_NPM='/opt/node-v26.10.0/bin/npm' ;;
-esac
+# A project service names /opt/node-v<version>, so a new pin would leave every project
+# on another major without a runtime until it was provisioned by hand. Only the
+# Portal's own major is required. Other majors already present on this host move to
+# their pinned release too, but a failure there is reported and leaves the existing
+# runtime in place, so an unused or broken runtime never blocks a Portal update.
+# Old /opt/node-v<version> directories stay for services activated against them.
+provision_node_runtimes() {
+  local other output status
+  install_node_version "$PORTAL_NODE_MAJOR"
+  for other in 20 22 24 26; do
+    if [[ "$other" != "$PORTAL_NODE_MAJOR" ]] && compgen -G "/opt/node-v${other}.*" >/dev/null; then
+      set +e
+      output="$(set -e; install_node_version "$other" 2>&1)"
+      status=$?
+      set -e
+      if [[ "$status" -ne 0 ]]; then
+        echo "WARNING: Node.js ${other} is provisioned on this host but could not be moved to its pinned release; it keeps the runtime it has. ${output}" >&2
+      fi
+    fi
+  done
+}
+
+# True when a running process has its executable or working directory at or inside $1. If /proc
+# cannot be read there is no way to tell, and the answer that can lose nothing is "in use".
+node_runtime_in_use() {
+  [[ -d "$PROC_DIR/self" ]] || return 0
+  [[ -n "$(find "$PROC_DIR" -maxdepth 2 \( -name exe -o -name cwd \) \( -lname "$1" -o -lname "$1/*" \) -print -quit 2>/dev/null)" ]]
+}
+
+# True when every entry of directory $1 (hidden ones included) is one of the names that follow.
+only_entries() {
+  local dir="$1" entry name allowed
+  shift
+  while IFS= read -r entry; do
+    [[ -n "$entry" ]] || continue
+    allowed=false
+    for name in "$@"; do [[ "$entry" == "$name" ]] && allowed=true; done
+    [[ "$allowed" == true ]] || return 1
+  done < <(find "$dir" -mindepth 1 -maxdepth 1 -printf '%f\n' 2>/dev/null)
+}
+
+# True only for a directory that is exactly what the Node.js archive unpacks to: a node binary and
+# npm are there; the top level, bin, lib, lib/node_modules, share and include hold nothing but the
+# names that archive uses. Anything an administrator added (a global package such as pm2 or pnpm,
+# etc/npmrc from `npm config set -g`, an application, a dotfile) makes the directory theirs, not ours.
+node_runtime_pristine() {
+  local dir="$1"
+  [[ -f "$dir/bin/node" && -d "$dir/lib/node_modules/npm" ]] || return 1
+  only_entries "$dir" CHANGELOG.md LICENSE README.md bin include lib share || return 1
+  only_entries "$dir/bin" node npm npx corepack || return 1
+  only_entries "$dir/lib" node_modules || return 1
+  only_entries "$dir/lib/node_modules" npm corepack || return 1
+  [[ ! -e "$dir/share" ]] || only_entries "$dir/share" doc man systemtap || return 1
+  [[ ! -e "$dir/include" ]] || only_entries "$dir/include" node || return 1
+}
+
+# Delete a managed Node.js runtime directory once it is out of date and nothing uses it, so
+# superseded builds, which carry known security fixes they lack, do not linger. Every condition must hold:
+#  - the name is exactly node-v<major>.<minor>.<patch> for a supported major, and not a link;
+#  - it is OLDER than that major's pin (a newer one was put there by someone else);
+#  - it is pristine: nothing was installed into it afterwards;
+#  - the pinned release of that major is installed and runs, so the major is never left without a runtime;
+#  - no unit or project configuration names it (a project on a non-24 major keeps the path it
+#    was activated with until its next deployment) and no process runs from it.
+# A runtime still in use is kept and reconsidered on the next update. Failing to delete one is never fatal.
+# Anything of your own that points into an old /opt/node-v<version> (a cron line, a wrapper
+# script) is not something this can see: keep such things outside those directories.
+prune_node_runtimes() {
+  local dir version major
+  for dir in "$NODE_RUNTIME_ROOT"/node-v*; do
+    [[ -d "$dir" && ! -L "$dir" ]] || continue
+    version="${dir##*/node-v}"
+    [[ "$version" =~ ^(20|22|24|26)\.[0-9]+\.[0-9]+$ ]] || continue
+    major="${BASH_REMATCH[1]}"
+    node_pin "$major"
+    [[ "$version" != "$NODE_PIN_VERSION" && "$(printf '%s\n%s\n' "$version" "$NODE_PIN_VERSION" | sort -V | head -n 1)" == "$version" ]] || continue
+    node_runtime_pristine "$dir" || continue
+    "$NODE_RUNTIME_ROOT/node-v${NODE_PIN_VERSION}/bin/node" --version 2>/dev/null | grep -qx "v${NODE_PIN_VERSION}" || continue
+    # -R, not -r: a unit added with `systemctl link` is a symbolic link in this directory.
+    if grep -RqF -- "$dir/" "$SERVICE_UNIT_DIR" "$PROJECT_CONFIG_DIR" 2>/dev/null; then continue; fi
+    if node_runtime_in_use "$dir"; then continue; fi
+    if rm -rf -- "$dir"; then echo "Removed the unused Node.js runtime $dir"; else echo "WARNING: could not remove the unused Node.js runtime $dir" >&2; fi
+  done
+  return 0
+}
+provision_node_runtimes
+node_pin "$PORTAL_NODE_MAJOR"
+PORTAL_NODE="/opt/node-v${NODE_PIN_VERSION}/bin/node"
+PORTAL_NPM="/opt/node-v${NODE_PIN_VERSION}/bin/npm"
 # Keep the complete pinned Node distribution on PATH. A node-only symlink
 # cannot execute the reproducible npm-based project deployment contract.
 for node_tool in node npm npx; do
@@ -345,6 +458,7 @@ install -m 0750 -o root -g root "$APP_ROOT/scripts/project-service-user.mjs" "$H
 install -m 0750 -o root -g root "$APP_ROOT/scripts/mail-host-config.mjs" "$HELPER_ROOT/mail-host-config.mjs"
 install -m 0750 -o root -g root "$APP_ROOT/scripts/nginx-edge.mjs" "$HELPER_ROOT/nginx-edge.mjs"
 install -m 0644 -o root -g root "$APP_ROOT/scripts/domain-dns.mjs" "$HELPER_ROOT/domain-dns.mjs"
+install -m 0644 -o root -g root "$APP_ROOT/scripts/nginx-realip.mjs" "$HELPER_ROOT/nginx-realip.mjs"
 install -m 0750 -o root -g root "$APP_ROOT/scripts/password-config.mjs" "$PASSWORD_SCRIPT"
 install -m 0750 -o root -g root "$APP_ROOT/scripts/strckro-update.mjs" "$UPDATE_SCRIPT"
 install -m 0644 -o root -g root "$APP_ROOT/scripts/software-update.mjs" "$UPDATE_LIBRARY"
@@ -403,6 +517,13 @@ set_config_value HOSTMGR_PORTAL_DOMAIN "$DOMAIN" "$CONFIG_ROOT/dashboard-portal.
 set_config_value HOSTMGR_DEPLOY_HELPER_SOCKET "$HELPER_SOCKET" "$CONFIG_ROOT/dashboard-portal.env"
 set_config_value HOSTMGR_DATABASE_PATH "$DATA_ROOT/state.sqlite" "$CONFIG_ROOT/dashboard-portal.env"
 set_config_value HOSTMGR_NODE_MAJOR "$PORTAL_NODE_MAJOR" "$CONFIG_ROOT/dashboard-portal.env"
+# The portal believes the visitor address Nginx forwards only together with this
+# secret. Keep an existing one across updates; replace a missing or weak one.
+if ! grep -qE '^HOSTMGR_PROXY_TOKEN=[A-Za-z0-9_-]{32,128}$' "$CONFIG_ROOT/dashboard-portal.env"; then
+  set_config_value HOSTMGR_PROXY_TOKEN "$(/usr/local/bin/node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")" "$CONFIG_ROOT/dashboard-portal.env"
+fi
+PROXY_TOKEN="$(sed -n 's/^HOSTMGR_PROXY_TOKEN=//p' "$CONFIG_ROOT/dashboard-portal.env")"
+[[ "$PROXY_TOKEN" =~ ^[A-Za-z0-9_-]{32,128}$ ]] || die 'The proxy token could not be created.'
 # A normal installation is enrolled in the signed stable channel immediately.
 # Preserve an existing custom feed so an intentional self-hosted release setup
 # does not get silently replaced during a later Portal update.
@@ -497,6 +618,13 @@ chown root:root "$HELPER_SERVICE_FILE"
 chmod 0644 "$HELPER_SERVICE_FILE"
 [[ -s "$HELPER_SERVICE_FILE" ]] || die 'Deployment helper systemd unit could not be created.'
 
+# The secret lives in its own root-only file; the site file below is world-readable.
+install -d -m 0755 -o root -g root "$(dirname "$NGINX_PROXY_SNIPPET")"
+printf 'proxy_set_header X-Strckro-Proxy-Token "%s";\n' "$PROXY_TOKEN" > "$NGINX_PROXY_SNIPPET"
+chown root:root "$NGINX_PROXY_SNIPPET"
+chmod 0600 "$NGINX_PROXY_SNIPPET"
+unset PROXY_TOKEN
+
 cat > "$NGINX_SITE" <<EOF
 server {
     listen 80;
@@ -514,6 +642,11 @@ server {
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
+        include ${NGINX_PROXY_SNIPPET};
+        limit_req zone=strckro_requests burst=200 nodelay;
+        limit_req_status 429;
+        # Refusals log at error level by default, so a flood would fill the disk with its own evidence.
+        limit_req_log_level warn;
         proxy_set_header Connection "";
         proxy_read_timeout 600s;
         proxy_send_timeout 600s;
@@ -547,7 +680,53 @@ if [[ -L "$NGINX_DEFAULT_ENABLED" && "$(readlink -f "$NGINX_DEFAULT_ENABLED")" =
   rm "$NGINX_DEFAULT_ENABLED"
 fi
 ln -sfn /etc/nginx/sites-available/hostmgr-unmatched.conf /etc/nginx/sites-enabled/hostmgr-unmatched.conf
-nginx -t
+# Let Nginx see the visitor instead of Cloudflare.
+install_realip_conf() {
+  # Render to a temporary file so a failed render never leaves a half-written file where Nginx will read it.
+  "$PORTAL_NODE" "$HELPER_ROOT/nginx-realip.mjs" > "$TMP_DIR/realip.conf"
+  [[ -s "$TMP_DIR/realip.conf" ]] || die 'The Nginx real-IP configuration could not be rendered.'
+  install -d -m 0755 -o root -g root "$(dirname "$NGINX_REALIP_CONF")"
+  install -m 0644 -o root -g root "$TMP_DIR/realip.conf" "$NGINX_REALIP_CONF"
+}
+
+# `nginx -t`, with one allowance. real_ip_header and real_ip_recursive are accepted once per
+# context, so a host that already sets either at http level, in nginx.conf, conf.d, sites-enabled or
+# anything they include, makes Strckro's own real-IP file a duplicate: nginx refuses the whole
+# configuration, the update rolls back, and it would do so again on every update. Only Nginx
+# can say which file conflicts (a real_ip_header inside another site's own server block does
+# not), so ask it. If the only complaint is such a duplicate, drop Strckro's real-IP file, keep the
+# host's own setting, say so, and test again; the Portal's limits then count whatever address
+# that configuration reports. Any other failure stays a failure.
+nginx_test() {
+  local output
+  if output="$(nginx -t 2>&1)"; then return 0; fi
+  if [[ -f "$NGINX_REALIP_CONF" && "$output" == *'real_ip_'*'directive is duplicate'* ]]; then
+    rm -f -- "$NGINX_REALIP_CONF"
+    echo "WARNING: Nginx already has a real_ip_header or real_ip_recursive of its own (${output%%$'\n'*}). Strckro's real-IP file was not installed and the host's setting stays, so the Portal's limits count whatever address it reports." >&2
+    nginx -t
+    return
+  fi
+  printf '%s\n' "$output" >&2
+  return 1
+}
+install_realip_conf
+# One request budget per visitor (the real address, once the file above is in place): 40
+# requests a second sustained with room for a burst of 200, far above a person using the
+# dashboard or the CLI and far below what a flood needs. Over the budget answers 429 from Nginx
+# without ever reaching the portal. The zone is named here and used by `limit_req` in the site.
+cat > "$TMP_DIR/limits.conf" <<'EOF'
+# Managed by Strckro. Do not edit; it is rewritten on every install and update.
+# One IPv6 subscriber holds a whole /64 and can use a new address for every request, so an IPv6
+# visitor is counted as its /64 (the first 8 of the 16 bytes of the address); an IPv4 visitor
+# (4 bytes) is counted by address.
+map $binary_remote_addr $strckro_visitor {
+    "~(?s)^(?<network>.{8}).{8}$"  $network;
+    default                         $binary_remote_addr;
+}
+limit_req_zone $strckro_visitor zone=strckro_requests:10m rate=40r/s;
+EOF
+install -m 0644 -o root -g root "$TMP_DIR/limits.conf" "$NGINX_LIMITS_CONF"
+nginx_test
 systemctl daemon-reload
 # `enable --now` leaves an already-active service on its old Node modules.
 # Enable for boot, then explicitly restart so a successful in-place update is
@@ -565,6 +744,9 @@ systemctl reload nginx
 
 certbot --nginx --non-interactive --agree-tos --email "$EMAIL" -d "$DOMAIN" --redirect --hsts
 curl --fail --silent --show-error --max-time 15 "https://${DOMAIN}/api/health" >/dev/null || die 'HTTPS health check failed after certificate issuance.'
+
+# Only now, with the new release serving over HTTPS, is it safe to drop runtimes it replaced.
+prune_node_runtimes || echo 'WARNING: old Node.js runtimes could not be reviewed for removal.' >&2
 
 ROLLBACK_ARMED=false
 cleanup

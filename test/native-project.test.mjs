@@ -128,3 +128,24 @@ test('Docker Compose release uses the same durable release state without an npm 
   assert.equal(release.startScript, null);
   assert.throws(() => validateNativeProject(docker), InputError);
 });
+
+test('project units are contained: memory and task ceilings plus closed kernel interfaces, in [Service]', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const vm = await import('node:vm');
+  const { PROJECT_UNIT_LIMITS } = await import('../src/native-project.mjs');
+  const helper = await readFile(new URL('../scripts/hostmgr-deploy-helper.mjs', import.meta.url), 'utf8');
+  // The helper writes the real unit and keeps its own copy of the lines; the two must never drift.
+  const copy = vm.runInNewContext(helper.match(/const PROJECT_UNIT_LIMITS = (\[[^]*?\]\.join\('\\n'\) \+ '\\n');/)[1]);
+  assert.equal(copy, PROJECT_UNIT_LIMITS);
+  const render = vm.runInNewContext(`(${helper.match(/function renderProjectUnit\(project, identity\) \{[^]*?\n\}/)[0]})`, { PROJECT_UNIT_LIMITS: copy, pnpmServiceStart: () => '', nodeBin: () => '/opt/node', NPM: '/usr/local/bin/npm', BUN: '/usr/local/bin/bun' });
+  const identity = { current: '/srv/demo/current', root: '/srv/demo', user: 'hostmgr-demo-app', environmentFile: '/etc/hostmgr/demo.env' };
+  for (const unit of [render({ runtime: 'node', nodeMajor: 24, startScript: 'start', slug: 'demo-app', port: 3100 }, identity), renderSystemdUnit(project)]) {
+    const service = unit.slice(unit.indexOf('[Service]'), unit.indexOf('[Install]'));
+    for (const line of ['MemoryMax=85%', 'TasksMax=4096', 'ProtectKernelTunables=true', 'ProtectKernelModules=true', 'ProtectKernelLogs=true', 'ProtectControlGroups=true', 'LockPersonality=true', 'RestrictSUIDSGID=true', 'RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK', 'NoNewPrivileges=true', 'ProtectSystem=strict']) {
+      assert.ok(service.split('\n').includes(line), `${line} must be a line of [Service]`);
+    }
+    // What would break ordinary applications is deliberately not set.
+    for (const forbidden of ['IPAddressDeny', 'RestrictNamespaces', 'MemoryDenyWriteExecute', 'PrivateNetwork', 'SystemCallFilter']) assert.ok(!unit.includes(forbidden), forbidden);
+    assert.match(unit, /\n\n\[Install\]\nWantedBy=multi-user\.target\n$/);
+  }
+});

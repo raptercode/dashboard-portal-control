@@ -51,7 +51,7 @@ git push origin "v$version"
 
 ใช้ Ed25519 key เดิมใต้ `$HOME/.dashboard-portal/release-signing` ตรวจ derived public key ตรงกับ `scripts/dashboard-portal-update-public.pem` ห้ามแสดง private key หรือสร้างใหม่สำหรับ release ธรรมดา ตั้ง `STRCKRO_UPDATE_PRIVATE_KEY_PATH` แบบ process-local แล้วเรียก `npm run release:prepare -- --out=<outside-repo> --archive-url=https://github.com/raptercode/dashboard-portal-control/releases/download/v<VERSION>/dashboard-portal-<VERSION>.tar.gz --notes=<description>` ลบ environment variable ใน finally
 
-Script ใช้ `git archive HEAD` รักษา LF ของ shell scripts ตรวจ `parseSignedManifest`, nested `payload` version/channel/archiveUrl/archiveSha256 และ checksum จริง ตรวจ archive มี source, lock, LICENSE, docs, installers แต่ไม่มี .env, state, dependencies หรือ key ห้ามแก้ signed manifest ด้วยมือ
+Script ใช้ `git archive HEAD` รักษา LF ของ shell scripts เพราะส่งเฉพาะไฟล์ที่ commit แล้ว จึงหยุดก่อนหากมีไฟล์ใต้ `src/`, `scripts/`, `public/` หรือ `views/` (รวม `strckro.sh`, `package.json`, `package-lock.json`, `Dockerfile`) ที่ยังไม่ถูก track เพราะ Portal ที่ `server.mjs` import ไฟล์ซึ่งไม่เคยเข้า `HEAD` จะเริ่มไม่ขึ้นบน host ที่ติดตั้ง release นั้น ให้ commit หรือลบไฟล์ และใช้ `--allow-untracked=yes` เฉพาะเมื่อตั้งใจไม่ใส่ไฟล์นั้น ส่วนการแก้ไฟล์ที่ track อยู่แต่ยังไม่ commit จะแสดงเป็นคำเตือน เพราะไม่อยู่ใน archive เช่นกัน ตรวจ `parseSignedManifest`, nested `payload` version/channel/archiveUrl/archiveSha256 และ checksum จริง ตรวจ archive มี source, lock, LICENSE, docs, installers แต่ไม่มี .env, state, dependencies หรือ key ห้ามแก้ signed manifest ด้วยมือ
 
 ## 5. Publish และตรวจ downloaded assets
 

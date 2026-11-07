@@ -5,6 +5,7 @@ import { spawn } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { canonicalJson } from './software-update.mjs';
+import { releaseBlockers } from './release-guard.mjs';
 
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const options = parseOptions(process.argv.slice(2));
@@ -18,6 +19,14 @@ const archive = join(output, archiveName);
 // Archive committed Git content rather than the local checkout.  This keeps
 // untracked files out and preserves the LF bytes stored for shell scripts when
 // a release is prepared from Windows.
+// That also means an uncommitted source file is silently absent. Refuse to build a
+// release that imports files it does not contain; changes still in the working tree
+// are only reported, because leaving them out of a release is sometimes the intent.
+const { untracked, modified } = releaseBlockers(await capture('git', ['status', '--porcelain=v1', '-z', '--untracked-files=all'], root));
+if (modified.length) console.warn(`Warning: ${modified.length} file(s) have uncommitted changes that are NOT in this release: ${modified.slice(0, 8).join(', ')}${modified.length > 8 ? ', ...' : ''}`);
+if (untracked.length && options['allow-untracked'] !== 'yes') {
+  fatal(`These files are not committed, so the release would not contain them: ${untracked.join(', ')}. Commit them (or remove them), or pass --allow-untracked=yes if leaving them out is intended.`);
+}
 await run('git', ['archive', '--format=tar.gz', `--output=${archive}`, 'HEAD'], root);
 const archiveSha256 = await digest(archive);
 const payload = {
@@ -46,7 +55,7 @@ function parseOptions(args) {
     if (!match || Object.hasOwn(values, match[1])) usage();
     values[match[1]] = match[2];
   }
-  const allowed = new Set(['out', 'archive-url', 'private-key', 'channel', 'notes']);
+  const allowed = new Set(['out', 'archive-url', 'private-key', 'channel', 'notes', 'allow-untracked']);
   if (!values.out || !values['archive-url'] || Object.keys(values).some((key) => !allowed.has(key))) usage();
   if (!values['archive-url'].startsWith('https://')) fatal('archive-url must use HTTPS.');
   if (values.channel && !/^[a-z0-9][a-z0-9-]{0,31}$/.test(values.channel)) fatal('channel is invalid.');
@@ -61,13 +70,23 @@ function run(command, args, cwd) {
   });
 }
 
+function capture(command, args, cwd) {
+  return new Promise((resolveCapture, reject) => {
+    const child = spawn(command, args, { cwd, shell: false, stdio: ['ignore', 'pipe', 'inherit'] });
+    let output = '';
+    child.stdout.on('data', (chunk) => { output += chunk; });
+    child.once('error', reject);
+    child.once('close', (code) => code === 0 ? resolveCapture(output) : reject(new Error(`${command} failed (${code})`)));
+  });
+}
+
 async function digest(file) {
   const content = await readFile(file);
   return createHash('sha256').update(content).digest('hex');
 }
 
 function usage() {
-  console.error('Usage: STRCKRO_UPDATE_PRIVATE_KEY_PATH=/secure/key.pem npm run release:prepare -- --out=dist --archive-url=https://host/strckro-<version>.tar.gz [--channel=stable] [--notes=...]');
+  console.error('Usage: STRCKRO_UPDATE_PRIVATE_KEY_PATH=/secure/key.pem npm run release:prepare -- --out=dist --archive-url=https://host/strckro-<version>.tar.gz [--channel=stable] [--notes=...] [--allow-untracked=yes]');
   process.exit(64);
 }
 

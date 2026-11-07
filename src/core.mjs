@@ -9,6 +9,7 @@ import { validateNodePackageManager } from '../scripts/node-package-manager.mjs'
 import { parseEnvironmentDocument } from '../public/ui/environment-editor.js';
 import { migrateAccessState } from './access.mjs';
 import { requestContext } from './request-context.mjs';
+import { webhookHostProblem } from './webhook-delivery.mjs';
 
 export const SUPPORTED_NODE_MAJOR = 24;
 export const TOOLS = {
@@ -142,6 +143,16 @@ export class StateStore {
 
   snapshot() {
     return structuredClone(this.#state);
+  }
+
+  // Read access to the live state without the structuredClone that snapshot() costs.
+  // For paths that run before any credential is checked, where a clone per request
+  // would let an anonymous caller burn CPU in proportion to the size of the state.
+  // The reader must neither mutate nor keep what it is given. update() replaces the
+  // state instead of editing it in place, so anything a reader returns stays a
+  // consistent, if possibly stale, view.
+  read(reader) {
+    return reader(this.#state);
   }
 
   async update(mutator) {
@@ -426,7 +437,9 @@ export function validateHttpsCredential(input) {
   return { name, host: host.toLowerCase(), token };
 }
 
-export function validateNotificationHook(input) {
+// `allowPrivate` is the host owner's explicit opt-in (HOSTMGR_WEBHOOK_ALLOW_PRIVATE) to
+// notify a service on a private network. By default only public destinations are accepted.
+export function validateNotificationHook(input, { allowPrivate = false } = {}) {
   const name = requiredText(input.name, 'Notification hook name', 80);
   const provider = input.provider;
   if (!['discord', 'google-chat', 'slack', 'generic'].includes(provider)) throw new InputError('Notification provider is invalid.');
@@ -434,6 +447,8 @@ export function validateNotificationHook(input) {
   let parsed;
   try { parsed = new URL(endpoint); } catch { throw new InputError('Webhook URL is invalid.'); }
   if (parsed.protocol !== 'https:' || parsed.username || parsed.password || parsed.hash) throw new InputError('Webhook URL must be a plain HTTPS URL.');
+  const hostProblem = allowPrivate ? null : webhookHostProblem(parsed.hostname);
+  if (hostProblem) throw new InputError(hostProblem);
   const projectSlug = optionalText(input.projectSlug, 63) || null;
   if (projectSlug && !/^[a-z][a-z0-9-]{0,62}$/.test(projectSlug)) throw new InputError('Notification project is invalid.');
   const events = Array.isArray(input.events) ? [...new Set(input.events)] : [];

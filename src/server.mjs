@@ -6,6 +6,10 @@ import { fileURLToPath } from 'node:url';
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import os from 'node:os';
 import { parseEnvironmentDocument, updateEnvironmentDocument } from '../public/ui/environment-editor.js';
+import { notificationPayload, portalOrigin as originOf } from './notifications.mjs';
+import { clientBucket } from './client-address.mjs';
+import { createFailureWindow } from './failure-window.mjs';
+import { deliverWebhook, postWebhook } from './webhook-delivery.mjs';
 import { spawn } from 'node:child_process';
 import { assertPythonSource, pythonSettings, pythonStartArgs } from '../scripts/python-project.mjs';
 import { assertPhpSource, phpSettings, phpStartArgs } from '../scripts/php-project.mjs';
@@ -22,7 +26,7 @@ import { publicEdgeResult } from '../scripts/nginx-edge.mjs';
 import { createRenderer } from './render.mjs';
 import { matchUiRoute } from './ui-routes.mjs';
 import { METRIC_INTERVAL_MS, METRIC_RANGE_DAYS, METRIC_RETENTION_DAYS, collectHostMetrics, publicCurrentMetrics, publicMetricSample, validateMetricRangeDays } from './metrics.mjs';
-import { hashPassword, validateEmail, validateOwnerBootstrap, validateOwnerLogin, validateStrongPassword, verifyPassword } from './auth.mjs';
+import { GateFullError, createGate, hashPassword, validateEmail, validateOwnerBootstrap, validateOwnerLogin, validateStrongPassword, verifyPassword, verifyPasswordAsync } from './auth.mjs';
 import { checkSmtpOutbound } from './mail-check.mjs';
 import { driverAvailability, runDatabaseQuery } from './db-query.mjs';
 import { checkDkimRecord, checkDmarcRecord, checkMailHostnameDns, checkMailMx, checkPtrRecord, checkSpfRecord } from './dns-check.mjs';
@@ -72,6 +76,8 @@ const pageTitles = {
 };
 const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
 const MONITOR_TOKEN_PREFIX = 'dpm_';
+// Hashed once at load with the same cost as a real password; see handleLogin.
+const ABSENT_ACCOUNT_PASSWORD = hashPassword(randomBytes(18).toString('base64'));
 const HOST_TOOL_COMMANDS = {
   pnpm: [[PNPM_PATH, ['--config.manage-package-manager-versions=false', '--config.pm-on-fail=error', '--config.verify-deps-before-run=false', '--version']]],
   nginx: [['/usr/sbin/nginx', ['-v']]],
@@ -102,6 +108,13 @@ export async function createApplication(options = {}) {
   let legacyPassword = explicitPassword ?? passwordFromEnvironment(process.env) ?? null;
   if (legacyPassword != null && legacyPassword.length < 12) throw new Error('HOSTMGR_ADMIN_PASSWORD must be at least 12 characters.');
   const secureCookie = options.secureCookie ?? process.env.HOSTMGR_SECURE_COOKIE === 'true';
+  // Public address of this portal, used for links and the logo in notifications. Null when unknown.
+  const portalOrigin = options.portalOrigin ?? originOf(process.env.HOSTMGR_PORTAL_DOMAIN);
+  // Shared secret Nginx stamps on proxied requests; without it no forwarded address is believed.
+  const proxyToken = options.proxyToken ?? process.env.HOSTMGR_PROXY_TOKEN;
+  // Notification hooks may only reach public addresses unless the host owner opts in to a private network.
+  const webhookAllowPrivate = options.webhookAllowPrivate ?? ['1', 'true', 'yes'].includes(String(process.env.HOSTMGR_WEBHOOK_ALLOW_PRIVATE ?? '').toLowerCase());
+  const webhookSender = options.webhookSender ?? postWebhook;
   const vaultKey = options.secretKey ?? process.env.HOSTMGR_SECRET_KEY;
   const vault = vaultKey ? new SecretVault(vaultKey) : null;
   const sandboxClone = options.sandboxClone ?? process.env.HOSTMGR_SANDBOX_CLONE !== 'false';
@@ -141,7 +154,7 @@ export async function createApplication(options = {}) {
   const store = new StateStore(options.dataPath ?? process.env.HOSTMGR_DATABASE_PATH ?? process.env.HOSTMGR_DATA_PATH ?? join(here, '..', 'data', 'state.sqlite'));
   if (!['demo', 'host'].includes(mode)) throw new Error('HOSTMGR_MODE must be demo or host.');
   await store.load();
-  const cliAuth = createCliAuth({ store, readJson, sendJson });
+  const cliAuth = createCliAuth({ store, readJson, sendJson, proxyToken });
   store.beforeMutation = (state) => assertRequestAuthorization(state);
   if (!store.snapshot().owner && explicitPassword) {
     const seeded = hashPassword(explicitPassword);
@@ -157,7 +170,21 @@ export async function createApplication(options = {}) {
   const sessions = new Map((store.snapshot().sessions ?? [])
     .filter((session) => validStoredSession(session))
     .map((session) => [session.idHash, session]));
-  const loginAttempts = new Map();
+  // Failed sign-ins are counted per visitor address and per account, so a guesser who
+  // rotates addresses is still bounded on the account. The failed installer password at
+  // first-run bootstrap is counted per address plus one shared cap. Every window is 15 minutes.
+  const loginFailures = createFailureWindow();
+  const LOGIN_LIMIT_PER_ADDRESS = 5;
+  const LOGIN_LIMIT_PER_ACCOUNT = 10;
+  const BOOTSTRAP_LIMIT_PER_ADDRESS = 5;
+  // High enough that a handful of addresses cannot hold the installer out of its own first-run
+  // bootstrap, low enough that guessing the installer password stays a dictionary of thousands a day.
+  const BOOTSTRAP_LIMIT_ALL = 200;
+  const KNOWN_LOGIN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+  const KNOWN_LOGIN_MAX = 10_000;
+  const PASSWORD_CHECKS_AT_ONCE = 2;
+  const PASSWORD_CHECKS_WAITING = 64;
+  const PASSWORD_CHECKS_RESERVED = 16;
   const invitationAttempts = new Map();
   let deploymentQueueDraining = false;
   const autoSyncRunning = new Set();
@@ -203,19 +230,28 @@ export async function createApplication(options = {}) {
     return { id, csrf };
   }
 
+  // This runs for every /api request, before anything is known about the caller, so it
+  // must stay cheap for strangers: no state is cloned, and a request that presents no
+  // credential this process recognises is answered without reading state at all. The
+  // user handed back is a copy; nothing downstream may reach the live state through it.
   function getSession(request) {
     if (request.headers.authorization !== undefined) {
       const match = request.headers.authorization.match(/^Bearer (\S+)$/i);
-      return match ? cliIdentity(store.snapshot(), match[1]) : null;
+      const identity = match ? store.read((state) => cliIdentity(state, match[1])) : null;
+      return identity && { ...identity, user: structuredClone(identity.user) };
     }
     const cookie = request.headers.cookie ?? '';
     const id = cookie.split(';').map((entry) => entry.trim()).find((entry) => entry.startsWith('hostmgr_session='))?.slice('hostmgr_session='.length);
     const idHash = id && sessionIdHash(id);
     const session = idHash && sessions.get(idHash);
-    const state = store.snapshot();
-    const user = session && state.users.find((item) => item.id === session.userId);
-    if (!session || session.expiresAt < Date.now() || !user || user.status !== 'active' || user.authVersion !== session.authVersion || !state.sessions.some((item) => item.idHash === idHash)) {
-      if (idHash) sessions.delete(idHash);
+    if (!session) return null;
+    const user = store.read((state) => {
+      const account = state.users.find((item) => item.id === session.userId);
+      const valid = session.expiresAt >= Date.now() && account && account.status === 'active' && account.authVersion === session.authVersion && state.sessions.some((item) => item.idHash === idHash);
+      return valid ? structuredClone(account) : null;
+    });
+    if (!user) {
+      sessions.delete(idHash);
       return null;
     }
     return { id, idHash, ...session, user };
@@ -258,16 +294,17 @@ export async function createApplication(options = {}) {
       if (request.method === 'GET' && url.pathname === '/api/session') {
         if (request.headers.authorization !== undefined) return sendJson(response, 403, { error: 'Use /api/access with CLI bearer tokens.' });
         const session = getSession(request);
-        const owner = store.snapshot().owner;
+        // Every page load asks this before sign-in, so it must not clone the state.
+        const { hasOwner, organizations } = store.read((state) => ({ hasOwner: Boolean(state.owner), organizations: visibleOrganizations(state, session?.user) }));
         return sendJson(response, 200, {
           authenticated: Boolean(session),
           csrfToken: session?.csrf ?? null,
           mode,
-          bootstrapRequired: !owner,
-          bootstrapRequiresInstallerPassword: !owner && Boolean(legacyPassword),
+          bootstrapRequired: !hasOwner,
+          bootstrapRequiresInstallerPassword: !hasOwner && Boolean(legacyPassword),
           owner: publicUser(session?.user),
           user: publicUser(session?.user),
-          organizations: visibleOrganizations(store.snapshot(), session?.user)
+          organizations
         });
       }
       if (request.method === 'POST' && url.pathname === '/api/bootstrap') return await handleBootstrap(request, response);
@@ -275,7 +312,7 @@ export async function createApplication(options = {}) {
       if (await cliAuth.publicRequest(request, response, url.pathname)) return;
       const invitationAccept = request.method === 'POST' && url.pathname === '/api/invitations/accept';
       if (invitationAccept) {
-        const ip = request.socket.remoteAddress ?? 'unknown';
+        const ip = clientBucket(request, proxyToken);
         const now = Date.now();
         for (const [key, value] of invitationAttempts) if (value.resetAt <= now) invitationAttempts.delete(key);
         const attempt = invitationAttempts.get(ip) ?? { count: 0, resetAt: now + 15 * 60 * 1000 };
@@ -498,10 +535,20 @@ export async function createApplication(options = {}) {
   }
 
   async function handleBootstrap(request, response) {
-    if (store.snapshot().owner) throw new InputError('Owner account already exists.');
+    if (store.read((state) => state.owner)) throw new InputError('Owner account already exists.');
+    // Whoever knows the installer password becomes the owner, so guessing it is throttled.
+    const address = `bootstrap:${clientBucket(request, proxyToken)}`;
+    const refused = () => loginFailures.blocked(address, BOOTSTRAP_LIMIT_PER_ADDRESS) || loginFailures.blocked('bootstrap:*', BOOTSTRAP_LIMIT_ALL);
+    const tooMany = () => sendJson(response, 429, { error: 'Too many attempts. Try again later.' });
+    if (refused()) return tooMany();
     const requireCurrentPassword = Boolean(legacyPassword);
     const bootstrap = validateOwnerBootstrap(await readJson(request), { requireCurrentPassword });
+    // Reading the body was an await, so a burst could have passed the check above together.
+    // Check again here: nothing awaits between this and the failure being counted below.
+    if (refused()) return tooMany();
     if (requireCurrentPassword && !constantEqual(bootstrap.currentPassword, legacyPassword)) {
+      loginFailures.fail(address);
+      loginFailures.fail('bootstrap:*');
       await store.update((state) => appendAudit(state, { action: 'auth.bootstrap_failed', outcome: 'denied', actor: 'anonymous', detail: 'Invalid installer password' }));
       return sendJson(response, 401, { error: 'Invalid installer password.' });
     }
@@ -526,21 +573,97 @@ export async function createApplication(options = {}) {
     return sendJson(response, 200, { ok: true, csrfToken: session.csrf, mode, owner: publicUser(user), user: publicUser(user), organizations: visibleOrganizations(store.snapshot(), user) });
   }
 
+  // (account, visitor bucket) pairs that have signed in, so a stranger who locks an account by
+  // failing against it cannot also keep its owner out from where the owner already signs in.
+  // Memory only: a restart forgets them, and the owner is then like any other visitor.
+  const knownLogins = new Map();
+  const rememberLogin = (key) => {
+    knownLogins.delete(key);
+    knownLogins.set(key, Date.now() + KNOWN_LOGIN_TTL_MS);
+    while (knownLogins.size > KNOWN_LOGIN_MAX) knownLogins.delete(knownLogins.keys().next().value);
+  };
+  const isKnownLogin = (key) => {
+    const expires = knownLogins.get(key);
+    if (expires !== undefined && expires <= Date.now()) knownLogins.delete(key);
+    return expires !== undefined && expires > Date.now();
+  };
+  // Each wrong sign-in used to be one whole-state write. They are throttled by address and account, but
+  // many addresses add up, so at most one entry is written a second. Failures inside that second are
+  // counted and written together as one entry when it ends, so none goes unrecorded even if the burst stops.
+  const failedLoginAudit = { at: 0, pending: 0, timer: null };
+  async function writeFailedLoginAudit({ rethrow }) {
+    clearTimeout(failedLoginAudit.timer);
+    failedLoginAudit.timer = null;
+    const count = failedLoginAudit.pending;
+    if (!count || closing) return;
+    failedLoginAudit.pending = 0;
+    failedLoginAudit.at = Date.now();
+    const detail = count === 1 && rethrow ? 'Invalid credentials' : `${count} further failed sign-in${count === 1 ? '' : 's'} since the previous entry, counted here instead of recorded one by one`;
+    try { await store.update((state) => appendAudit(state, { action: 'auth.login_failed', outcome: 'denied', actor: 'anonymous', detail })); }
+    catch (error) {
+      failedLoginAudit.pending += count;
+      if (rethrow) throw error;
+    }
+  }
+  async function auditFailedLogin() {
+    failedLoginAudit.pending += 1;
+    const wait = failedLoginAudit.at + 1000 - Date.now();
+    // A clock that stepped backwards makes `wait` larger than a second; write at once rather than stay silent.
+    if (wait > 0 && wait <= 1000) {
+      if (!failedLoginAudit.timer) {
+        failedLoginAudit.timer = setTimeout(() => { void writeFailedLoginAudit({ rethrow: false }); }, wait + 25);
+        failedLoginAudit.timer.unref?.();
+      }
+      return;
+    }
+    await writeFailedLoginAudit({ rethrow: true });
+  }
+  // Password checks run a couple at a time on the thread pool; the rest wait briefly or are refused.
+  // A visitor already known for the account has a few places held back for them, so a flood that fills
+  // the ordinary queue does not keep the owner out.
+  const passwordChecks = createGate(PASSWORD_CHECKS_AT_ONCE, PASSWORD_CHECKS_WAITING, PASSWORD_CHECKS_RESERVED);
+
   async function handleLogin(request, response) {
-    const ip = request.socket.remoteAddress ?? 'unknown';
-    const now = Date.now();
-    for (const [key, value] of loginAttempts) if (value.resetAt <= now) loginAttempts.delete(key);
-    const attempt = loginAttempts.get(ip) ?? { count: 0, resetAt: now + 15 * 60 * 1000 };
-    if (attempt.count >= 5 && attempt.resetAt >= Date.now()) return sendJson(response, 429, { error: 'Too many login attempts. Try again later.' });
-    if (!store.snapshot().owner) return sendJson(response, 409, { error: 'Owner bootstrap is required.', bootstrapRequired: true });
+    const address = `login:${clientBucket(request, proxyToken)}`;
+    const refused = () => sendJson(response, 429, { error: 'Too many login attempts. Try again later.' });
+    if (loginFailures.blocked(address, LOGIN_LIMIT_PER_ADDRESS)) return refused();
+    if (!store.read((state) => state.owner)) return sendJson(response, 409, { error: 'Owner bootstrap is required.', bootstrapRequired: true });
     const body = validateOwnerLogin(await readJson(request));
-    const owner = store.snapshot().users.find((item) => item.email.toLowerCase() === body.email && item.status === 'active');
-    if (!owner || !verifyPassword(body.password, owner.password)) {
-      loginAttempts.set(ip, { count: attempt.count + 1, resetAt: attempt.resetAt });
-      await store.update((state) => appendAudit(state, { action: 'auth.login_failed', outcome: 'denied', actor: 'anonymous', detail: 'Invalid credentials' }));
+    // The account key is a hash of whatever email was typed, whether or not it exists, so
+    // being refused reveals nothing about which accounts there are.
+    const account = `account:${createHash('sha256').update(body.email).digest('hex')}`;
+    const knownVisitor = isKnownLogin(`${account}|${address}`);
+    // Nothing awaits between this check and the reservation below, so a burst whose bodies
+    // arrive together cannot all pass at count zero (the check above came before an await).
+    if (loginFailures.blocked(address, LOGIN_LIMIT_PER_ADDRESS) || (!knownVisitor && loginFailures.blocked(account, LOGIN_LIMIT_PER_ACCOUNT))) return refused();
+    // Read before reserving, so nothing is left counted if the read throws.
+    const owner = store.read((state) => {
+      const found = state.users.find((item) => item.email.toLowerCase() === body.email && item.status === 'active');
+      return found ? structuredClone(found) : null;
+    });
+    // Count the attempt now and give it back if it succeeds, so attempts still being checked count too.
+    loginFailures.fail(address);
+    loginFailures.fail(account);
+    let verified;
+    try {
+      // An unknown or inactive account still pays for one password hash, so response time
+      // does not tell a stranger which emails have an account.
+      verified = await passwordChecks(() => verifyPasswordAsync(body.password, owner ? owner.password : ABSENT_ACCOUNT_PASSWORD), { trusted: knownVisitor });
+    } catch (error) {
+      loginFailures.forgive(address);
+      loginFailures.forgive(account);
+      if (error instanceof GateFullError) return sendJson(response, 429, { error: 'The server is busy. Try again in a moment.' });
+      throw error;
+    }
+    if (!owner || !verified) {
+      await auditFailedLogin();
       return sendJson(response, 401, { error: 'Invalid credentials.' });
     }
-    loginAttempts.delete(ip);
+    // This attempt was no failure. Earlier failures from the address stay on record, so a member who
+    // signs in successfully between guesses at other accounts does not reset their own counter.
+    loginFailures.forgive(address);
+    loginFailures.clear(account);
+    rememberLogin(`${account}|${address}`);
     requestContext.getStore().user = owner;
     const session = await newSession(owner);
     response.setHeader('Set-Cookie', sessionCookie(session.id, secureCookie));
@@ -1138,7 +1261,8 @@ export async function createApplication(options = {}) {
   }
 
   async function handleGithubPush(request, response, slug) {
-    const project = store.snapshot().projects.find((item) => item.slug === slug);
+    // Reachable without a credential: look the project up without cloning the whole state.
+    const project = store.read((state) => state.projects.find((item) => item.slug === slug));
     // Unknown projects and unconfigured hooks share the same response.
     if (!project?.autoSync?.encryptedSecret || !vault) return sendJson(response, 404, { error: 'Webhook not found.' });
     const body = await readRawBody(request, 1024 * 1024);
@@ -1185,7 +1309,7 @@ export async function createApplication(options = {}) {
   }
 
   async function handleActionsHook(request, response, slug) {
-    const project = store.snapshot().projects.find((item) => item.slug === slug);
+    const project = store.read((state) => state.projects.find((item) => item.slug === slug));
     if (!project?.autoSync?.encryptedActionsSecret || !vault) return sendJson(response, 404, { error: 'Hook not found.' });
     const authorization = request.headers.authorization;
     const token = typeof authorization === 'string' && /^Bearer ([a-f0-9]{64})$/.exec(authorization)?.[1];
@@ -1651,21 +1775,16 @@ export async function createApplication(options = {}) {
     if (!job || !project) return;
     const hooks = (snapshot.notificationHooks ?? []).filter((hook) => hook.events?.includes(event) && (!hook.projectSlug || hook.projectSlug === project.slug));
     await Promise.allSettled(hooks.map(async (hook) => {
-      let status = 'failed';
-      let httpStatus = null;
+      let outcome;
       try {
         const endpoint = vault.decrypt(hook.encryptedEndpoint);
-        const response = await fetch(endpoint, {
-          method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(notificationPayload(hook.provider, { event, project, job, detail })), signal: AbortSignal.timeout(8_000)
-        });
-        httpStatus = response.status;
-        status = response.ok ? 'sent' : 'failed';
-      } catch { /* External webhook failures never affect deployment state. */ }
+        outcome = await deliverWebhook(webhookSender, endpoint, notificationPayload(hook.provider, { event, project, job, detail, origin: portalOrigin }), { allowPrivate: webhookAllowPrivate, timeoutMs: 8_000 });
+      } catch { outcome = { status: 'failed', httpStatus: null }; }
+      const { status } = outcome;
       await store.update((state) => {
         const stored = (state.notificationHooks ?? []).find((item) => item.id === hook.id);
         if (!stored) return;
-        stored.lastDelivery = { at: new Date().toISOString(), event, status, httpStatus };
+        stored.lastDelivery = { at: new Date().toISOString(), event, ...outcome };
         appendAudit(state, { action: 'notification_hook.deliver', outcome: status === 'sent' ? 'success' : 'failure', actor: 'system', target: project.slug, detail: `${hook.provider} notification ${status} for ${event}.` });
       });
     }));
@@ -1778,9 +1897,11 @@ export async function createApplication(options = {}) {
     const authorization = request.headers.authorization ?? '';
     const token = authorization.startsWith('Bearer ') ? authorization.slice('Bearer '.length) : '';
     if (!token.startsWith(MONITOR_TOKEN_PREFIX) || token.length > 200) return sendJson(response, 401, { error: 'Valid monitor token required.' });
-    const state = store.snapshot();
-    const matching = (state.monitorTokens ?? []).find((item) => !item.revokedAt && item.projectSlug === slug && constantEqual(item.tokenHash, monitorTokenHash(token)));
+    // A guessed token must cost nothing: only a matching token earns a copy of the state.
+    const digest = monitorTokenHash(token);
+    const matching = store.read((live) => (live.monitorTokens ?? []).find((item) => !item.revokedAt && item.projectSlug === slug && constantEqual(item.tokenHash, digest)));
     if (!matching) return sendJson(response, 403, { error: 'Monitor token is not authorized for this project.' });
+    const state = store.snapshot();
     const project = findProject(state, slug);
     await store.update((next) => {
       const stored = (next.monitorTokens ?? []).find((item) => item.id === matching.id);
@@ -1792,7 +1913,7 @@ export async function createApplication(options = {}) {
   async function handleNotificationHookCreate(request, response) {
     if (!requireSession(request, response, true)) return;
     if (!vault) throw new InputError('Credential vault is not configured.');
-    const hook = validateNotificationHook(await readJson(request));
+    const hook = validateNotificationHook(await readJson(request), { allowPrivate: webhookAllowPrivate });
     const snapshot = store.snapshot();
     if (hook.projectSlug && !snapshot.projects.some((project) => project.slug === hook.projectSlug)) throw new InputError('Selected project was not found.');
     const created = {
@@ -2123,6 +2244,8 @@ export async function createApplication(options = {}) {
         clearInterval(autoSyncTimer);
         autoSyncTimer = null;
       }
+      clearTimeout(failedLoginAudit.timer);
+      failedLoginAudit.timer = null;
       server.close((error) => error ? reject(error) : resolve());
     })
   };
@@ -2846,15 +2969,6 @@ function repositoryHost(repository) {
 function publicNotificationHook(hook) {
   const { encryptedEndpoint, ...safe } = hook;
   return safe;
-}
-
-function notificationPayload(provider, { event, project, job, detail }) {
-  const title = event === 'deployment.succeeded' ? 'Deployment succeeded' : 'Deployment failed';
-  const text = `${title}: ${project.name} (${project.slug}) — ${detail}`;
-  if (provider === 'discord') return { content: text };
-  if (provider === 'google-chat') return { cardsV2: [{ cardId: `hostmgr-${job.id}`, card: { header: { title, subtitle: project.slug }, sections: [{ widgets: [{ decoratedText: { text: detail } }, { decoratedText: { text: `Release: ${job.releaseId || '—'}` } }] }] } }] };
-  if (provider === 'slack') return { text, blocks: [{ type: 'section', text: { type: 'mrkdwn', text: `*${title}*\n${project.name} (${project.slug})\n${detail}` } }] };
-  return { event, project: { name: project.name, slug: project.slug }, deployment: { jobId: job.id, releaseId: job.releaseId, status: job.status }, detail };
 }
 
 function monitorTokenHash(token) {
