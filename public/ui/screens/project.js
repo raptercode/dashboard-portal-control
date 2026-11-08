@@ -64,6 +64,7 @@ const defaults = {
   goPackage: ".",
   composeFile: "compose.yaml",
   composeService: "",
+  storagePath: "",
 };
 async function projectForm(ctx) {
   const editing = !!ctx.route.slug;
@@ -311,6 +312,20 @@ async function projectForm(ctx) {
       directory: directory.control.value,
     });
     const settings = h("div", { class: "stack" });
+    // A folder inside the app that survives deploys, rollbacks and restarts. Docker Compose keeps
+    // its data in named volumes instead, so the box is hidden for that runtime.
+    const storageField = field("Mount path (optional)", "storagePath", {
+      value: draft.storagePath || "",
+      placeholder: "uploads",
+      maxLength: 160,
+      hint: "โฟลเดอร์ในแอปที่ต้องไม่หายเมื่อ deploy หรือ restart เช่น uploads หรือ public/uploads · มีผลใน deployment ถัดไป",
+    });
+    const storageBox = h(
+      "fieldset",
+      {},
+      h("legend", {}, "Persistent storage"),
+      h("div", { class: "stack" }, storageField),
+    );
     const note = h("small", { role: "status", class: "detect-note" });
     const found = h("div", { class: "detected", hidden: true });
     const branchList = h("datalist", { id: "repository-branches" });
@@ -446,6 +461,7 @@ async function projectForm(ctx) {
       settings.replaceChildren();
       const selected = runtimePicker.value;
       draft.runtime = selected;
+      storageBox.hidden = selected === "docker-compose";
       if (["node", "bun"].includes(selected)) {
         if (selected === "node")
           settings.append(
@@ -750,6 +766,7 @@ async function projectForm(ctx) {
       runtimePicker,
       frameworkPicker,
       settings,
+      storageBox,
     );
     let port, auto, health, healthPath;
     if (!isWorker(draft)) {
@@ -800,6 +817,13 @@ async function projectForm(ctx) {
             ? false
             : !!f.elements.healthCheckEnabled?.checked,
           nodeMajor: Number(v.nodeMajor || draft.nodeMajor || 24),
+          storagePath:
+            runtimePicker.value === "docker-compose"
+              ? ""
+              : String(v.storagePath ?? draft.storagePath ?? "")
+                  .trim()
+                  .replace(/^\.\//, "")
+                  .replace(/\/+$/, ""),
         };
         if (boundLocked) {
           values.repository = project.repository;
@@ -844,6 +868,9 @@ async function projectForm(ctx) {
   };
   delete payload.autoPort;
   delete payload.skipBuild;
+  // Leaving storage blank on a project that never had it is "no change": omit the key so that a
+  // member who may only sync source is not treated as reconfiguring the project.
+  if (!payload.storagePath && !project?.storagePath) delete payload.storagePath;
   body.append(
     h(
       "div",
@@ -877,6 +904,8 @@ async function projectForm(ctx) {
           Runtime: runtimeName(draft),
           Build: draft.buildScript || "Skip build",
           Start: draft.startScript,
+          Storage:
+            draft.runtime === "docker-compose" ? "Named volumes" : draft.storagePath,
           Port: isWorker(draft)
             ? "No HTTP endpoint"
             : draft.autoPort

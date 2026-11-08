@@ -277,7 +277,10 @@ export async function openProject(ctx, initial, initialTab = "deploy") {
           if (
             !(await ctx.confirm(
               `ลบ ${project.name}?`,
-              "หยุด service ลบ releases และ ENV ถอดโดเมนและ webhook การดำเนินการนี้ย้อนกลับไม่ได้",
+              "หยุด service ลบ releases และ ENV ถอดโดเมนและ webhook การดำเนินการนี้ย้อนกลับไม่ได้" +
+                (project.storagePath
+                  ? ` ไฟล์ใน persistent storage (${project.storagePath}) จะถูกลบด้วย`
+                  : ""),
               "ลบถาวร",
               project.name,
             ))

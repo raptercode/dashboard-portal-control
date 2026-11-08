@@ -455,6 +455,7 @@ if [[ "$PORTAL_NODE_MAJOR" == '20' ]]; then ln -sfn "$APP_ROOT/node_modules" "$H
 install -m 0750 -o root -g root "$APP_ROOT/scripts/python-project.mjs" "$HELPER_ROOT/python-project.mjs"
 install -m 0750 -o root -g root "$APP_ROOT/scripts/php-project.mjs" "$HELPER_ROOT/php-project.mjs"
 install -m 0750 -o root -g root "$APP_ROOT/scripts/project-service-user.mjs" "$HELPER_ROOT/project-service-user.mjs"
+install -m 0750 -o root -g root "$APP_ROOT/scripts/project-storage.mjs" "$HELPER_ROOT/project-storage.mjs"
 install -m 0750 -o root -g root "$APP_ROOT/scripts/mail-host-config.mjs" "$HELPER_ROOT/mail-host-config.mjs"
 install -m 0750 -o root -g root "$APP_ROOT/scripts/nginx-edge.mjs" "$HELPER_ROOT/nginx-edge.mjs"
 install -m 0644 -o root -g root "$APP_ROOT/scripts/domain-dns.mjs" "$HELPER_ROOT/domain-dns.mjs"

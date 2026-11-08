@@ -17,6 +17,7 @@ How-to contains procedures; knowledge holds architecture/context, ADRs, designs 
 - [Install Dashboard Portal on Ubuntu](how-to/production-install.md)
 - [Project auto deploy](how-to/project-auto-deploy.md)
 - [Deploy Python in a project venv](how-to/python-projects.md)
+- [Persistent storage for uploads and other files](how-to/project-storage.md)
 - [Git, signed releases, and handoff](how-to/releasing-and-ai-handoff.md)
 - [Test modules and acceptance boundaries](how-to/testing.md)
 
@@ -54,6 +55,7 @@ How-to contains procedures; knowledge holds architecture/context, ADRs, designs 
 - [ADR 0028: Organization repository credentials](knowledge/adr/0028-organization-repository-credentials.md)
 - [ADR 0029: Selectable Node runtimes and a SQLite compatibility adapter](knowledge/adr/0029-selectable-node-runtimes-and-sqlite-adapter.md)
 - [ADR 0030: Public bootstrap and bilingual documentation](knowledge/adr/0030-public-bootstrap-and-bilingual-documentation.md)
+- [ADR 0032: Project storage is a linked directory outside releases](knowledge/adr/0032-project-storage-is-a-linked-directory-outside-releases.md)
 - [Architecture Decision Records](knowledge/adr/README.md)
 - [Current architecture context](knowledge/context/architecture.md)
 - [Deployment diagnostics and health checks](knowledge/context/deployment-diagnostics-and-health-checks.md)

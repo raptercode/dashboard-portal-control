@@ -1,5 +1,6 @@
 import { pythonSettings } from '../scripts/python-project.mjs';
 import { phpSettings } from '../scripts/php-project.mjs';
+import { validateStoragePath } from '../scripts/project-storage.mjs';
 import { mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { createCipheriv, createDecipheriv, randomBytes, randomUUID } from 'node:crypto';
@@ -357,6 +358,8 @@ export function validateProjectSync(input) {
   if (composeService && !/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,79}$/.test(composeService)) throw new InputError('Docker Compose service is invalid.');
   const domains = input.domains === undefined ? (project.serviceType === 'worker' ? [] : undefined) : validateProjectDomains(input.domains, { allowEmpty: true });
   if (project.serviceType === 'worker' && domains.length) throw new InputError('Worker services cannot have HTTP domains.');
+  // Omitted keeps the stored value (like the optional scripts above); '' or null turns storage off.
+  const storagePath = validateProjectStoragePath(input.storagePath, runtime);
   return {
     ...project,
     protocol,
@@ -371,8 +374,18 @@ export function validateProjectSync(input) {
     ...(runtime === 'docker-compose' ? { composeFile, composeService } : {}),
     ...(buildScript !== undefined ? { buildScript } : {}),
     ...(startScript !== undefined ? { startScript } : {}),
+    ...(storagePath !== undefined ? { storagePath } : {}),
     ...(domains !== undefined ? { domains: { hosts: domains, updatedAt: new Date().toISOString(), syncedAt: null } } : {})
   };
+}
+
+export function validateProjectStoragePath(value, runtime) {
+  if (value === undefined) return undefined;
+  let path;
+  try { path = validateStoragePath(value); }
+  catch (error) { throw new InputError(error.message); }
+  if (path && runtime === 'docker-compose') throw new InputError('Docker Compose projects keep their data in named volumes; a storage path is not supported for them.');
+  return path;
 }
 
 export function validatePythonProjectSettings(input) {

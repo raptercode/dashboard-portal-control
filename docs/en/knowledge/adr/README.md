@@ -23,3 +23,5 @@ Current operational decisions include [ADR 0020](0020-host-helper-keeps-shadow-u
 [ADR 0030](0030-public-bootstrap-and-bilingual-documentation.md) adds the public bootstrap entry point and bilingual how-to/knowledge structure without changing the internal installer or host support boundary.
 
 [ADR 0031](0031-maintenance-exclusion-and-install-recovery.md) defines cooperative maintenance exclusion, consistent installer snapshots, service/file recovery and boot-time lock recreation.
+
+[ADR 0032](0032-project-storage-is-a-linked-directory-outside-releases.md) gives a native project one persistent directory outside its releases, linked into each release at an owner-chosen relative path and created as the project user.

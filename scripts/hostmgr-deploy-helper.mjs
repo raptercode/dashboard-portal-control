@@ -4,6 +4,7 @@ import { spawn } from 'node:child_process';
 import { projectServiceUser } from './project-service-user.mjs';
 import { preparePythonEnvironment, pythonSettings, pythonStartArgs, pythonUserOptions } from './python-project.mjs';
 import { phpExecutable, phpSettings, phpStartArgs, phpUserOptions, preparePhpEnvironment } from './php-project.mjs';
+import { mountProjectStorage, validateStoragePath } from './project-storage.mjs';
 import { access, chmod, chown, copyFile, cp, lstat, mkdir, readFile, readdir, readlink, rename, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { createDecipheriv } from 'node:crypto';
@@ -665,6 +666,11 @@ function validateProject(project) {
     if (typeof project.composeService !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,79}$/.test(project.composeService)) throw new HelperError('Docker Compose service is invalid.');
   }
   if (project.serviceType !== 'worker' && project.healthCheckEnabled !== false && !/^\/(?!\/)[^\s]*$/.test(project.healthCheckPath ?? '/')) throw new HelperError('Project health-check path is invalid.');
+  if (project.storagePath != null) {
+    if (project.runtime === 'docker-compose') throw new HelperError('Docker Compose projects keep their data in named volumes.');
+    try { project.storagePath = validateStoragePath(project.storagePath); }
+    catch (error) { throw new HelperError(error.message); }
+  }
   project.domains ??= { hosts: [] };
   if (!Array.isArray(project.domains.hosts) || project.domains.hosts.length > 10) throw new HelperError('Project has no valid domain configuration.');
   if (project.serviceType === 'worker' && project.domains.hosts.length) throw new HelperError('Workers cannot use domains.');
@@ -691,6 +697,7 @@ async function prepareProjectRelease(project, releaseId) {
     await run('/usr/bin/chown', ['-R', '--no-dereference', `${identity.user}:${identity.user}`, staging]);
     await rename(staging, destination);
   }
+  if (project.storagePath) await mountStorage(project, identity, destination);
   if (project.runtime === 'go') {
     const binary = await lstat(join(destination, 'hostmgr-app')).catch(() => null);
     if (!binary?.isFile() || !(binary.mode & 0o111)) throw new HelperError('Go release binary is missing or not executable.');
@@ -792,6 +799,17 @@ async function prepareProjectRelease(project, releaseId) {
     throw error;
   }
   return transaction;
+}
+
+// Every change under the release is made as the project's own user (see scripts/project-storage.mjs).
+async function mountStorage(project, identity, releaseRoot) {
+  const failure = 'The persistent storage folder could not be linked into the release. Check that the storage path is not a file in the repository.';
+  try {
+    await mountProjectStorage({
+      identity, releaseRoot, storagePath: project.storagePath,
+      runAsProject: (command, commandArguments) => run(command, commandArguments, { cwd: identity.root, uid: identity.uid, gid: identity.gid, failure })
+    });
+  } catch (error) { throw error instanceof HelperError ? error : new HelperError(error.message); }
 }
 
 async function prepareDockerProjectRelease(project, releaseId) {

@@ -17,6 +17,7 @@
 - [ติดตั้ง Dashboard Portal บน Ubuntu](how-to/production-install.md)
 - [ตั้งค่า automatic deployment](how-to/project-auto-deploy.md)
 - [Deploy Python ด้วย venv ของแต่ละ release](how-to/python-projects.md)
+- [Storage ถาวรสำหรับไฟล์ upload](how-to/project-storage.md)
 - [Git, signed release และส่งต่องาน](how-to/releasing-and-ai-handoff.md)
 - [การทดสอบแยกตามโมดูลและสิทธิ์ผู้ใช้](how-to/testing.md)
 
@@ -54,6 +55,7 @@
 - [ADR 0028: Credentials ขององค์กร](knowledge/adr/0028-organization-repository-credentials.md)
 - [ADR 0029: เลือก Node และ SQLite adapter](knowledge/adr/0029-selectable-node-runtimes-and-sqlite-adapter.md)
 - [ADR 0030: Public bootstrap และเอกสารสองภาษา](knowledge/adr/0030-public-bootstrap-and-bilingual-documentation.md)
+- [ADR 0032: Storage ของ project เป็นโฟลเดอร์ที่ link เข้ามาจากนอก releases](knowledge/adr/0032-project-storage-is-a-linked-directory-outside-releases.md)
 - [Architecture Decision Records](knowledge/adr/README.md)
 - [สถาปัตยกรรมปัจจุบัน](knowledge/context/architecture.md)
 - [Diagnostics และ health checks ของ deployment](knowledge/context/deployment-diagnostics-and-health-checks.md)
