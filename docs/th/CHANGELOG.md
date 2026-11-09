@@ -2,7 +2,7 @@
 
 [English](../en/CHANGELOG.md)
 
-## ยังไม่เผยแพร่
+## 1.1.1 — 2026-11-09
 
 - เพิ่ม persistent storage ของ project เดิมไฟล์ที่แอปเขียนไว้ข้างโค้ดหายตอน deploy หรือ rollback ครั้งถัดไป เพราะ release directory ถูกแทนและ release เก่าถูกลบ ตอนนี้ project native (Node.js, Bun, Go, Python, PHP และ worker) ตั้ง **Mount path** เช่น `uploads` ได้ Portal เก็บ `/srv/hostmgr/projects/<slug>/shared/storage` นอก `releases/` แล้ว link เข้าทุก release ที่ path นั้นทั้งตอน deploy และ rollback แอปจึงใช้ `./uploads` เดิมได้ link สร้างโดย Unix user ของ project เอง ไม่ใช่ root ถ้ามีไฟล์ชื่อเดียวกัน deployment จะหยุดแทนที่จะลบไฟล์ Docker Compose ยังใช้ named volume มีผลใน deployment ถัดไป ต้องมีสิทธิ์ `project.configure` และการลบแอปลบ storage ด้วย ติดตั้งไฟล์ใหม่ `project-storage.mjs` ผ่าน installer ดู how-to และ ADR 0032
 
