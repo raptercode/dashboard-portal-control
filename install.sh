@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 umask 077
 
-REPO='https://github.com/raptercode/dashboard-portal-control'
+REPO='https://github.com/raptercode/Strckro'
 VERSION=''
 NODE_MAJOR='24'
 TMP_DIR=''

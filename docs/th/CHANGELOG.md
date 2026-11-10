@@ -117,4 +117,4 @@ Tests ครอบคลุม polling, หลายโปรเจกต์, �
 
 แก้ Docker image ให้มี scripts/views และ Node 20 staging dependencies/permissions ก่อน replace Default Portal/app เดิมยัง 24 Node 20 สำหรับ compatibility Backup state พร้อม encryption key ไม่ต้อง convertDB Native app dependencies อาจต้อง rebuild หลังเปลี่ยน major Local tests ไม่แทน Ubuntu/systemd/Nginx/TLS/reboot acceptance
 
-รุ่นก่อนหน้า: [GitHub Releases](https://github.com/raptercode/dashboard-portal-control/releases)
+รุ่นก่อนหน้า: [GitHub Releases](https://github.com/raptercode/Strckro/releases)

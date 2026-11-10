@@ -23,7 +23,7 @@ Without `--version`, the command selects GitHub's latest published stable releas
 curl -fsSL https://dashboard-portal.cloud/install.sh | bash -s -- --version v1.1.0
 ```
 
-`bash -s` reads the script from the pipe; `--` separates arguments passed to the installer. Use the published tag format `v<major>.<minor>.<patch>`, such as `v1.1.0`, including the `v` prefix. The release must have its archive and checksum published. Missing releases/download failures stop installation rather than falling back to latest. Check available versions in [GitHub Releases](https://github.com/raptercode/dashboard-portal-control/releases).
+`bash -s` reads the script from the pipe; `--` separates arguments passed to the installer. Use the published tag format `v<major>.<minor>.<patch>`, such as `v1.1.0`, including the `v` prefix. The release must have its archive and checksum published. Missing releases/download failures stop installation rather than falling back to latest. Check available versions in [GitHub Releases](https://github.com/raptercode/Strckro/releases).
 
 ### Required inputs and email
 
@@ -104,7 +104,7 @@ sudo strckro update --check
 
 The updater verifies Ed25519 and SHA-256 and preserves the configured Portal Node major. The UI reports available versions; it cannot apply Portal updates. Both SQLite drivers retain the existing schema/file; no data conversion is required. Repeat health/static/project checks after updating.
 
-The default stable feed is [GitHub stable.json](https://github.com/raptercode/dashboard-portal-control/releases/latest/download/stable.json). A custom feed uses `sudo strckro configure-update --manifest=https://releases.example.com/dashboard-portal/stable.json --public-key=/secure/download/dashboard-portal-update-public.pem`. Never replace a verification key just to bypass a signature error. For pre-v0.7.0 installations, independently validate the replacement key/fingerprint from a trusted release before installing it.
+The default stable feed is [GitHub stable.json](https://github.com/raptercode/Strckro/releases/latest/download/stable.json). A custom feed uses `sudo strckro configure-update --manifest=https://releases.example.com/dashboard-portal/stable.json --public-key=/secure/download/dashboard-portal-update-public.pem`. Never replace a verification key just to bypass a signature error. For pre-v0.7.0 installations, independently validate the replacement key/fingerprint from a trusted release before installing it.
 
 ## Troubleshoot
 

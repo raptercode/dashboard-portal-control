@@ -286,7 +286,7 @@ test('Python remains optional while project execution drops privileges before an
 test('installer enrolls new hosts in the signed stable update channel without a manual configure step', async () => {
   const script = await readFile(new URL('../strckro.sh', import.meta.url), 'utf8');
   assert.match(script, /UPDATE_PUBLIC_KEY_SOURCE='scripts\/dashboard-portal-update-public\.pem'/);
-  assert.match(script, /DEFAULT_UPDATE_MANIFEST_URL='https:\/\/github\.com\/raptercode\/dashboard-portal-control\/releases\/latest\/download\/stable\.json'/);
+  assert.match(script, /DEFAULT_UPDATE_MANIFEST_URL='https:\/\/github\.com\/raptercode\/Strckro\/releases\/latest\/download\/stable\.json'/);
   assert.match(script, /install -m 0644 -o root -g root "\$APP_ROOT\/\$UPDATE_PUBLIC_KEY_SOURCE" "\$UPDATE_PUBLIC_KEY_FILE"/);
   assert.match(script, /set_config_value HOSTMGR_UPDATE_CHANNEL "\$DEFAULT_UPDATE_CHANNEL"/);
   assert.match(script, /Preserve an existing custom feed/);

@@ -4,7 +4,7 @@
 
 A dashboard for managing applications on your own Linux server. Connect Git repositories, deploy applications, inspect logs, configure domains and TLS, and manage member access by organization.
 
-[Latest release](https://github.com/raptercode/dashboard-portal-control/releases/latest) · [Ubuntu installation](../th/how-to/production-install.md) · [Node.js versions](../th/how-to/node-versions.md) · [Changelog](CHANGELOG.md)
+[Latest release](https://github.com/raptercode/Strckro/releases/latest) · [Ubuntu installation](../th/how-to/production-install.md) · [Node.js versions](../th/how-to/node-versions.md) · [Changelog](CHANGELOG.md)
 
 ## Features
 
@@ -23,8 +23,8 @@ A dashboard for managing applications on your own Linux server. Connect Git repo
 Install Git and a Node.js version supported by [package.json](../../package.json). Node 24 is the recommended starting point.
 
 ```bash
-git clone https://github.com/raptercode/dashboard-portal-control.git
-cd dashboard-portal-control
+git clone https://github.com/raptercode/Strckro.git
+cd Strckro
 cp .env.example .env
 ```
 

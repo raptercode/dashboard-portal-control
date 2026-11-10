@@ -22,8 +22,8 @@ Bootstrap ถาม domain/email และใช้ Node 24 เป็นค่�
 ## ทดลองบนเครื่องพัฒนา
 
 ```bash
-git clone https://github.com/raptercode/dashboard-portal-control.git
-cd dashboard-portal-control
+git clone https://github.com/raptercode/Strckro.git
+cd Strckro
 cp .env.example .env
 ```
 

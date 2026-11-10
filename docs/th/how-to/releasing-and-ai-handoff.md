@@ -7,7 +7,7 @@
 
 ## ข้อตกลง
 
-Repository คือ [raptercode/dashboard-portal-control](https://github.com/raptercode/dashboard-portal-control) Stable feed คือ latest/download/stable.json ทุก release มี archive `strckro-<VERSION>.tar.gz`, `.sha256` และ signed `stable.json` รวมสาม assets ใช้เวอร์ชันเพิ่มขึ้นและห้ามแทน asset ใต้ tag เดิม สร้างจาก clean committed tagged checkout และเก็บ private signing key/token นอก Git, archive, logs และ arguments Host รับเฉพาะ public key `package.json` เป็น private ไม่ publish npm
+Repository คือ [raptercode/Strckro](https://github.com/raptercode/Strckro) Stable feed คือ latest/download/stable.json ทุก release มี archive `strckro-<VERSION>.tar.gz`, `.sha256` และ signed `stable.json` รวมสาม assets ใช้เวอร์ชันเพิ่มขึ้นและห้ามแทน asset ใต้ tag เดิม สร้างจาก clean committed tagged checkout และเก็บ private signing key/token นอก Git, archive, logs และ arguments Host รับเฉพาะ public key `package.json` เป็น private ไม่ publish npm
 
 ## 1. ตรวจและเตรียม
 
@@ -17,7 +17,7 @@ git remote -v
 git branch --show-current
 git log -1 --oneline
 git fetch origin
-gh release list --repo raptercode/dashboard-portal-control --limit 5
+gh release list --repo raptercode/Strckro --limit 5
 ```
 
 ตรวจ integration branch จริง (เดิม master) remote HEAD และเวอร์ชันที่ publish แล้ว Stage เฉพาะงานที่ต้องการ ใช้ patch สำหรับ compatible change และอัปเดต package/lock/changelog ให้ตรงกัน การเปลี่ยน architecture/security ที่มีผลควรมี ADR พร้อมปรับ context เก็บ boundary ของ Portal/helper, managed Nginx และ encrypted secrets
@@ -49,7 +49,7 @@ git push origin "v$version"
 
 ## 4. Sign นอก repository
 
-ใช้ Ed25519 key เดิมใต้ `$HOME/.dashboard-portal/release-signing` ตรวจ derived public key ตรงกับ `scripts/dashboard-portal-update-public.pem` ห้ามแสดง private key หรือสร้างใหม่สำหรับ release ธรรมดา ตั้ง `STRCKRO_UPDATE_PRIVATE_KEY_PATH` แบบ process-local แล้วเรียก `npm run release:prepare -- --out=<outside-repo> --archive-url=https://github.com/raptercode/dashboard-portal-control/releases/download/v<VERSION>/dashboard-portal-<VERSION>.tar.gz --notes=<description>` ลบ environment variable ใน finally
+ใช้ Ed25519 key เดิมใต้ `$HOME/.dashboard-portal/release-signing` ตรวจ derived public key ตรงกับ `scripts/dashboard-portal-update-public.pem` ห้ามแสดง private key หรือสร้างใหม่สำหรับ release ธรรมดา ตั้ง `STRCKRO_UPDATE_PRIVATE_KEY_PATH` แบบ process-local แล้วเรียก `npm run release:prepare -- --out=<outside-repo> --archive-url=https://github.com/raptercode/Strckro/releases/download/v<VERSION>/strckro-<VERSION>.tar.gz --notes=<description>` ลบ environment variable ใน finally
 
 Script ใช้ `git archive HEAD` รักษา LF ของ shell scripts เพราะส่งเฉพาะไฟล์ที่ commit แล้ว จึงหยุดก่อนหากมีไฟล์ใต้ `src/`, `scripts/`, `public/` หรือ `views/` (รวม `strckro.sh`, `package.json`, `package-lock.json`, `Dockerfile`) ที่ยังไม่ถูก track เพราะ Portal ที่ `server.mjs` import ไฟล์ซึ่งไม่เคยเข้า `HEAD` จะเริ่มไม่ขึ้นบน host ที่ติดตั้ง release นั้น ให้ commit หรือลบไฟล์ และใช้ `--allow-untracked=yes` เฉพาะเมื่อตั้งใจไม่ใส่ไฟล์นั้น ส่วนการแก้ไฟล์ที่ track อยู่แต่ยังไม่ commit จะแสดงเป็นคำเตือน เพราะไม่อยู่ใน archive เช่นกัน ตรวจ `parseSignedManifest`, nested `payload` version/channel/archiveUrl/archiveSha256 และ checksum จริง ตรวจ archive มี source, lock, LICENSE, docs, installers แต่ไม่มี .env, state, dependencies หรือ key ห้ามแก้ signed manifest ด้วยมือ
 

@@ -136,4 +136,4 @@
 - No database conversion is required for the driver adapter. Application-specific native dependencies may need a rebuild when changing Node.
 - Local tests do not replace Ubuntu installation, systemd, Nginx/TLS and reboot acceptance checks.
 
-Earlier releases: [GitHub Releases](https://github.com/raptercode/dashboard-portal-control/releases).
+Earlier releases: [GitHub Releases](https://github.com/raptercode/Strckro/releases).

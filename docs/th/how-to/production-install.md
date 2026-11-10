@@ -34,7 +34,7 @@ curl -fsSL https://dashboard-portal.cloud/install.sh | bash
 curl -fsSL https://dashboard-portal.cloud/install.sh | bash -s -- --version v1.1.0
 ```
 
-`bash -s` ให้อ่าน script จาก pipe และ `--` แยก arguments ที่ส่งให้ installer ระบุ tag แบบ `v<major>.<minor>.<patch>` เช่น `v1.1.0` ไม่ใช่ `0.8.3` เลือกเฉพาะ release ที่มี archive และ checksum เผยแพร่แล้ว หากไม่พบเวอร์ชันหรือดาวน์โหลดไม่ได้จะหยุด ไม่เปลี่ยนไปใช้ latest แทน ดูรุ่นที่มีใน [GitHub Releases](https://github.com/raptercode/dashboard-portal-control/releases)
+`bash -s` ให้อ่าน script จาก pipe และ `--` แยก arguments ที่ส่งให้ installer ระบุ tag แบบ `v<major>.<minor>.<patch>` เช่น `v1.1.0` ไม่ใช่ `0.8.3` เลือกเฉพาะ release ที่มี archive และ checksum เผยแพร่แล้ว หากไม่พบเวอร์ชันหรือดาวน์โหลดไม่ได้จะหยุด ไม่เปลี่ยนไปใช้ latest แทน ดูรุ่นที่มีใน [GitHub Releases](https://github.com/raptercode/Strckro/releases)
 
 ### ต้องใส่อีเมลและข้อมูลอะไรบ้าง
 
@@ -130,7 +130,7 @@ Updater ตรวจ signed manifest และ SHA-256 แล้วใช้ ins
 
 การรองรับ Node 20 ใช้ SQLite driver อีกตัวที่อ่านไฟล์/schema เดิม ไม่ต้องแปลง DB เพื่อสลับ driver อย่างไรก็ตามควรมี backup ก่อนอัปเดตและทดสอบกับข้อมูล staging ของคุณ
 
-Stable feed ตั้งอัตโนมัติเป็น [latest stable manifest](https://github.com/raptercode/dashboard-portal-control/releases/latest/download/stable.json) ใช้ `configure-update` เฉพาะ custom feed:
+Stable feed ตั้งอัตโนมัติเป็น [latest stable manifest](https://github.com/raptercode/Strckro/releases/latest/download/stable.json) ใช้ `configure-update` เฉพาะ custom feed:
 
 ```bash
 sudo strckro configure-update \
@@ -145,7 +145,7 @@ sudo strckro configure-update \
 ```bash
 tmp="$(mktemp)"
 curl -fsSL \
-  https://raw.githubusercontent.com/raptercode/dashboard-portal-control/v0.7.0/scripts/dashboard-portal-update-public.pem \
+  https://raw.githubusercontent.com/raptercode/Strckro/v0.7.0/scripts/dashboard-portal-update-public.pem \
   -o "$tmp"
 printf '%s  %s\n' \
   e8435cb6c3763930158b458821021e89a4b92041c7c71b493e414fb8d70af715 "$tmp" |

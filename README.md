@@ -7,7 +7,7 @@
     <a href="README.th.md">ภาษาไทย</a> ·
     <a href="#install">Install</a> ·
     <a href="docs/en/README-index.md">Docs</a> ·
-    <a href="https://github.com/raptercode/dashboard-portal-control/releases/latest">Latest release</a> ·
+    <a href="https://github.com/raptercode/Strckro/releases/latest">Latest release</a> ·
     <a href="docs/en/donate.md">♥ Donate</a>
   </p>
 </div>
@@ -38,8 +38,8 @@ The installer prompts for your domain and a reachable TLS email. It installs the
 With Git and Node.js 24 installed, run the demo with sample projects and temporary data.
 
 ```bash
-git clone https://github.com/raptercode/dashboard-portal-control.git
-cd dashboard-portal-control
+git clone https://github.com/raptercode/Strckro.git
+cd Strckro
 npm ci
 npm run preview:ui
 ```
@@ -58,6 +58,6 @@ Use your Portal URL and project slug in the commands. The CLI also covers deploy
 
 ## Support
 
-If Strckro helps you run your projects, you can support its development or share feedback. [Donate](docs/en/donate.md) · [Report an issue](https://github.com/raptercode/dashboard-portal-control/issues)
+If Strckro helps you run your projects, you can support its development or share feedback. [Donate](docs/en/donate.md) · [Report an issue](https://github.com/raptercode/Strckro/issues)
 
 [Documentation](docs/en/README-index.md) · [Changelog](docs/en/CHANGELOG.md) · [MIT License](LICENSE) · [Runtime logo credits](public/ui/runtime-logos/SOURCES.md)

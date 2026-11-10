@@ -77,7 +77,7 @@ curl() {
   if [[ "$latest" == true ]]; then
     if [[ "$FIXTURE_MODE" == bad-latest ]]; then
       printf 'https://example.invalid/releases/tag/v0.8.3'
-    else printf 'https://github.com/raptercode/dashboard-portal-control/releases/tag/v0.8.3'; fi
+    else printf 'https://github.com/raptercode/Strckro/releases/tag/v0.8.3'; fi
   else command cp "$FIXTURE_ROOT/${url##*/}" "$output"; fi
 }
 sudo() {

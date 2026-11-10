@@ -7,7 +7,7 @@
     <a href="README.md">English</a> ·
     <a href="docs/th/how-to/production-install.md">คู่มือติดตั้ง</a> ·
     <a href="docs/th/README-index.md">เอกสาร</a> ·
-    <a href="https://github.com/raptercode/dashboard-portal-control/releases/latest">รุ่นล่าสุด</a> ·
+    <a href="https://github.com/raptercode/Strckro/releases/latest">รุ่นล่าสุด</a> ·
     <a href="docs/th/donate.md">♥ สนับสนุน</a>
   </p>
 </div>
@@ -38,8 +38,8 @@ curl -fsSL https://dashboard-portal.cloud/install.sh | bash
 ติดตั้ง Git และ Node.js 24 แล้วรันเดโมที่ใช้ข้อมูลชั่วคราวและโปรเจกต์ตัวอย่าง
 
 ```bash
-git clone https://github.com/raptercode/dashboard-portal-control.git
-cd dashboard-portal-control
+git clone https://github.com/raptercode/Strckro.git
+cd Strckro
 npm ci
 npm run preview:ui
 ```
@@ -58,6 +58,6 @@ skctl deploy my-app --sync --wait --timeout 300
 
 ## สนับสนุน
 
-ถ้า Strckro ช่วยให้คุณจัดการแอปได้ง่ายขึ้น คุณสามารถสนับสนุนการพัฒนาหรือส่งฟีดแบ็กได้ [ช่องทางสนับสนุน](docs/th/donate.md) · [แจ้งปัญหา](https://github.com/raptercode/dashboard-portal-control/issues)
+ถ้า Strckro ช่วยให้คุณจัดการแอปได้ง่ายขึ้น คุณสามารถสนับสนุนการพัฒนาหรือส่งฟีดแบ็กได้ [ช่องทางสนับสนุน](docs/th/donate.md) · [แจ้งปัญหา](https://github.com/raptercode/Strckro/issues)
 
 [สารบัญเอกสาร](docs/th/README-index.md) · [ประวัติการเปลี่ยนแปลง](docs/th/CHANGELOG.md) · [MIT License](LICENSE) · [เครดิตโลโก้ Runtime](public/ui/runtime-logos/SOURCES.md)

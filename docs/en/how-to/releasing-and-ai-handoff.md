@@ -8,8 +8,8 @@ the Portal and production-host updates are separate operations.
 
 ## Contract
 
-- Repository: [raptercode/dashboard-portal-control](https://github.com/raptercode/dashboard-portal-control).
-- Stable feed: [latest/download/stable.json](https://github.com/raptercode/dashboard-portal-control/releases/latest/download/stable.json).
+- Repository: [raptercode/Strckro](https://github.com/raptercode/Strckro).
+- Stable feed: [latest/download/stable.json](https://github.com/raptercode/Strckro/releases/latest/download/stable.json).
 - Every release contains exactly three assets: `strckro-<VERSION>.tar.gz`,
   its `.sha256`, and signed `stable.json`.
 - Publish a new increasing version; never replace assets under an existing tag.
@@ -31,7 +31,7 @@ git remote -v
 git branch --show-current
 git log -1 --oneline
 git fetch origin
-gh release list --repo raptercode/dashboard-portal-control --limit 5
+gh release list --repo raptercode/Strckro --limit 5
 ```
 
 Confirm the actual integration branch (historically `master`), current remote
@@ -98,7 +98,7 @@ $version = node -p "require('./package.json').version"
 $releaseDir = Join-Path $HOME ".dashboard-portal\releases\v$version"
 $env:STRCKRO_UPDATE_PRIVATE_KEY_PATH = Join-Path $HOME '.dashboard-portal\release-signing\dashboard-portal-update-private.pem'
 try {
-  npm run release:prepare -- "--out=$releaseDir" "--archive-url=https://github.com/raptercode/dashboard-portal-control/releases/download/v$version/strckro-$version.tar.gz" --notes="Describe the user-visible change"
+  npm run release:prepare -- "--out=$releaseDir" "--archive-url=https://github.com/raptercode/Strckro/releases/download/v$version/strckro-$version.tar.gz" --notes="Describe the user-visible change"
 } finally {
   Remove-Item Env:STRCKRO_UPDATE_PRIVATE_KEY_PATH
 }
@@ -121,8 +121,8 @@ Do not hand-edit the signed manifest.
 Write human-readable release notes to a file outside the checkout, then:
 
 ```powershell
-gh release create "v$version" "$releaseDir\strckro-$version.tar.gz" "$releaseDir\strckro-$version.tar.gz.sha256" "$releaseDir\stable.json" --repo raptercode/dashboard-portal-control --title "Dashboard Portal v$version" --notes-file "$releaseDir\release-notes.md" --verify-tag
-gh release view "v$version" --repo raptercode/dashboard-portal-control
+gh release create "v$version" "$releaseDir\strckro-$version.tar.gz" "$releaseDir\strckro-$version.tar.gz.sha256" "$releaseDir\stable.json" --repo raptercode/Strckro --title "Dashboard Portal v$version" --notes-file "$releaseDir\release-notes.md" --verify-tag
+gh release view "v$version" --repo raptercode/Strckro
 ```
 
 Download the published assets into a fresh directory and repeat signature/hash

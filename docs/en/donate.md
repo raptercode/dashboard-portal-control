@@ -22,4 +22,4 @@ Select USDT on **BNB Smart Chain (BEP-20)** and copy the receiving address below
 
 ## Other ways to support the project
 
-Share Strckro with someone who runs their own server, report a reproducible bug, or submit a pull request. [GitHub repository](https://github.com/raptercode/dashboard-portal-control) · [Issues](https://github.com/raptercode/dashboard-portal-control/issues)
+Share Strckro with someone who runs their own server, report a reproducible bug, or submit a pull request. [GitHub repository](https://github.com/raptercode/Strckro) · [Issues](https://github.com/raptercode/Strckro/issues)

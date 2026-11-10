@@ -18,4 +18,4 @@
 
 ## สนับสนุนแบบอื่น
 
-แชร์ Strckro ให้คนที่ดูแลเซิร์ฟเวอร์เอง แจ้งบั๊กพร้อมขั้นตอนที่ทำให้เกิดปัญหา หรือส่ง pull request เข้ามาได้ [GitHub repository](https://github.com/raptercode/dashboard-portal-control) · [แจ้งปัญหา](https://github.com/raptercode/dashboard-portal-control/issues)
+แชร์ Strckro ให้คนที่ดูแลเซิร์ฟเวอร์เอง แจ้งบั๊กพร้อมขั้นตอนที่ทำให้เกิดปัญหา หรือส่ง pull request เข้ามาได้ [GitHub repository](https://github.com/raptercode/Strckro) · [แจ้งปัญหา](https://github.com/raptercode/Strckro/issues)
