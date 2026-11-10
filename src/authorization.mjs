@@ -121,7 +121,7 @@ export function authorizeRequest({ state, user, path, method, body = {} }) {
     }
     const permission = {
       'POST deploy': 'deploy.start', 'POST restart': 'deploy.start', 'POST rollback': 'deploy.rollback',
-      'GET deploy-configuration': 'project.view', 'GET environment': 'env.read',
+      'GET deploy-configuration': 'project.view', 'GET environment': 'env.read', 'GET storage': 'project.view',
       'POST environment': 'env.write', 'GET logs': 'logs.read',
       'PATCH environment': 'env.write',
       'POST domains': 'domains.manage', 'POST domains/check': 'domains.manage', 'POST domains/verify': 'domains.manage', 'POST edge/check': 'domains.manage'

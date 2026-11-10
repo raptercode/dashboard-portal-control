@@ -83,3 +83,73 @@ export async function mountProjectStorage({ identity, releaseRoot, storagePath, 
   await runAsProject('/usr/bin/ln', ['-s', '--', storage, link]);
   return true;
 }
+
+// ---------------------------------------------------------------------------------------------
+// Status: read-only, for the Storage tab of an application.
+//
+// The same rule as above applies. Root only calls lstat/readlink. Counting what is inside the
+// folder goes through `runAsProject`, because the application can put anything in there, including
+// a link to a path it should not see; find and df run as the project's own user and never follow one.
+
+/** `df --output=size,avail --block-size=1` prints a header and one row of two numbers. */
+export function parseSpace(output) {
+  const lines = String(output ?? '').trim().split('\n');
+  const values = lines.length > 1 ? lines.at(-1).trim().split(/\s+/) : [];
+  if (values.length !== 2 || !values.every((value) => /^\d+$/.test(value))) return null;
+  return { totalBytes: Number(values[0]), availableBytes: Number(values[1]) };
+}
+
+/**
+ * Adds one line of `find -printf "%y %s\n"` ("f 1500", "d 4096", "l 12") to the running totals.
+ * Only regular files add to the size: a folder's own size is a file-system detail, not something stored.
+ */
+export function addEntry(total, line) {
+  const match = String(line).match(/^([A-Za-z]) (\d+)$/);
+  if (!match) throw new Error('Storage listing could not be read.');
+  total.entries += 1;
+  if (match[1] === 'f') total.bytes += Number(match[2]);
+  return total;
+}
+
+/**
+ * Size of the storage folder: bytes in regular files, how many items it holds (files, folders and
+ * links, not counting the folder itself) and the space left on its disk. Throws when a number is
+ * missing. `find` never follows a link and -xdev never leaves the filesystem, so the walk stays
+ * inside the folder. `scanAsProject` streams the listing line by line, so a folder with millions of
+ * files is counted without holding the list in memory.
+ */
+export async function measureStorage({ directory, scanAsProject, runAsProject }) {
+  const total = { entries: 0, bytes: 0 };
+  await scanAsProject('/usr/bin/find', [directory, '-xdev', '-printf', '%y %s\n'], (line) => addEntry(total, line));
+  const space = parseSpace(await runAsProject('/usr/bin/df', ['--output=size,avail', '--block-size=1', '--', directory]));
+  if (total.entries < 1 || !space) throw new Error('Storage usage could not be read.');
+  return { bytes: total.bytes, items: total.entries - 1, ...space };
+}
+
+/**
+ * What the Portal shows for one project:
+ *   configured  the project has a storage path
+ *   deployed    a release is live (`current` exists)
+ *   mounted     the live release links <path> to the storage folder; false means the next deployment applies it
+ *   exists      the storage folder exists (it is created by the first deployment that has a path)
+ *   measured    usage is present; false when the folder is missing or counting failed or timed out
+ */
+export async function storageStatus({ identity, storagePath, currentRelease, scanAsProject, runAsProject, inspect = lstat, readLink = readlink }) {
+  const path = validateStoragePath(storagePath);
+  if (!path) return { configured: false };
+  const directory = storageDirectory(identity);
+  const status = { configured: true, path, directory, deployed: Boolean(currentRelease), mounted: false, exists: false, measured: false, usage: null };
+  if (currentRelease) {
+    const link = join(currentRelease, ...path.split('/'));
+    const entry = await inspect(link).catch(() => null);
+    status.mounted = Boolean(entry?.isSymbolicLink()) && await readLink(link).catch(() => null) === directory;
+  }
+  const folder = await inspect(directory).catch(() => null);
+  status.exists = Boolean(folder?.isDirectory());
+  if (!status.exists) return status;
+  try {
+    status.usage = await measureStorage({ directory, scanAsProject, runAsProject });
+    status.measured = true;
+  } catch { /* the folder is there but could not be counted; the caller reports that, not an error */ }
+  return status;
+}

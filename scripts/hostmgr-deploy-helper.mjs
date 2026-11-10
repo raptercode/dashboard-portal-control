@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import { projectServiceUser } from './project-service-user.mjs';
 import { preparePythonEnvironment, pythonSettings, pythonStartArgs, pythonUserOptions } from './python-project.mjs';
 import { phpExecutable, phpSettings, phpStartArgs, phpUserOptions, preparePhpEnvironment } from './php-project.mjs';
-import { mountProjectStorage, validateStoragePath } from './project-storage.mjs';
+import { mountProjectStorage, storageStatus, validateStoragePath } from './project-storage.mjs';
 import { access, chmod, chown, copyFile, cp, lstat, mkdir, readFile, readdir, readlink, rename, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { createDecipheriv } from 'node:crypto';
@@ -43,6 +43,8 @@ const MAIL_VMAIL_ROOT = '/var/vmail';
 const MAIL_DKIM_ROOT = '/etc/opendkim/keys';
 const MAIL_CERTIFICATE = '/etc/letsencrypt/live/hostmgr-mail';
 const MAX_COMMAND_OUTPUT_BYTES = 64 * 1024;
+// A very large storage folder must not keep the helper busy: counting gives up and the Portal says so.
+const STORAGE_MEASURE_TIMEOUT_MS = 20_000;
 
 const args = parseArgs(process.argv.slice(2));
 const socketPath = args.socket;
@@ -97,6 +99,7 @@ async function dispatch(request) {
   if (request.operation === 'set-admin-password') return setAdminPassword(request.password);
   if (request.operation === 'read-project-log') return readProjectLog(request.slug, request.lines);
   if (request.operation === 'project-runtime-status') return projectRuntimeStatus(request.slug);
+  if (request.operation === 'project-storage-status') return projectStorageStatus(request.slug);
   if (request.operation === 'inspect-project-edge') return inspectProjectEdge(request.slug, request.hostname);
   if (request.operation === 'mail-port-readiness') return mailPortReadiness();
   if (request.operation === 'configure-mail') return configureMail();
@@ -139,6 +142,49 @@ async function projectRuntimeStatus(slug) {
   }
   if (project.healthCheckEnabled !== false && !await healthCheck(project.port, project.healthCheckPath ?? '/')) return { state: 'down' };
   return { state: 'active' };
+}
+
+// Read-only. Root reads metadata; counting the folder runs as the project's own user (see scripts/project-storage.mjs).
+async function projectStorageStatus(slug) {
+  const project = await loadProject(slug);
+  const identity = projectIdentity(slug);
+  const asProject = async () => {
+    if (identity.uid == null) {
+      identity.gid = Number(await run('/usr/bin/id', ['-g', identity.user]));
+      identity.uid = Number(await run('/usr/bin/id', ['-u', identity.user]));
+    }
+    return { cwd: identity.root, uid: identity.uid, gid: identity.gid, timeout: STORAGE_MEASURE_TIMEOUT_MS, failure: 'The project storage could not be measured.' };
+  };
+  const runAsProject = async (command, commandArguments) => run(command, commandArguments, await asProject());
+  const scanAsProject = async (command, commandArguments, onLine) => streamLines(command, commandArguments, await asProject(), onLine);
+  const currentRelease = await readlink(identity.current).catch(() => null);
+  return { storage: await storageStatus({ identity, storagePath: project.storagePath, currentRelease, scanAsProject, runAsProject }) };
+}
+
+// Runs a command and hands its output over one line at a time, so a very long listing is never held in memory.
+function streamLines(command, commandArguments, { failure = 'A required host operation failed.', ...spawnOptions }, onLine) {
+  return new Promise((resolve, reject) => {
+    let child;
+    try { child = spawn(command, commandArguments, { shell: false, stdio: ['ignore', 'pipe', 'pipe'], ...spawnOptions }); }
+    catch { reject(new HelperError(failure)); return; }
+    let pending = '';
+    let broken = false;
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', (chunk) => {
+      if (broken) return;
+      pending += chunk;
+      try {
+        for (let end = pending.indexOf('\n'); end >= 0; end = pending.indexOf('\n')) {
+          const line = pending.slice(0, end);
+          pending = pending.slice(end + 1);
+          onLine(line);
+        }
+      } catch { broken = true; child.kill('SIGKILL'); }
+    });
+    child.stderr.resume();
+    child.once('error', () => reject(new HelperError(failure)));
+    child.once('close', (code) => (code === 0 && !broken && pending === '' ? resolve() : reject(new HelperError(failure))));
+  });
 }
 
 async function restartProject(slug, releaseId) {

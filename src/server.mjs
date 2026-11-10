@@ -17,6 +17,7 @@ import { StateStore, TOOLS, SUPPORTED_NODE_MAJOR, SecretVault, appendAudit, init
 import { NODE_VERSIONS, nodeBin, nodeRuntimeEnvironment } from '../scripts/node-versions.mjs';
 import { readNodePackageManager, assertPnpmAvailable, pnpmCommand, pnpmPaths, PNPM_PATH } from '../scripts/node-package-manager.mjs';
 import { detectPrismaProject } from '../scripts/prisma-project.mjs';
+import { storageDirectory } from '../scripts/project-storage.mjs';
 import { checkDomainDns } from './dns-check.mjs';
 import { activateRelease, appendReleaseEvent, beginDeployment, beginRollback, createRelease, defaultCandidatePort, failRelease, initialDeployment, markReleaseHealthy, markReleasePendingActivation, projectIdentity, pruneInactiveReleases, validateDockerComposeProject, validateNativeProject, validatePackageScripts } from './native-project.mjs';
 import { callHostHelper } from './helper-client.mjs';
@@ -129,6 +130,10 @@ export async function createApplication(options = {}) {
   const domainMutations = new Set();
   const projectRestarts = new Set();
   const projectRestartHelper = options.projectRestartHelper ?? callHostHelper;
+  const projectStorageHelper = options.projectStorageHelper ?? callHostHelper;
+  // Counting a folder is real work on the host: simultaneous and repeated reads share one answer.
+  const projectStorageReads = new Map();
+  const PROJECT_STORAGE_READ_TTL_MS = 5_000;
   const mailOutboundCheck = options.mailOutboundCheck ?? checkSmtpOutbound;
   const mailInboundCheck = options.mailInboundCheck ?? (() => checkMailInboundReadiness(mode, process.env.HOSTMGR_DEPLOY_HELPER_SOCKET));
   const mailDns = {
@@ -440,6 +445,8 @@ export async function createApplication(options = {}) {
       if (request.method === 'POST' && domainsMatch) return await handleProjectDomains(request, response, domainsMatch[1]);
       const logsMatch = url.pathname.match(/^\/api\/projects\/([a-z][a-z0-9-]{0,62})\/logs$/);
       if (request.method === 'GET' && logsMatch) return await handleProjectLogs(request, response, logsMatch[1]);
+      const storageMatch = url.pathname.match(/^\/api\/projects\/([a-z][a-z0-9-]{0,62})\/storage$/);
+      if (request.method === 'GET' && storageMatch) return await handleProjectStorage(request, response, storageMatch[1]);
       if (request.method === 'GET' && url.pathname === '/api/monitor-tokens') {
         if (!requireSession(request, response)) return;
         return sendJson(response, 200, { tokens: (store.snapshot().monitorTokens ?? []).filter(visibleIntegration).map(publicMonitorToken) });
@@ -2222,6 +2229,48 @@ export async function createApplication(options = {}) {
     }
   }
 
+  // Read-only status of a project's persistent storage: where it is, whether the live release uses it,
+  // and how much is in it. The files themselves are never listed or served.
+  async function handleProjectStorage(request, response, slug) {
+    if (!requireSession(request, response)) return;
+    const project = findProject(store.snapshot(), slug);
+    const path = project.storagePath ?? null;
+    if (!path) return sendJson(response, 200, { configured: false, path: null, directory: null, state: 'none', available: true, simulated: false });
+    const base = { configured: true, path, directory: storageDirectory(projectIdentity(project.slug)) };
+    const socketPath = process.env.HOSTMGR_DEPLOY_HELPER_SOCKET;
+    if (!socketPath) {
+      if (mode === 'host') return sendJson(response, 200, { ...base, state: 'unknown', available: false, notice: 'ยังไม่ได้เชื่อมต่อ deployment helper — อ่านสถานะ storage ไม่ได้', simulated: false });
+      return sendJson(response, 200, simulatedStorageStatus(project, base, uiDemo));
+    }
+    try {
+      return sendJson(response, 200, await readProjectStorage(project, base, socketPath));
+    } catch {
+      return sendJson(response, 200, { ...base, state: 'unknown', available: false, notice: 'อ่านสถานะ storage จาก host ไม่สำเร็จ', simulated: false });
+    }
+  }
+
+  function readProjectStorage(project, base, socketPath) {
+    const key = `${project.slug}\0${base.path}`;
+    const cached = projectStorageReads.get(key);
+    if (cached && cached.expiresAt > Date.now()) return cached.promise;
+    const promise = (async () => {
+      const result = await projectStorageHelper(socketPath, { operation: 'project-storage-status', slug: project.slug });
+      if (result?.ok !== true || !result.storage || typeof result.storage !== 'object') throw new Error('Storage status is unavailable.');
+      return publicStorageStatus(base, result.storage);
+    })();
+    const entry = { expiresAt: Infinity, promise };
+    projectStorageReads.set(key, entry);
+    const remove = () => {
+      if (projectStorageReads.get(key) === entry) projectStorageReads.delete(key);
+    };
+    // Keep sharing while the helper works, then cache the finished reading briefly.
+    promise.then(() => {
+      entry.expiresAt = Date.now() + PROJECT_STORAGE_READ_TTL_MS;
+      setTimeout(remove, PROJECT_STORAGE_READ_TTL_MS).unref();
+    }, remove);
+    return promise;
+  }
+
   async function hostInstall(tool) {
     const socketPath = process.env.HOSTMGR_DEPLOY_HELPER_SOCKET;
     if (!socketPath) throw new InputError('Host installer is not configured. Re-run the Strckro installer.');
@@ -3230,6 +3279,22 @@ function safeDeploymentFailure(error) {
 
 function demoInstall(tool) {
   return { version: 'sandbox-simulated', detail: `Validated allowlisted install request for ${TOOLS[tool].package}; no host package was changed.` };
+}
+
+// Only these fields, each checked, cross from the root helper to the browser.
+function publicStorageStatus(base, storage) {
+  const count = (value) => Number.isSafeInteger(value) && value >= 0 ? value : null;
+  const raw = storage.measured === true && storage.usage && typeof storage.usage === 'object' ? storage.usage : null;
+  const usage = raw ? { bytes: count(raw.bytes), items: count(raw.items), totalBytes: count(raw.totalBytes), availableBytes: count(raw.availableBytes) } : null;
+  const measured = Boolean(usage) && Object.values(usage).every((value) => value !== null);
+  return { ...base, state: storage.mounted === true ? 'active' : 'pending', deployed: storage.deployed === true, exists: storage.exists === true, measured, usage: measured ? usage : null, available: true, simulated: false };
+}
+
+// Sandbox and UI-demo modes have no project folder on this machine. The demo shows sample numbers, marked as simulated.
+function simulatedStorageStatus(project, base, sample) {
+  const deployed = Boolean(project.deployment?.activeReleaseId);
+  const usage = sample && deployed ? { bytes: 48_234_496, items: 312, totalBytes: 53_687_091_200, availableBytes: 31_457_280_000 } : null;
+  return { ...base, state: deployed ? 'active' : 'pending', deployed, exists: deployed, measured: Boolean(usage), usage, available: true, simulated: true };
 }
 
 function demoProjectLogLines(project, identity) {

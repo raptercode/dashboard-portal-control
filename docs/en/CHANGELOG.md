@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.1.2 — 2026-11-10
+
+- Show persistent storage in the application. A new read-only **Storage** tab gives the mount path, the host folder, whether the live release already uses it (*In use* or *Waiting for the next deploy*), the bytes in regular files, the number of items and the free disk space, with **Measure again**. The Portal asks the root helper (`project-storage-status`), which reads link metadata itself but counts the folder with `find` and `df` run as the project's own Unix user, never following links and giving up after 20 seconds; one reading is shared for five seconds. Visible with `project.view` through `GET /api/projects/<slug>/storage`. It shows no file names and cannot download, upload or delete files. See the how-to and the ADR 0032 addendum.
+
 ## 1.1.1 — 2026-11-09
 
 - Add persistent project storage. Files an application wrote next to its code were lost at the next deploy or rollback, because each release directory is replaced and old ones are deleted. A native project (Node.js, Bun, Go, Python, PHP, workers) can now set a **Mount path** such as `uploads`; the Portal keeps `/srv/hostmgr/projects/<slug>/shared/storage` outside `releases/` and links it into every release at that path, at deploy and at rollback, so the application keeps using `./uploads` unchanged. The link is made as the project's own Unix user, never by root; a file at the path stops the deployment instead of being deleted; Docker Compose keeps named volumes. Applies at the next deployment, needs `project.configure`, and deleting the application deletes its storage. New installer file `project-storage.mjs`. See the how-to and ADR 0032.

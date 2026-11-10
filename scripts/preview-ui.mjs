@@ -39,6 +39,8 @@ await app.store.update(state => {
       repository: `https://github.com/strckro-demo/${slug}.git`, protocol: 'https', branch: 'main', directory: '/',
       nodeMajor: 24, buildScript: 'build', startScript: 'start', serviceType: slug === 'background-jobs' ? 'worker' : 'web',
       healthCheckEnabled: true, healthCheckPath: '/',
+      // Three storage states in the demo: live, live in a nested folder, and not deployed yet.
+      ...({ storefront: { storagePath: 'uploads' }, 'payments-api': { storagePath: 'public/uploads' }, 'docs-site': { storagePath: 'data' } }[slug] ?? {}),
       sync: { status: 'synced', revision: `${index + 1}c9e6af41092d8b3`, updatedAt: createdAt },
       domains: { hosts: domain ? [domain] : [], status: domain ? 'active' : 'pending' },
       environment: { keys: ['NODE_ENV', 'API_URL'] },

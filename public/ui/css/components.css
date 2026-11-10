@@ -1179,6 +1179,7 @@ textarea.code {
   overflow: auto;
 }
 .dialog-body:has(> .tabs) {
+  grid-template-rows: max-content auto;
   gap: 0;
   padding: 0;
 }

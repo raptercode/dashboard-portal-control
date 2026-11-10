@@ -20,6 +20,17 @@ Works for Node.js, Bun, Go, Python and PHP services and for workers. Docker Comp
 - The path is relative to the app folder, at most five folders, each made of letters, digits, `.`, `-` or `_` and not starting with a dot. `node_modules`, `vendor`, `venv` and `hostmgr-app` are refused because the runtimes need those names.
 - The link and the folder are created by the project's own Unix user, not by root, so a link inside a release cannot make the Portal's privileged helper touch anything the project could not already touch. The service can write only under its project directory, which includes this folder.
 
+## Checking what is stored
+
+Open the application and choose the **Storage** tab. It is shown for every native project and is read-only:
+
+- **Status.** *In use*: the live release links the mount path to the folder, so files survive deploys, rollbacks and restarts. *Waiting for the next deploy*: a mount path is saved but the live release does not link it yet, because it was set after the last deployment or the project has never been deployed; the first deployment with the path creates the folder. *Cannot read status*: the Portal could not reach the host helper, or the helper failed.
+- **Size used** is the number of bytes in regular files. **Items** counts the files, folders and links inside the folder, not the folder itself. **Free disk** is the space left on the disk that holds the folder.
+- Links inside the folder are counted as items but never followed, so a link that points elsewhere does not add the size of its target. A file with several names (hard links) is counted under each name. The size that a file system gives the folders themselves is not counted, so an empty folder reads 0 bytes.
+- Counting runs as the project's own Unix user and gives up after 20 seconds. A very large folder then shows that it could not be measured; press **Measure again**. The Portal reuses one reading for five seconds.
+
+Anyone who can see the project (`project.view`) can read the tab. It does not list, download, upload or delete files; use the host for that. The link on the tab opens the application form where the mount path is set.
+
 ## Moving files that already exist
 
 Turning the mount on does not copy files an application already wrote into the active release. Deploy once with the path set; the release it replaced is then the previous release and still on disk. Copy its folder before the next deploy removes it:

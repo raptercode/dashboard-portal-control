@@ -29,3 +29,7 @@ A native project may set one `storagePath`: a relative folder inside the app (`u
 - Turning the mount on does not move files an application already wrote into the active release. The how-to gives the one-time copy command.
 - There is no quota, replication or backup, and the existing recursive `chown` of the project root on every deploy grows with the number of stored files.
 - Not verified: a real systemd host. The link creation was exercised as a non-root user on Ubuntu under WSL2, and the generated unit is unchanged.
+
+## Addendum (2026-11-10): reading the storage
+
+The application sheet has a read-only **Storage** tab (`GET /api/projects/<slug>/storage`, `project.view`) fed by the helper operation `project-storage-status`. It keeps the rule above. Root only calls `lstat` and `readlink` (is the live release linked to the storage folder, does the folder exist). Counting the folder runs `find` and `df` as the project's own uid and gid, because the application controls what is in it: `find` does not follow links and stays on one file system, and the listing is streamed so a large folder is never held in memory. The helper stops counting after 20 seconds and the Portal shares one reading for five seconds. Only regular files add to the size, so an empty folder reads 0 bytes whatever size the file system gives a folder. The tab shows no file names and changes nothing. Listing, downloading, uploading or deleting files through the Portal would need its own decision: path and link handling, size limits and a separate permission.

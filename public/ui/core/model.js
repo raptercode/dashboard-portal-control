@@ -1,4 +1,5 @@
 import { runtimeLabel } from "./runtimes.js";
+import { bytes } from "./dom.js";
 export const groups = {
   workspace: {
     label: "Workspace",
@@ -302,6 +303,44 @@ export const slugify = (value) => {
   );
 };
 export const isWorker = (project) => project.serviceType === "worker";
+// What the Storage tab says about an application's persistent storage, from
+// GET /api/projects/:slug/storage. Pure, so the wording can be tested.
+export function storageSummary(data) {
+  if (!data?.configured) return { configured: false };
+  const { state, usage } = data;
+  const meaning =
+    state === "active"
+      ? "release ที่ใช้งานอยู่ link มาที่โฟลเดอร์นี้แล้ว ไฟล์ไม่หายเมื่อ deploy, rollback หรือ restart"
+      : state === "pending"
+        ? data.deployed
+          ? "release ที่ใช้งานอยู่ยังไม่ได้ link มาที่โฟลเดอร์นี้ จะมีผลเมื่อ deploy ครั้งถัดไป"
+          : "ยังไม่มี release โฟลเดอร์จะถูกสร้างตอน deploy ครั้งแรก"
+        : data.notice || "อ่านสถานะจาก host ไม่สำเร็จ";
+  return {
+    configured: true,
+    tone: state === "active" ? "success" : state === "pending" ? "pending" : "danger",
+    label:
+      state === "active"
+        ? "ใช้งานอยู่"
+        : state === "pending"
+          ? "รอ deploy ถัดไป"
+          : "อ่านสถานะไม่ได้",
+    meaning,
+    rows: [
+      ["Mount path", data.path, true],
+      ["โฟลเดอร์บนโฮสต์", data.directory, true],
+      ["ขนาดที่ใช้", usage ? bytes(usage.bytes) : "—"],
+      ["จำนวนรายการ", usage ? `${usage.items.toLocaleString("th-TH")} รายการ` : "—"],
+      [
+        "พื้นที่ดิสก์ที่เหลือ",
+        usage ? `${bytes(usage.availableBytes)} จาก ${bytes(usage.totalBytes)}` : "—",
+      ],
+    ],
+    // The folder is there but counting failed or timed out.
+    uncounted: data.available !== false && data.exists === true && !usage,
+    simulated: data.simulated === true,
+  };
+}
 export function validateService(draft) {
   if (
     isWorker(draft) &&

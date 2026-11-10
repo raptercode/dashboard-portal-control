@@ -27,6 +27,7 @@ import {
   runtimeName,
   syncPayload,
   isWorker,
+  storageSummary,
 } from "../core/model.js";
 import { secretReveal } from "../core/overlays.js";
 import { logoName } from "../core/runtimes.js";
@@ -105,6 +106,12 @@ export async function openProject(ctx, initial, initialTab = "deploy") {
       "domains",
       "Domains",
       ctx.can("domains.manage", project) && !isWorker(project),
+    ],
+    // Docker Compose keeps its data in named volumes, so there is nothing to show for it.
+    [
+      "storage",
+      "Storage",
+      ctx.can("project.view", project) && project.runtime !== "docker-compose",
     ],
     ["releases", "Releases", ctx.can("logs.read", project)],
     ["automation", "Automation", ctx.can("project.configure", project)],
@@ -204,6 +211,7 @@ export async function openProject(ctx, initial, initialTab = "deploy") {
           reload: reloadProject,
           isOpen: active,
         });
+      if (id === "storage") await storagePane(ctx, project, body);
       if (id === "releases")
         releasePane(ctx, project, body, {
           current: () => project,
@@ -751,6 +759,79 @@ async function environmentPane(ctx, p, root, setDirty) {
     editor.control.value = "";
     list.forEach((x) => (x.value.value = ""));
   };
+}
+// Persistent storage: where it is, whether the live release uses it and how much is in it. Read-only;
+// the Mount path itself is set in the application form. The wording lives in storageSummary().
+async function storagePane(ctx, p, root) {
+  const base = pathFor(p) + "/storage";
+  const view = h("div", { class: "stack" });
+  const edit =
+    ctx.can("project.configure", p) &&
+    link(
+      p.storagePath ? "แก้ไข Mount path" : "ตั้งค่า Mount path",
+      `/projects/${encodeURIComponent(p.slug)}/edit/repository`,
+      "btn secondary",
+    );
+  const paint = (data) => {
+    const summary = storageSummary(data);
+    if (!summary.configured) {
+      view.replaceChildren(
+        empty(
+          "ยังไม่ได้ตั้ง Persistent storage",
+          "ไฟล์ที่แอปเขียนไว้ใน release เช่น ./uploads จะหายเมื่อ deploy หรือ rollback ตั้ง Mount path เพื่อเก็บไว้นอก release",
+          edit || undefined,
+        ),
+      );
+      return;
+    }
+    const measure = button("วัดใหม่", async () => {
+      paint(await ctx.api.get(base, { ttl: 0, force: true }));
+    });
+    view.replaceChildren(
+      panel(
+        "Persistent storage",
+        "โฟลเดอร์ที่เก็บไว้นอก releases",
+        h(
+          "div",
+          { class: "panel-body stack" },
+          h(
+            "div",
+            { class: "actions" },
+            badge(summary.label, summary.tone),
+            h("small", {}, summary.meaning),
+          ),
+          h(
+            "dl",
+            { class: "key-values" },
+            ...summary.rows.flatMap(([key, value, mono]) => [
+              h("dt", {}, key),
+              h("dd", { class: mono ? "mono" : "" }, value),
+            ]),
+          ),
+          summary.simulated &&
+            h(
+              "div",
+              { class: "notice" },
+              "ข้อมูลตัวอย่างจากโหมดสาธิต ไม่ได้อ่านจากโฮสต์จริง",
+            ),
+          summary.uncounted &&
+            h(
+              "div",
+              { class: "notice warning" },
+              "วัดขนาดไม่สำเร็จ โฟลเดอร์อาจมีไฟล์จำนวนมาก ลองวัดใหม่อีกครั้ง",
+            ),
+          h(
+            "small",
+            {},
+            "ขนาดนับจากไฟล์จริงในโฟลเดอร์ และไม่ตาม symlink · การลบแอปจะลบไฟล์ใน storage ด้วย",
+          ),
+          h("div", { class: "actions" }, measure, edit),
+        ),
+      ),
+    );
+  };
+  paint(await ctx.api.get(base, { ttl: 0 }));
+  root.append(view);
 }
 function releasePane(ctx, p, root, { current, reload, refresh, watch }) {
   const releases = p.deployment?.releases || [];

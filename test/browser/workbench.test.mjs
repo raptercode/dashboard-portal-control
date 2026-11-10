@@ -192,6 +192,21 @@ test("applications load only their API and navigation stays in the same document
   assert.equal(documents, 1);
 });
 
+test("Storage remains clickable when a live project's Deploy pane is taller than the sheet", async (t) => {
+  const { app, page, go } = await fixture(t);
+  await app.store.update((state) => {
+    const project = state.projects.find((item) => item.slug === "alpha");
+    project.storagePath = "uploads";
+    project.deployment.activeReleaseId = "release-one";
+  });
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await go("/projects");
+  await page.getByRole("button", { name: "Alpha", exact: true }).click();
+  await page.getByRole("tab", { name: "Storage", exact: true }).click({ timeout: 5000 });
+  await page.getByText("ใช้งานอยู่", { exact: true }).waitFor();
+  await page.getByText("uploads", { exact: true }).waitFor();
+});
+
 test("ENV rows retain filtered keys, preserve comments, save empty values, and protect unsaved dismissal", async (t) => {
   const { page, go, context, base } = await fixture(t);
   await go("/projects");

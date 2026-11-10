@@ -2,6 +2,10 @@
 
 [English](../en/CHANGELOG.md)
 
+## 1.1.2 — 2026-11-10
+
+- แสดง persistent storage ในหน้าแอป เพิ่มแท็บ **Storage** แบบอ่านอย่างเดียว แสดง mount path โฟลเดอร์บนโฮสต์ สถานะว่า release ที่ใช้งานอยู่ใช้แล้วหรือยัง (*ใช้งานอยู่* หรือ *รอ deploy ถัดไป*) จำนวน byte ของไฟล์ปกติ จำนวนรายการ และพื้นที่ดิสก์ที่เหลือ พร้อมปุ่ม **วัดใหม่** Portal ถาม root helper (`project-storage-status`) ซึ่งอ่าน metadata ของ link เอง แต่การนับโฟลเดอร์ใช้ `find` และ `df` ที่รันด้วย Unix user ของ project เอง ไม่ตาม link และเลิกหลัง 20 วินาที ผลที่วัดไว้ใช้ร่วมกันได้ 5 วินาที ผู้ที่มีสิทธิ์ `project.view` เห็นได้ผ่าน `GET /api/projects/<slug>/storage` ไม่แสดงชื่อไฟล์ และไม่มีดาวน์โหลด อัปโหลด หรือลบไฟล์ ดู how-to และภาคผนวกของ ADR 0032
+
 ## 1.1.1 — 2026-11-09
 
 - เพิ่ม persistent storage ของ project เดิมไฟล์ที่แอปเขียนไว้ข้างโค้ดหายตอน deploy หรือ rollback ครั้งถัดไป เพราะ release directory ถูกแทนและ release เก่าถูกลบ ตอนนี้ project native (Node.js, Bun, Go, Python, PHP และ worker) ตั้ง **Mount path** เช่น `uploads` ได้ Portal เก็บ `/srv/hostmgr/projects/<slug>/shared/storage` นอก `releases/` แล้ว link เข้าทุก release ที่ path นั้นทั้งตอน deploy และ rollback แอปจึงใช้ `./uploads` เดิมได้ link สร้างโดย Unix user ของ project เอง ไม่ใช่ root ถ้ามีไฟล์ชื่อเดียวกัน deployment จะหยุดแทนที่จะลบไฟล์ Docker Compose ยังใช้ named volume มีผลใน deployment ถัดไป ต้องมีสิทธิ์ `project.configure` และการลบแอปลบ storage ด้วย ติดตั้งไฟล์ใหม่ `project-storage.mjs` ผ่าน installer ดู how-to และ ADR 0032
