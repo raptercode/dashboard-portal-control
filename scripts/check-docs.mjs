@@ -15,7 +15,7 @@ async function markdown(directory) {
   return files;
 }
 const docs = await markdown(join(root, 'docs'));
-const files = [...docs, join(root, 'README.md'), join(root, 'CHANGELOG.md')];
+const files = [...docs, join(root, 'README.md'), join(root, 'README.th.md'), join(root, 'CHANGELOG.md')];
 const failures = [];
 for (const file of files) {
   const content = await readFile(file, 'utf8');
