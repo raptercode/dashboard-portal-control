@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.5 — 2026-11-11
+
+- Master accounts can find existing global Git credentials under **Git credentials → Global (legacy)** and replace a token while keeping all project bindings.
+- Mailbox creation now supplies Dovecot with the password confirmation and gives the mail service access to the domain directory. Newly created mailboxes can authenticate over SMTP and open their Inbox over IMAP. Existing mailboxes affected by the earlier bug may need an in-place repair.
+
 ## 1.1.4 — 2026-11-11
 
 - Give the Mail setup test email a clear subject, a short plain-text note that explains the test, and a unique `Message-ID`. Postfix and relay submissions use the same message.

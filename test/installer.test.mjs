@@ -210,6 +210,19 @@ test('installer restarts active services so an update cannot retain old Node mod
   assert.doesNotMatch(script, /systemctl enable --now dashboard-portal\.service/);
 });
 
+test('mailbox creation supplies the Dovecot password and its confirmation on stdin', async () => {
+  const helper = await readFile(new URL('../scripts/hostmgr-deploy-helper.mjs', import.meta.url), 'utf8');
+  const createMailbox = helper.match(/async function createMailbox\(domain, localPart, password\) \{[\s\S]*?\n\}/)?.[0] ?? '';
+  assert.match(createMailbox, /run\('\/usr\/bin\/doveadm', \['pw', '-s', 'SHA512-CRYPT'\], \{\s*input: `\$\{password\}\\n\$\{password\}\\n`/);
+});
+
+test('mailbox creation makes the domain directory traversable by vmail', async () => {
+  const helper = await readFile(new URL('../scripts/hostmgr-deploy-helper.mjs', import.meta.url), 'utf8');
+  const createMailbox = helper.match(/async function createMailbox\(domain, localPart, password\) \{[\s\S]*?\n\}/)?.[0] ?? '';
+  assert.match(createMailbox, /await open\(domainRoot, fsConstants\.O_RDONLY \| fsConstants\.O_DIRECTORY \| fsConstants\.O_NOFOLLOW\)/);
+  assert.match(createMailbox, /await domainDirectory\.chown\(0, vmail\.gid\);\s*await domainDirectory\.chmod\(0o750\)/);
+});
+
 test('installer configures the SQLite source of truth for a clean data cutover', async () => {
   const script = await readFile(new URL('../strckro.sh', import.meta.url), 'utf8');
   assert.match(script, /HOSTMGR_DATABASE_PATH=\$\{DATA_ROOT\}\/state\.sqlite/);

@@ -29,22 +29,28 @@ async function credentials(ctx) {
     (o) =>
       ctx.master() || o.permissions?.some((p) => p.startsWith("credentials.")),
   );
+  const choices = orgs.map((o) => [o.id, o.name]);
+  if (ctx.master()) choices.push(["", "Global (legacy)"]);
   const scope = field("Organization", "organizationId", {
-    choices: orgs.map((o) => [o.id, o.name]),
+    choices,
+    value: orgs[0]?.id ?? "",
   });
   const collection = h("div", { class: "panel" });
   const actions = h("div", { class: "actions" });
   ctx.root.querySelector(".page-head>.actions").append(actions);
+  let requestId = 0;
   const load = async () => {
-    const organizationId = scope.control.value;
-    const data = await ctx.api.get(
-      "/api/credentials?organizationId=" + encodeURIComponent(organizationId),
-      { ttl: 0 },
-    );
-    if (!ctx.active()) return;
+    const id = ++requestId;
+    const organizationId = scope.control.value || null;
+    const url = organizationId
+      ? "/api/credentials?organizationId=" + encodeURIComponent(organizationId)
+      : "/api/credentials";
+    const data = await ctx.api.get(url, { ttl: 0 });
+    if (!ctx.active() || id !== requestId) return;
     const p = { organizationId };
     actions.replaceChildren(
-      ctx.can("credentials.create", p) &&
+      organizationId &&
+        ctx.can("credentials.create", p) &&
         data.vaultReady &&
         button(
           [icon("plus"), "Add credential"],
@@ -52,12 +58,16 @@ async function credentials(ctx) {
           "primary",
         ),
     );
-    const items = data.credentials || [];
+    const items = (data.credentials || []).filter(
+      (credential) => credential.organizationId === organizationId,
+    );
     if (!items.length) {
       collection.replaceChildren(
         empty(
-          "ยังไม่มี Git credential",
-          "ใช้ public repository ได้โดยไม่ต้องเพิ่ม token",
+          organizationId
+            ? "ยังไม่มี Git credential"
+            : "ยังไม่มี Git credential แบบ Global",
+          organizationId && "ใช้ public repository ได้โดยไม่ต้องเพิ่ม token",
         ),
       );
       return;
@@ -80,7 +90,8 @@ async function credentials(ctx) {
           { class: "actions" },
           ctx.can("credentials.update", p) &&
             button("Edit", () => editor(ctx, organizationId, c, load), "small"),
-          ctx.can("credentials.update", p) &&
+          organizationId &&
+            ctx.can("credentials.update", p) &&
             button(
               "Set default",
               async () => {
@@ -93,7 +104,8 @@ async function credentials(ctx) {
               "small",
               { disabled: data.defaultCredentialId === c.id },
             ),
-          ctx.can("credentials.delete", p) &&
+          organizationId &&
+            ctx.can("credentials.delete", p) &&
             button(
               "Delete",
               async () => {
@@ -143,12 +155,8 @@ function editor(ctx, organizationId, c, reload) {
     },
   );
   const f = form(
-    async (v, f) => {
-      const payload = {
-        ...v,
-        organizationId,
-        default: f.elements.default.checked,
-      };
+    async (v) => {
+      const payload = { ...v, organizationId };
       if (c) await ctx.api.patch("/api/credentials/" + c.id, payload);
       else await ctx.api.post("/api/credentials", payload);
       token.control.value = "";
@@ -169,7 +177,7 @@ function editor(ctx, organizationId, c, reload) {
       hint: "Token ใช้ได้เฉพาะ repository บน host นี้",
     }),
     token,
-    check("ใช้เป็น default ขององค์กร", "default"),
+    !c && check("ใช้เป็น default ขององค์กร", "default"),
     h("div", { class: "form-actions" }, submit("Save credential")),
   );
   d.body.append(f);

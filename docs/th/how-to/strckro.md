@@ -2,7 +2,7 @@
 
 [English](../../en/how-to/strckro.md) · [สารบัญ](../README-index.md)
 
-Strckro คือชื่อผลิตภัณฑ์ใหม่ของ Dashboard Portal รุ่น control plane คือ `1.1.4` และ npm client ชื่อ `strckro@0.2.0` ใช้คำสั่ง `skctl` หรือ `strckro`
+Strckro คือชื่อผลิตภัณฑ์ใหม่ของ Dashboard Portal รุ่น control plane คือ `1.1.5` และ npm client ชื่อ `strckro@0.2.0` ใช้คำสั่ง `skctl` หรือ `strckro`
 
 ```sh
 npm install --global strckro

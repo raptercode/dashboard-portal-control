@@ -1,5 +1,8 @@
 import test, { before, after } from "node:test";
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import { hashPassword } from "../../src/auth.mjs";
+import { SecretVault } from "../../src/core.mjs";
 import { start, OWNER_PASSWORD } from "../support/server.mjs";
 
 const { chromium } = await import(
@@ -640,6 +643,81 @@ test("create-release action confirms once, updates the live inventory, and keeps
     "deployment.succeeded",
     "deployment.failed",
   ]);
+});
+
+test("only a Master can see and rotate a legacy Git credential without rebinding projects", async (t) => {
+  const { app, page, go, context, base, session } = await fixture(t);
+  const organizationId = app.store.snapshot().organizations[0].id;
+  const headers = { "x-csrf-token": session.csrfToken };
+  const previousToken = "fixture-legacy-git-token";
+  const replacementToken = "fixture-replacement-git-token";
+  const memberEmail = "credential-editor@local.test";
+  const memberPassword = "Strong-Fixture-2026!";
+  const memberId = randomUUID();
+  const legacy = await context.request.post(base + "/api/credentials", {
+    headers,
+    data: { name: "legacy-git", host: "github.com", token: previousToken },
+  });
+  assert.equal(legacy.status(), 201);
+  const { credential } = await legacy.json();
+  const scoped = await context.request.post(base + "/api/credentials", {
+    headers,
+    data: { organizationId, name: "organization-git", host: "github.com", token: previousToken },
+  });
+  assert.equal(scoped.status(), 201);
+  await app.store.update((state) => {
+    for (const project of state.projects) project.credentialId = credential.id;
+    state.users.push({
+      id: memberId, email: memberEmail, password: hashPassword(memberPassword),
+      role: "user", status: "active", authVersion: 1,
+    });
+    state.memberships.push({ userId: memberId, organizationId, permissions: ["credentials.update"] });
+  });
+
+  await go("/credentials");
+  const selector = page.getByRole("combobox", { name: "Organization" });
+  assert.equal(await selector.inputValue(), organizationId);
+  await page.getByText("organization-git", { exact: true }).waitFor();
+  assert.equal(await page.getByText(credential.name, { exact: true }).count(), 0);
+  await selector.selectOption({ label: "Global (legacy)" });
+  const row = page.getByRole("row", { name: /legacy-git/ });
+  await row.getByRole("button", { name: "Edit", exact: true }).click();
+  assert.equal(await page.getByText("organization-git", { exact: true }).count(), 0);
+  const dialog = page.getByRole("dialog", { name: "Edit Git credential" });
+  const token = dialog.getByLabel(/Replacement token/);
+  assert.equal(await token.inputValue(), "");
+  await token.fill(replacementToken);
+  const [response] = await Promise.all([
+    page.waitForResponse((reply) =>
+      reply.url() === base + "/api/credentials/" + credential.id &&
+      reply.request().method() === "PATCH",
+    ),
+    dialog.getByRole("button", { name: "Save credential", exact: true }).click(),
+  ]);
+  assert.equal(response.status(), 200);
+  assert.equal((await response.json()).credential.id, credential.id);
+  await dialog.waitFor({ state: "hidden" });
+  const state = app.store.snapshot();
+  const saved = state.credentials.find((item) => item.id === credential.id);
+  const vault = new SecretVault(Buffer.alloc(32, 7).toString("base64"));
+  assert.equal(vault.decrypt(saved.encryptedToken), replacementToken);
+  assert.deepEqual(state.projects.map((project) => project.credentialId), [credential.id, credential.id]);
+
+  const member = await browser.newContext();
+  t.after(() => member.close());
+  const login = await member.request.post(base + "/api/login", {
+    data: { email: memberEmail, password: memberPassword },
+  });
+  assert.equal(login.status(), 200);
+  const memberPage = await member.newPage();
+  await memberPage.goto(base + "/credentials");
+  await memberPage.getByText("organization-git", { exact: true }).waitFor();
+  assert.deepEqual(
+    await memberPage.getByRole("combobox", { name: "Organization" })
+      .locator("option").evaluateAll((options) => options.map((option) => option.value)),
+    [organizationId],
+  );
+  assert.equal(await memberPage.getByText(credential.name, { exact: true }).count(), 0);
 });
 
 test("Git credential editor and team invitations use the new dialogs without losing organization scope", async (t) => {

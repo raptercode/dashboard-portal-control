@@ -326,13 +326,26 @@ async function createMailbox(domain, localPart, password) {
   const users = await readTextOrEmpty(MAIL_USERS);
   if (users.split('\n').some((line) => line.startsWith(`${address}:`))) throw new HelperError('Mailbox already exists.');
   const vmail = await ensureVmailAccount();
-  const hash = await run('/usr/bin/doveadm', ['pw', '-s', 'SHA512-CRYPT'], { input: `${password}\n`, failure: 'Mailbox password could not be secured.' });
+  // doveadm reads the password and its confirmation from stdin.
+  const hash = await run('/usr/bin/doveadm', ['pw', '-s', 'SHA512-CRYPT'], {
+    input: `${password}\n${password}\n`,
+    failure: 'Mailbox password could not be secured.'
+  });
   if (!/^\{SHA512-CRYPT\}/.test(hash)) throw new HelperError('Mailbox password could not be secured.');
+  const domainRoot = join(MAIL_VMAIL_ROOT, safeDomain);
+  await mkdir(domainRoot, { recursive: true, mode: 0o750 });
+  const domainDirectory = await open(domainRoot, fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW);
+  try {
+    await domainDirectory.chown(0, vmail.gid);
+    await domainDirectory.chmod(0o750);
+  } finally {
+    await domainDirectory.close();
+  }
   await writeFile(MAIL_USERS, `${users.replace(/\s*$/, '')}${users.trim() ? '\n' : ''}${address}:${hash}:${vmail.uid}:${vmail.gid}::${MAIL_VMAIL_ROOT}/${safeDomain}/${safeLocalPart}::\n`, { mode: 0o640 });
   await chown(MAIL_USERS, 0, await lookupGroupId('dovecot'));
   await chmod(MAIL_USERS, 0o640);
   await addMailboxMap(address);
-  const home = join(MAIL_VMAIL_ROOT, safeDomain, safeLocalPart);
+  const home = join(domainRoot, safeLocalPart);
   await mkdir(join(home, 'Maildir'), { recursive: true, mode: 0o750 });
   await chown(home, vmail.uid, vmail.gid);
   await chown(join(home, 'Maildir'), vmail.uid, vmail.gid);
