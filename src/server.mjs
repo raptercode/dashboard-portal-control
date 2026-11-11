@@ -1,7 +1,7 @@
 import { createServer } from 'node:http';
 import { createServer as createTcpServer } from 'node:net';
 import { chmod, cp, lstat, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises';
-import { basename, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import os from 'node:os';
@@ -31,7 +31,10 @@ import { GateFullError, createGate, hashPassword, validateEmail, validateOwnerBo
 import { checkSmtpOutbound } from './mail-check.mjs';
 import { driverAvailability, runDatabaseQuery } from './db-query.mjs';
 import { checkDkimRecord, checkDmarcRecord, checkMailHostnameDns, checkMailMx, checkPtrRecord, checkSpfRecord } from './dns-check.mjs';
-import { MAIL_MAX_DOMAINS, dkimSelector, generateDkimKeyPair, mailDnsRecords, smtpSubmit, spfExpectedToken, suggestMailDefaults, validateLocalPart, validateMailHostname, validateOutboundMode } from './mail-service.mjs';
+import { MAIL_MAX_DOMAINS, dkimSelector, generateDkimKeyPair, mailDnsRecords, smtpDeliver, smtpSubmit, spfExpectedToken, suggestMailDefaults, validateLocalPart, validateMailHostname, validateOutboundMode } from './mail-service.mjs';
+import { composeMessage, readMessage, summarizeMessage } from './mail-message.mjs';
+import { MailStoreError, createHelperMailStore, createLocalMailStore } from './mail-store.mjs';
+import { MAIL_LIST_LIMIT, MAIL_LIST_MAX } from '../scripts/maildir-store.mjs';
 import { DATABASE_PROVIDERS, probeDatabaseConnection, publicDatabaseConnection, validateDatabaseConnectionInput } from './db-connectors.mjs';
 import { scanProjectRuntimeDirectory } from './project-runtime.mjs';
 import { buildMailPortPlan, demoInboundMailReadiness } from '../scripts/mail-host-config.mjs';
@@ -145,6 +148,14 @@ export async function createApplication(options = {}) {
     ptr: options.mailPtrCheck ?? checkPtrRecord
   };
   const mailSend = options.mailSend ?? smtpSubmit;
+  const mailDeliver = options.mailDeliver ?? smtpDeliver;
+  const mailHelper = options.mailHelper ?? callHostHelper;
+  // Every mail change on a real host is one typed request to the root-owned helper.
+  const callMailHelper = async (request, unavailable) => {
+    const socketPath = options.mailHelperSocket ?? process.env.HOSTMGR_DEPLOY_HELPER_SOCKET;
+    if (!socketPath) throw new InputError(unavailable);
+    return mailHelper(socketPath, request);
+  };
   const databaseQuery = options.databaseQuery ?? runDatabaseQuery;
   const databaseDrivers = options.databaseDrivers ?? driverAvailability;
   // Installing a driver requires a service restart anyway, so probe once.
@@ -156,8 +167,13 @@ export async function createApplication(options = {}) {
   const projectSyncer = options.projectSyncer ?? cloneInSandbox;
   const shouldSyncProjectSource = options.projectSyncer !== undefined || (mode === 'demo' && sandboxClone) || mode === 'host';
   const projectRuntimeDetector = options.projectRuntimeDetector ?? detectProjectRuntime;
-  const store = new StateStore(options.dataPath ?? process.env.HOSTMGR_DATABASE_PATH ?? process.env.HOSTMGR_DATA_PATH ?? join(here, '..', 'data', 'state.sqlite'));
+  const statePath = options.dataPath ?? process.env.HOSTMGR_DATABASE_PATH ?? process.env.HOSTMGR_DATA_PATH ?? join(here, '..', 'data', 'state.sqlite');
+  const store = new StateStore(statePath);
   if (!['demo', 'host'].includes(mode)) throw new Error('HOSTMGR_MODE must be demo or host.');
+  // The mailbox reader: the helper on a real host, a private directory in the sandbox.
+  const mailStore = options.mailStore ?? (mode === 'host'
+    ? createHelperMailStore({ call: (request) => callMailHelper(request, 'Host mailbox access is not available. Re-run the Strckro installer.'), spoolDirectory: join(dirname(statePath), 'mail-outbox') })
+    : createLocalMailStore(options.mailStoreRoot ?? join(dirname(statePath), 'mail-sandbox')));
   await store.load();
   const cliAuth = createCliAuth({ store, readJson, sendJson, proxyToken });
   store.beforeMutation = (state) => assertRequestAuthorization(state);
@@ -504,6 +520,22 @@ export async function createApplication(options = {}) {
       if (request.method === 'POST' && url.pathname === '/api/mail/mailboxes') return await handleMailboxCreate(request, response);
       const mailboxMatch = url.pathname.match(/^\/api\/mail\/mailboxes\/([a-f0-9-]{36})$/i);
       if (request.method === 'DELETE' && mailboxMatch) return await handleMailboxDelete(request, response, mailboxMatch[1]);
+      const mailboxViewMatch = url.pathname.match(/^\/api\/mail\/mailboxes\/([a-f0-9-]{36})\/(folders|messages|send)$/i);
+      if (request.method === 'GET' && mailboxViewMatch?.[2] === 'folders') return await handleMailFolders(request, response, mailboxViewMatch[1]);
+      if (request.method === 'GET' && mailboxViewMatch?.[2] === 'messages') return await handleMailMessageList(request, response, mailboxViewMatch[1], url);
+      if (request.method === 'POST' && mailboxViewMatch?.[2] === 'send') return await handleMailMessageSend(request, response, mailboxViewMatch[1]);
+      const mailMessageMatch = url.pathname.match(/^\/api\/mail\/mailboxes\/([a-f0-9-]{36})\/messages\/([A-Za-z0-9._,=+%_-]{1,400})(?:\/(flags|move|attachments\/\d{1,3}))?$/i);
+      if (mailMessageMatch) {
+        const [, mailboxId, encodedId, action] = mailMessageMatch;
+        let messageId;
+        try { messageId = decodeURIComponent(encodedId); } catch { throw new InputError('Message reference is invalid.'); }
+        const folder = url.searchParams.get('folder') || 'INBOX';
+        if (request.method === 'GET' && !action) return await handleMailMessageRead(request, response, mailboxId, folder, messageId);
+        if (request.method === 'GET' && action?.startsWith('attachments/')) return await handleMailAttachment(request, response, mailboxId, folder, messageId, Number(action.slice('attachments/'.length)));
+        if (request.method === 'POST' && action === 'flags') return await handleMailMessageFlags(request, response, mailboxId, folder, messageId);
+        if (request.method === 'POST' && action === 'move') return await handleMailMessageMove(request, response, mailboxId, folder, messageId);
+        if (request.method === 'DELETE' && !action) return await handleMailMessageDelete(request, response, mailboxId, folder, messageId);
+      }
       if (request.method === 'POST' && url.pathname === '/api/mail/test/send') return await handleMailTestSend(request, response);
       if (url.pathname.startsWith('/api/')) return sendJson(response, 404, { error: 'API endpoint not found.' });
       return await serveStatic(url.pathname, response, url.searchParams);
@@ -848,6 +880,7 @@ export async function createApplication(options = {}) {
           return {
             domain: entry.domain,
             createdAt: entry.createdAt,
+            mailboxCount: (mail.mailboxes ?? []).filter((item) => item.domain === entry.domain).length,
             dns: entry.dns,
             dkimSelector: selector?.selector ?? null,
             records: mail.hostname && selector
@@ -891,6 +924,7 @@ export async function createApplication(options = {}) {
     const domain = validateDomain({ hostname: (await readJson(request)).domain });
     const keyPair = generateDkimKeyPair();
     const encryptedPrivateKey = vault.encrypt(keyPair.privateKeyPem);
+    let configured = false;
     await store.update((state) => {
       state.mail ??= initialMailState();
       if (state.mail.domains.some((item) => item.domain === domain)) throw new InputError('This mail domain is already configured.');
@@ -901,8 +935,24 @@ export async function createApplication(options = {}) {
         dns: { mx: pendingDnsRecord(), spf: pendingDnsRecord(), dkim: pendingDnsRecord(), dmarc: pendingDnsRecord() },
         createdAt: new Date().toISOString()
       });
+      configured = state.mail.configure?.status === 'configured';
       appendAudit(state, { action: 'mail.domain_add', outcome: 'success', actor: 'owner', target: domain, detail: `DKIM selector ${keyPair.selector} generated (RSA 2048); private key stored encrypted` });
     });
+    // A mail service that is already running learns the domain now. Its DNS
+    // records are the owner's to publish afterwards; they never hold this back
+    // and the service is not configured a second time (ADR 0033).
+    if (mode === 'host' && configured) {
+      try {
+        const result = await callMailHelper({ operation: 'sync-mail-domains' }, 'Host mail configuration is not available. Re-run the Strckro installer.');
+        if (!result.ok) throw new InputError(result.error || 'The host rejected the new mail domain.');
+      } catch (error) {
+        await store.update((state) => {
+          state.mail.domains = state.mail.domains.filter((item) => item.domain !== domain);
+          appendAudit(state, { action: 'mail.domain_add', outcome: 'failure', actor: 'owner', target: domain, detail: 'The host did not accept the domain; it was removed again' });
+        });
+        throw error instanceof InputError ? error : new InputError('The host could not apply the new mail domain. Nothing was changed.');
+      }
+    }
     return sendJson(response, 200, mailSettingsView());
   }
 
@@ -915,9 +965,7 @@ export async function createApplication(options = {}) {
     const attached = (snapshot.mail?.mailboxes ?? []).filter((item) => item.domain === domainName);
     if (attached.length && !force) throw new InputError(`This domain still has ${attached.length} mailbox(es). Delete them first or pass force=true.`);
     if (mode === 'host' && snapshot.mail?.configure?.status === 'configured') {
-      const socketPath = process.env.HOSTMGR_DEPLOY_HELPER_SOCKET;
-      if (!socketPath) throw new InputError('Host mail cleanup is not configured. Re-run the Strckro installer.');
-      const result = await callHostHelper(socketPath, { operation: 'remove-mail-domain', domain: domainName, force });
+      const result = await callMailHelper({ operation: 'remove-mail-domain', domain: domainName, force }, 'Host mail cleanup is not configured. Re-run the Strckro installer.');
       if (!result.ok) throw new InputError(result.error || 'Host mail domain cleanup was rejected.');
     }
     await store.update((state) => {
@@ -930,7 +978,10 @@ export async function createApplication(options = {}) {
 
   async function handleMailDnsCheck(request, response, domainName) {
     if (!requireSession(request, response, true)) return;
-    const record = String((await readJson(request)).record ?? 'all');
+    const body = await readJson(request);
+    const record = String(body.record ?? 'all');
+    // The interface looks at DNS again by itself; that is not an owner action.
+    const background = body.background === true;
     if (!['mx', 'spf', 'dkim', 'dmarc', 'all'].includes(record)) throw new InputError('Record must be mx, spf, dkim, dmarc, or all.');
     const snapshot = store.snapshot();
     const mail = snapshot.mail ?? initialMailState();
@@ -952,8 +1003,10 @@ export async function createApplication(options = {}) {
     await store.update((state) => {
       const target = (state.mail?.domains ?? []).find((item) => item.domain === domainName);
       if (!target) return;
+      const changed = Object.entries(results).some(([kind, value]) => target.dns?.[kind]?.status !== value.status);
       for (const [kind, value] of Object.entries(results)) target.dns[kind] = value;
-      appendAudit(state, { action: 'mail.dns_check', outcome: 'success', actor: 'owner', target: `${record}:${domainName}`, detail: Object.entries(results).map(([kind, value]) => `${kind}=${value.status}`).join(', ') });
+      // An automatic re-check is recorded only when a record changed state, so the audit log is not filled with repeats.
+      if (!background || changed) appendAudit(state, { action: 'mail.dns_check', outcome: 'success', actor: 'owner', target: `${record}:${domainName}`, detail: Object.entries(results).map(([kind, value]) => `${kind}=${value.status}`).join(', ') });
     });
     return sendJson(response, 200, mailSettingsView());
   }
@@ -998,9 +1051,7 @@ export async function createApplication(options = {}) {
     let hostConfiguration = null;
     if (mode === 'host') {
       assertHostMailReadiness(mail);
-      const socketPath = process.env.HOSTMGR_DEPLOY_HELPER_SOCKET;
-      if (!socketPath) throw new InputError('Host mail configuration is not available. Re-run the Strckro installer.');
-      const result = await callHostHelper(socketPath, { operation: 'configure-mail' });
+      const result = await callMailHelper({ operation: 'configure-mail' }, 'Host mail configuration is not available. Re-run the Strckro installer.');
       if (!result.ok) throw new InputError(result.error || 'Host mail configuration was rejected.');
       hostConfiguration = result;
     }
@@ -1031,12 +1082,11 @@ export async function createApplication(options = {}) {
     const displayName = typeof body.displayName === 'string' ? body.displayName.trim().slice(0, 100) : '';
     if (mail.mailboxes.some((item) => item.domain === domain && item.localPart === localPart)) throw new InputError('This mailbox address already exists.');
     if (mode === 'host') {
-      const socketPath = process.env.HOSTMGR_DEPLOY_HELPER_SOCKET;
-      if (!socketPath) throw new InputError('Host mailbox provisioning is not available. Re-run the Strckro installer.');
-      const result = await callHostHelper(socketPath, { operation: 'create-mailbox', domain, localPart, password });
+      const result = await callMailHelper({ operation: 'create-mailbox', domain, localPart, password }, 'Host mailbox provisioning is not available. Re-run the Strckro installer.');
       if (!result.ok) throw new InputError(result.error || 'Host mailbox provisioning was rejected.');
     }
     const created = { id: randomUUID(), domain, localPart, displayName, createdAt: new Date().toISOString(), simulated: mode === 'demo' };
+    await mailStore.create(created);
     await store.update((state) => {
       state.mail.mailboxes.push(created);
       appendAudit(state, { action: 'mail.mailbox_create', outcome: 'success', actor: 'owner', target: `${localPart}@${domain}`, detail: 'Mailbox created without storing its password' });
@@ -1050,9 +1100,7 @@ export async function createApplication(options = {}) {
     const mailbox = (snapshot.mail?.mailboxes ?? []).find((item) => item.id === id);
     if (!mailbox) throw new NotFoundError('Mailbox was not found.');
     if (mode === 'host' && snapshot.mail?.configure?.status === 'configured') {
-      const socketPath = process.env.HOSTMGR_DEPLOY_HELPER_SOCKET;
-      if (!socketPath) throw new InputError('Host mailbox removal is not available. Re-run the Strckro installer.');
-      const result = await callHostHelper(socketPath, { operation: 'delete-mailbox', domain: mailbox.domain, localPart: mailbox.localPart });
+      const result = await callMailHelper({ operation: 'delete-mailbox', domain: mailbox.domain, localPart: mailbox.localPart }, 'Host mailbox removal is not available. Re-run the Strckro installer.');
       if (!result.ok) throw new InputError(result.error || 'Host mailbox removal was rejected.');
     }
     await store.update((state) => {
@@ -1060,6 +1108,183 @@ export async function createApplication(options = {}) {
       appendAudit(state, { action: 'mail.mailbox_delete', outcome: 'success', actor: 'owner', target: `${mailbox.localPart}@${mailbox.domain}`, detail: 'Mailbox removed' });
     });
     return sendJson(response, 200, { ok: true });
+  }
+
+  function mailboxById(id) {
+    const mailbox = store.read((state) => {
+      const found = (state.mail?.mailboxes ?? []).find((item) => item.id.toLowerCase() === id.toLowerCase());
+      return found ? { id: found.id, domain: found.domain, localPart: found.localPart, displayName: found.displayName ?? '' } : null;
+    });
+    if (!mailbox) throw new NotFoundError('Mailbox was not found.');
+    return mailbox;
+  }
+
+  // A message another mail client already moved or deleted is a 404, not a server fault.
+  async function withMailStore(work) {
+    try { return await work(); }
+    catch (error) {
+      if (error instanceof MailStoreError) throw (error.code === 'not_found' ? new NotFoundError(error.message) : new InputError(error.message));
+      throw error;
+    }
+  }
+
+  function mailFlagView(flags) {
+    const letters = String(flags ?? '');
+    return { seen: letters.includes('S'), flagged: letters.includes('F'), answered: letters.includes('R'), draft: letters.includes('D') };
+  }
+
+  async function handleMailFolders(request, response, mailboxId) {
+    if (!requireSession(request, response)) return;
+    const mailbox = mailboxById(mailboxId);
+    const folders = await withMailStore(() => mailStore.folders(mailbox));
+    return sendJson(response, 200, {
+      mailbox: { id: mailbox.id, address: `${mailbox.localPart}@${mailbox.domain}`, displayName: mailbox.displayName },
+      folders: folders.map((folder) => ({ id: String(folder.id), standard: Boolean(folder.standard), total: Number(folder.total) || 0, unread: Number(folder.unread) || 0 }))
+    });
+  }
+
+  async function handleMailMessageList(request, response, mailboxId, url) {
+    if (!requireSession(request, response)) return;
+    const mailbox = mailboxById(mailboxId);
+    const folder = url.searchParams.get('folder') || 'INBOX';
+    const offset = Math.max(0, Number.parseInt(url.searchParams.get('offset') ?? '0', 10) || 0);
+    const limit = Math.min(MAIL_LIST_MAX, Math.max(1, Number.parseInt(url.searchParams.get('limit') ?? '', 10) || MAIL_LIST_LIMIT));
+    const page = await withMailStore(() => mailStore.list(mailbox, folder, { offset, limit }));
+    const messages = (page.messages ?? []).map((item) => {
+      const receivedAt = new Date(Number(item.time) || Date.now()).toISOString();
+      let summary;
+      try { summary = summarizeMessage(Buffer.from(String(item.headers ?? ''), 'base64'), Buffer.from(String(item.body ?? ''), 'base64')); }
+      catch { summary = { from: { name: '', address: '' }, to: [], cc: [], replyTo: [], subject: '', date: null, messageId: '', snippet: '', hasAttachments: false }; }
+      return { id: String(item.id), ...mailFlagView(item.flags), size: Number(item.size) || 0, receivedAt, ...summary, date: summary.date ?? receivedAt };
+    });
+    return sendJson(response, 200, { folder, offset, limit, total: Number(page.total) || 0, unread: Number(page.unread) || 0, messages });
+  }
+
+  async function handleMailMessageRead(request, response, mailboxId, folder, messageId) {
+    if (!requireSession(request, response)) return;
+    const mailbox = mailboxById(mailboxId);
+    const stored = await withMailStore(() => mailStore.read(mailbox, folder, messageId));
+    const message = readMessage(stored.content);
+    return sendJson(response, 200, {
+      message: {
+        id: messageId, folder, ...mailFlagView(stored.flags), size: stored.content.length,
+        from: message.from, to: message.to, cc: message.cc, replyTo: message.replyTo, subject: message.subject,
+        date: message.date, messageId: message.messageId, references: message.references,
+        text: message.text,
+        // Untrusted markup from the sender. The interface shows it only inside a sandboxed frame.
+        html: message.html,
+        attachments: message.attachments.map((file, index) => ({ index, filename: file.filename, contentType: file.contentType, size: file.size }))
+      }
+    });
+  }
+
+  async function handleMailAttachment(request, response, mailboxId, folder, messageId, index) {
+    if (!requireSession(request, response)) return;
+    const mailbox = mailboxById(mailboxId);
+    const stored = await withMailStore(() => mailStore.read(mailbox, folder, messageId));
+    const file = readMessage(stored.content).attachments[index];
+    if (!file) throw new NotFoundError('Attachment was not found.');
+    // Always a download and never rendered: an attachment is whatever the sender chose to send.
+    response.writeHead(200, {
+      'Content-Type': 'application/octet-stream',
+      'Content-Length': file.content.length,
+      'Content-Disposition': `attachment; filename="${file.filename.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(file.filename)}`,
+      'Content-Security-Policy': "sandbox; default-src 'none'",
+      'X-Content-Type-Options': 'nosniff',
+      'Cache-Control': 'no-store',
+      'Referrer-Policy': 'same-origin'
+    });
+    return response.end(file.content);
+  }
+
+  async function handleMailMessageFlags(request, response, mailboxId, folder, messageId) {
+    if (!requireSession(request, response, true)) return;
+    const body = await readJson(request);
+    const mailbox = mailboxById(mailboxId);
+    const changes = {};
+    for (const key of ['seen', 'flagged']) if (typeof body[key] === 'boolean') changes[key] = body[key];
+    if (!Object.keys(changes).length) throw new InputError('Choose seen or flagged to change.');
+    const result = await withMailStore(() => mailStore.flag(mailbox, folder, messageId, changes));
+    return sendJson(response, 200, { ok: true, id: result.id, ...mailFlagView(result.flags) });
+  }
+
+  async function handleMailMessageMove(request, response, mailboxId, folder, messageId) {
+    if (!requireSession(request, response, true)) return;
+    const target = String((await readJson(request)).to ?? '');
+    const mailbox = mailboxById(mailboxId);
+    const result = await withMailStore(() => mailStore.move(mailbox, folder, messageId, target));
+    return sendJson(response, 200, { ok: true, id: result.id, folder: result.folder });
+  }
+
+  async function handleMailMessageDelete(request, response, mailboxId, folder, messageId) {
+    if (!requireSession(request, response, true)) return;
+    const mailbox = mailboxById(mailboxId);
+    // Deleting moves a message to Trash first; only a message already in Trash is erased.
+    if (folder === 'Trash') {
+      await withMailStore(() => mailStore.remove(mailbox, folder, messageId));
+      return sendJson(response, 200, { ok: true, erased: true });
+    }
+    await withMailStore(() => mailStore.move(mailbox, folder, messageId, 'Trash'));
+    return sendJson(response, 200, { ok: true, erased: false, folder: 'Trash' });
+  }
+
+  async function handleMailMessageSend(request, response, mailboxId) {
+    if (!requireSession(request, response, true)) return;
+    const body = await readJson(request, 512 * 1024);
+    const mailbox = mailboxById(mailboxId);
+    const mail = store.read((state) => ({
+      configured: state.mail?.configure?.status === 'configured',
+      hostname: state.mail?.hostname || undefined,
+      mailboxes: (state.mail?.mailboxes ?? []).map((item) => ({ id: item.id, domain: item.domain, localPart: item.localPart }))
+    }));
+    if (!mail.configured) throw new InputError('Complete the mail installation step before sending.');
+    const addresses = (value, label) => {
+      const items = Array.isArray(value) ? value : String(value ?? '').split(/[,;\n]/);
+      return [...new Set(items.map((item) => String(item).trim()).filter(Boolean).map((item) => validateEmail(item.replace(/^[\s\S]*<([^<>]+)>\s*$/, '$1'), label)))];
+    };
+    const to = addresses(body.to, 'Recipient');
+    const cc = addresses(body.cc, 'Cc recipient');
+    const bcc = addresses(body.bcc, 'Bcc recipient');
+    const recipients = [...new Set([...to, ...cc, ...bcc])];
+    if (!recipients.length) throw new InputError('Add at least one recipient.');
+    if (recipients.length > 50) throw new InputError('A message can have at most 50 recipients.');
+    const subject = typeof body.subject === 'string' ? body.subject.replace(/[\0\r\n]+/g, ' ').trim().slice(0, 500) : '';
+    const text = typeof body.text === 'string' ? body.text.replace(/\0/g, '') : '';
+    if (text.length > 400_000) throw new InputError('Message text is too long.');
+    if (!subject && !text.trim()) throw new InputError('Write a subject or a message before sending.');
+    const reference = (value) => (typeof value === 'string' && /^<[^<>\s]{1,250}>$/.test(value.trim()) ? value.trim() : null);
+    const from = `${mailbox.localPart}@${mailbox.domain}`;
+    const composed = composeMessage({
+      from: { name: mailbox.displayName, address: from }, to, cc, subject, text,
+      inReplyTo: reference(body.inReplyTo),
+      references: (Array.isArray(body.references) ? body.references : []).map(reference).filter(Boolean).slice(-20)
+    });
+    let delivery;
+    if (mode === 'host') {
+      // The host's own Postfix signs with DKIM, queues, and delivers or relays.
+      try {
+        const result = await mailDeliver({ host: '127.0.0.1', port: 25, tlsServername: mail.hostname, from, recipients, message: composed.raw });
+        delivery = { status: 'queued', detail: result.reply };
+      } catch (error) {
+        const detail = String(error?.message ?? 'The mail server did not accept the message.').slice(0, 240);
+        await store.update((state) => appendAudit(state, { action: 'mail.message_send', outcome: 'failure', actor: 'owner', target: from, detail }));
+        throw new InputError(detail);
+      }
+    } else {
+      // The sandbox never opens an SMTP connection: mailboxes of this sandbox receive their copy directly.
+      const local = mail.mailboxes.filter((item) => recipients.includes(`${item.localPart}@${item.domain}`));
+      for (const target of local) await mailStore.append(target, 'INBOX', composed.raw);
+      delivery = { status: 'simulated', detail: `Sandbox: nothing left this machine. ${local.length} local mailbox(es) received the message.` };
+    }
+    let savedToSent = true;
+    try { await mailStore.append(mailbox, 'Sent', composed.raw, 'S'); } catch { savedToSent = false; }
+    const answered = body.answered && typeof body.answered === 'object' ? body.answered : null;
+    if (answered) await mailStore.flag(mailbox, String(answered.folder ?? ''), String(answered.id ?? ''), { answered: true }).catch(() => {});
+    await store.update((state) => appendAudit(state, {
+      action: 'mail.message_send', outcome: 'success', actor: 'owner', target: from,
+      detail: `${recipients.length} recipient(s), ${delivery.status}${savedToSent ? '' : '; the Sent copy could not be stored'}`
+    }));
+    return sendJson(response, 200, { ok: true, ...delivery, savedToSent, messageId: composed.messageId });
   }
 
   async function handleMailTestSend(request, response) {
@@ -1091,7 +1316,7 @@ export async function createApplication(options = {}) {
       }
     } else if (mode === 'host') {
       try {
-        const result = await mailSend({ host: '127.0.0.1', port: 25, username: null, password: null, from, to, subject: 'Strckro mail test', body: `Test message from ${from} at ${new Date().toISOString()}.` });
+        const result = await mailSend({ host: '127.0.0.1', port: 25, tlsServername: mail.hostname || undefined, username: null, password: null, from, to, subject: 'Strckro mail test', body: `Test message from ${from} at ${new Date().toISOString()}.` });
         outcome = { status: 'passed', detail: result.reply };
       } catch (error) {
         outcome = { status: 'failed', detail: String(error?.message ?? 'SMTP submission failed.').slice(0, 240) };
@@ -2283,6 +2508,7 @@ export async function createApplication(options = {}) {
   return {
     server,
     store,
+    mailStore,
     close: () => new Promise((resolve, reject) => {
       closing = true;
       if (metricsTimer) {
@@ -2449,9 +2675,8 @@ async function checkMailInboundReadiness(mode, socketPath) {
 
 function assertHostMailReadiness(mail) {
   if (mail.hostnameCheck?.status !== 'ok') throw new InputError('Mail hostname DNS must resolve directly to this host before host configuration.');
-  if (!mail.domains?.length || mail.domains.some((domain) => ['mx', 'spf', 'dkim', 'dmarc'].some((kind) => domain.dns?.[kind]?.status !== 'verified'))) {
-    throw new InputError('Verify MX, SPF, DKIM, and DMARC for every mail domain before host configuration.');
-  }
+  // A domain's MX, SPF, DKIM and DMARC records are reported as its health. They
+  // are not a condition for configuring the host (ADR 0033).
   if (mail.outboundMode === 'direct' && mail.ptr?.status !== 'verified') throw new InputError('Direct MX delivery requires a PTR record matching the mail hostname.');
   try { return buildMailPortPlan({ outboundMode: mail.outboundMode, outbound: mail.readiness?.outbound, inbound: mail.readiness?.inbound }); }
   catch (error) { throw new InputError(String(error?.message ?? 'Run the mail readiness check before host configuration.')); }

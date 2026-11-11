@@ -98,6 +98,16 @@ loopback-only mail services. This is not proof of provider-edge reachability:
 an external delivery test remains required for inbound SMTP. See
 [ADR 0025](../adr/0025-port-aware-mail-host-provisioning.md).
 
+After that one configuration, a mail domain is added or removed with a single
+helper request that rewrites the address maps and DKIM tables and reloads the
+services; a domain's MX, SPF, DKIM and DMARC records are reported as its health
+and never gate the host. The Portal also reads and sends mail: the helper lists,
+reads, flags, moves and stores Maildir files by mailbox, folder and message
+reference only, in bounded chunks, and the unprivileged Portal decodes them and
+shows sender markup only inside a sandboxed frame. Sending is an SMTP submission
+to the host's own Postfix on loopback. See
+[ADR 0033](../adr/0033-mail-domains-apply-at-once-and-the-portal-reads-mailboxes.md).
+
 Notification hooks are stored with their endpoint encrypted in the same vault
 as repository credentials. A completed or failed deployment may post a
 provider-aware payload (Discord, Google Chat, Slack, or generic HTTPS webhook)

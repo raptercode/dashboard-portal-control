@@ -5,7 +5,8 @@ import { projectServiceUser } from './project-service-user.mjs';
 import { preparePythonEnvironment, pythonSettings, pythonStartArgs, pythonUserOptions } from './python-project.mjs';
 import { phpExecutable, phpSettings, phpStartArgs, phpUserOptions, preparePhpEnvironment } from './php-project.mjs';
 import { mountProjectStorage, storageStatus, validateStoragePath } from './project-storage.mjs';
-import { access, chmod, chown, copyFile, cp, lstat, mkdir, readFile, readdir, readlink, rename, rm, symlink, unlink, writeFile } from 'node:fs/promises';
+import { constants as fsConstants } from 'node:fs';
+import { access, chmod, chown, copyFile, cp, lchown, lstat, mkdir, open, readFile, readdir, readlink, rename, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { createDecipheriv } from 'node:crypto';
 import { DatabaseSync } from './sqlite.mjs';
@@ -18,6 +19,7 @@ import { updateStoredPassword } from './password-config.mjs';
 import { buildEdgeEvaluation, probeLoopbackHttp, probeLoopbackTls, publicEdgeResult, renderUnmatchedNginx, preserveManagedTlsForChallenge } from './nginx-edge.mjs';
 import { resolvePublicDomainAddresses } from './domain-dns.mjs';
 import { buildMailPortPlan, renderDkimTables, renderDovecotConfiguration, renderMap, renderOpenDkimConfiguration, renderPostfixMain, renderPostfixMaster } from './mail-host-config.mjs';
+import { MAIL_MESSAGE_MAX_BYTES, MaildirError, appendMailMessage, deleteMailMessage, flagMailMessage, listMailFolders, listMailMessages, moveMailMessage, readMailMessage } from './maildir-store.mjs';
 
 const MAX_REQUEST_BYTES = 16 * 1024;
 const PROJECT_ROOT = '/var/lib/dashboard-portal/projects';
@@ -42,6 +44,9 @@ const MAIL_SASL = `${MAIL_ROOT}/sasl_passwd`;
 const MAIL_VMAIL_ROOT = '/var/vmail';
 const MAIL_DKIM_ROOT = '/etc/opendkim/keys';
 const MAIL_CERTIFICATE = '/etc/letsencrypt/live/hostmgr-mail';
+// The Portal writes a message it wants stored (a Sent copy) here; the helper reads it by reference.
+const MAIL_SPOOL_ROOT = '/var/lib/dashboard-portal/mail-outbox';
+const PORTAL_USER = 'dashboardportal';
 const MAX_COMMAND_OUTPUT_BYTES = 64 * 1024;
 // A very large storage folder must not keep the helper busy: counting gives up and the Portal says so.
 const STORAGE_MEASURE_TIMEOUT_MS = 20_000;
@@ -83,6 +88,7 @@ function handleSocket(socket) {
       // Every other helper failure remains a static message.
       const response = { ok: false, error: safeError(error) };
       if (error instanceof HelperError && error.buildOutput) response.buildOutput = error.buildOutput;
+      if (error instanceof HelperError && error.code) response.code = error.code;
       socket.end(`${JSON.stringify(response)}\n`);
     }
   });
@@ -106,6 +112,14 @@ async function dispatch(request) {
   if (request.operation === 'create-mailbox') return createMailbox(request.domain, request.localPart, request.password);
   if (request.operation === 'delete-mailbox') return deleteMailbox(request.domain, request.localPart);
   if (request.operation === 'remove-mail-domain') return removeMailDomain(request.domain, request.force === true);
+  if (request.operation === 'sync-mail-domains') return syncMailDomains();
+  if (request.operation === 'mail-folders') return mailboxOperation(request, async (root) => ({ folders: await listMailFolders(root) }));
+  if (request.operation === 'mail-list') return mailboxOperation(request, (root) => listMailMessages(root, request.folder, { offset: request.offset, limit: request.limit }));
+  if (request.operation === 'mail-read') return mailboxOperation(request, (root) => readMailMessage(root, request.folder, request.id, request.offset));
+  if (request.operation === 'mail-flag') return mailboxOperation(request, (root) => flagMailMessage(root, request.folder, request.id, { seen: request.seen, flagged: request.flagged, answered: request.answered }));
+  if (request.operation === 'mail-move') return mailboxOperation(request, async (root) => moveMailMessage(root, request.folder, request.id, request.target, { own: await vmailOwner() }));
+  if (request.operation === 'mail-delete') return mailboxOperation(request, (root) => deleteMailMessage(root, request.folder, request.id));
+  if (request.operation === 'mail-store') return mailboxOperation(request, (root) => storeSpooledMessage(root, request.folder, request.spool, request.flags));
   throw new HelperError('Unsupported helper operation.');
 }
 
@@ -267,6 +281,7 @@ async function mailPortReadiness() {
 async function configureMail() {
   await assertMailInstallation();
   const mail = await readManagedMailState();
+  assertMailActivationReady(mail);
   let plan = validatedMailPlan(mail);
   const vmail = await ensureVmailAccount();
   let certificate = null;
@@ -303,7 +318,6 @@ async function configureMail() {
 async function createMailbox(domain, localPart, password) {
   await assertMailInstallation();
   const mail = await readManagedMailState();
-  validatedMailPlan(mail);
   const safeDomain = validateMailDomain(domain);
   const safeLocalPart = validateMailLocalPart(localPart);
   if (!mail.domains.some((item) => item.domain === safeDomain)) throw new HelperError('Mail domain is not configured.');
@@ -361,6 +375,62 @@ async function removeMailDomain(domain, force) {
   return { domain: safeDomain };
 }
 
+// Adding or removing a mail domain changes only the address maps and the DKIM
+// tables. It needs no certificate, no service restart and no DNS evidence, so
+// it is not a reason to run the whole mail configuration again.
+async function syncMailDomains() {
+  await assertMailInstallation();
+  const mail = await readManagedMailState();
+  await writeMailMaps(mail);
+  await writeDkimMaterial(mail);
+  await run('/usr/bin/systemctl', ['reload', 'opendkim', 'postfix'], { failure: 'Mail services could not be reloaded.' });
+  return { domains: mail.domains.map((item) => item.domain) };
+}
+
+let vmailIdentity = null;
+async function vmailOwner() {
+  vmailIdentity ??= { uid: await lookupUserId('vmail'), gid: await lookupGroupId('vmail') };
+  // lchown: a new mailbox file is handed to the mail account, never the target of a link.
+  return (path) => lchown(path, vmailIdentity.uid, vmailIdentity.gid);
+}
+
+// The mailbox reader may only open a mailbox this Portal created, and only
+// through the Maildir operations: no path from the request reaches the file system.
+async function mailboxOperation(request, work) {
+  const domain = validateMailDomain(request.domain);
+  const localPart = validateMailLocalPart(request.localPart);
+  const users = await readTextOrEmpty(MAIL_USERS);
+  if (!users.split('\n').some((line) => line.startsWith(`${localPart}@${domain}:`))) throw new HelperError('Mailbox was not found.', null, 'not_found');
+  const root = join(MAIL_VMAIL_ROOT, domain, localPart, 'Maildir');
+  for (const path of [join(MAIL_VMAIL_ROOT, domain), join(MAIL_VMAIL_ROOT, domain, localPart), root]) {
+    if (!(await lstat(path).catch(() => null))?.isDirectory()) throw new HelperError('Mailbox storage was not found.', null, 'not_found');
+  }
+  try { return await work(root); }
+  catch (error) {
+    if (error instanceof MaildirError) throw new HelperError(error.message, null, error.code);
+    throw error;
+  }
+}
+
+async function storeSpooledMessage(root, folder, spool, flags) {
+  if (typeof spool !== 'string' || !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(spool)) throw new HelperError('Mail spool reference is invalid.');
+  const portalUid = await lookupUserId(PORTAL_USER);
+  let handle;
+  let content;
+  try {
+    // The Portal owns this directory, so trust nothing but the opened file itself:
+    // a regular file with one name, written by the Portal account, within the size limit.
+    handle = await open(join(MAIL_SPOOL_ROOT, `${spool}.eml`), fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+    const info = await handle.stat();
+    if (!info.isFile() || info.uid !== portalUid || info.nlink !== 1 || info.size < 1 || info.size > MAIL_MESSAGE_MAX_BYTES) throw new HelperError('Mail spool file is not acceptable.');
+    content = await handle.readFile();
+  } catch (error) {
+    if (error instanceof HelperError) throw error;
+    throw new HelperError('Mail spool file could not be read.');
+  } finally { await handle?.close(); }
+  return appendMailMessage(root, folder, content, { flags: typeof flags === 'string' ? flags : '', own: await vmailOwner() });
+}
+
 async function assertMailInstallation() {
   if (await exists(MAIL_INSTALL_MARKER)) return;
   if (!await hasManualMailToolCertification()) throw new HelperError('Install mail packages through Strckro before configuring mail.');
@@ -415,15 +485,21 @@ function validateMailState(mail) {
     const domain = validateMailDomain(entry?.domain);
     const selector = entry?.dkim?.selectors?.find((item) => item?.state === 'active') ?? entry?.dkim?.selectors?.[0];
     if (!selector || !/^[a-z][a-z0-9-]{1,63}$/i.test(selector.selector) || !validEncryptedSecret(selector.encryptedPrivateKey)) throw new HelperError('Mail DKIM configuration is invalid.');
-    if (entry?.dns?.mx?.status !== 'verified' || entry?.dns?.spf?.status !== 'verified' || entry?.dns?.dkim?.status !== 'verified' || entry?.dns?.dmarc?.status !== 'verified') throw new HelperError('Mail DNS records must be verified before host configuration.');
+    // MX, SPF, DKIM and DMARC decide whether other servers deliver to and trust a
+    // domain. They do not decide whether this host may be configured (ADR 0033).
     return { ...entry, domain, dkim: { selectors: [selector] } };
   });
-  if (mail.hostnameCheck?.status !== 'ok') throw new HelperError('Mail hostname DNS must resolve directly to this host.');
-  if (mail.outboundMode === 'direct' && mail.ptr?.status !== 'verified') throw new HelperError('Direct mail requires a verified PTR record.');
   if (mail.outboundMode !== 'direct') {
     if (!mail.relay || typeof mail.relay.host !== 'string' || !/^[a-z0-9][a-z0-9.-]{0,251}[a-z0-9]$/i.test(mail.relay.host) || !Number.isInteger(mail.relay.port) || !validEncryptedSecret(mail.relay.encryptedSecret)) throw new HelperError('Mail relay configuration is invalid.');
   }
   mail.mailboxes = Array.isArray(mail.mailboxes) ? mail.mailboxes.map((item) => ({ ...item, domain: validateMailDomain(item?.domain), localPart: validateMailLocalPart(item?.localPart) })) : [];
+}
+
+// Checked once, when the mail service is configured: the certificate request
+// needs the hostname to reach this host, and direct delivery needs its PTR.
+function assertMailActivationReady(mail) {
+  if (mail.hostnameCheck?.status !== 'ok') throw new HelperError('Mail hostname DNS must resolve directly to this host.');
+  if (mail.outboundMode === 'direct' && mail.ptr?.status !== 'verified') throw new HelperError('Direct mail requires a verified PTR record.');
 }
 
 function validatedMailPlan(mail) {
@@ -1354,8 +1430,9 @@ function redactBuildOutput(output, environment) {
 
 function safeError(error) { return error instanceof HelperError ? error.message : 'Host helper operation failed.'; }
 class HelperError extends Error {
-  constructor(message, buildOutput = null) {
+  constructor(message, buildOutput = null, code = null) {
     super(message);
     this.buildOutput = typeof buildOutput === 'string' && buildOutput ? buildOutput : null;
+    this.code = typeof code === 'string' && code ? code : null;
   }
 }

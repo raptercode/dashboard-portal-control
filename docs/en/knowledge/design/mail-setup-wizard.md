@@ -28,3 +28,12 @@ Check certificate coverage and ownership before reusing Portal/Certbot material.
 Verify generated config with actual Postfix/Dovecot/OpenDKIM binaries, certificate issuance/failure, loopback fallback, permitted listeners, SMTP relay auth, external inbound mail, DKIM signatures, SPF/DMARC alignment and mailbox access. Test bad DNS/PTR, blocked egress, unknown UFW, provider filtering and service rollback. Loopback tests are insufficient deliverability evidence.
 
 Before extending to new Ubuntu releases, validate Dovecot 2.3 versus 2.4 config/data compatibility separately. Planned UX/port logic in the detailed design should be compared with source and [architecture](../context/architecture.md), [mail ADR](../adr/0025-port-aware-mail-host-provisioning.md) and [Ubuntu plan](../plans/ubuntu-compatibility-plan.md). Keep unresolved options in knowledge; promote proven procedures to how-to after acceptance.
+
+## Current behavior after ADR 0033
+
+This record predates [ADR 0033](../adr/0033-mail-domains-apply-at-once-and-the-portal-reads-mailboxes.md). Where the two differ, the ADR and the source are current:
+
+- The wizard is for the first setup. Afterwards domains, mailboxes and the server are managed from **Mail** (`/mail`), which opens on the mailbox reader.
+- A domain's DNS records no longer block a step, activation, a mailbox or removal. They are shown per record with the host and value to enter, checked automatically, and reported as the domain's health.
+- Adding or removing a domain on a configured host is applied at once (`sync-mail-domains`, `remove-mail-domain`); **Activate** is not repeated.
+- The detailed record advised that a future webmail be a separate product with its own Maildir permission, session isolation and audit scope. The owner asked for it inside the Portal instead; the ADR states each of the three: no Maildir access for the Portal process (typed helper operations only), no separate session (the reader is part of the Master's Portal session), and an audit entry for sending but not for reading.

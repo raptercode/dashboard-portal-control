@@ -290,6 +290,20 @@ async function go(
         : null;
     },
     onDispose: (fn) => cleanups.push(fn),
+    // A screen that redraws itself (the mailbox) keeps the address bar and
+    // history in step without being mounted again. Back still remounts.
+    locate: (destination, { replace = false } = {}) => {
+      if (stopped || current !== generation) return;
+      const next = new URL(destination, location.origin);
+      if (next.href === activeUrl) return;
+      if (!replace) historyIndex++;
+      history[replace ? "replaceState" : "pushState"](
+        { strckroIndex: historyIndex },
+        "",
+        next,
+      );
+      activeUrl = next.href;
+    },
     reload: async () => {
       api.invalidate();
       return go(location.href, { replace: true, force: true });

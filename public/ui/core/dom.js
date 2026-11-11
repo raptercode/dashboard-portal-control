@@ -62,6 +62,23 @@ const paths = {
   user: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8m-8 9a8 8 0 0 1 16 0",
   dots: "M5 12h.01M12 12h.01M19 12h.01",
   external: "M14 4h6v6m0-6-9 9M18 14v5H5V6h5",
+  inbox: "M4 13h4.5l1.5 3h4l1.5-3H20M4 13 6.5 5h11L20 13v6H4z",
+  send: "M21 3 10.5 13.5M21 3l-6.5 18-4-7.5L3 9.5z",
+  trash: "M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6",
+  star: "m12 3.5 2.6 5.4 5.9.8-4.3 4.1 1 5.9-5.2-2.8-5.2 2.8 1-5.9-4.3-4.1 5.9-.8z",
+  reply: "M9 14 4 9l5-5M4 9h9a7 7 0 0 1 7 7v3",
+  forward: "m15 14 5-5-5-5M20 9h-9a7 7 0 0 0-7 7v3",
+  clip: "m20 11-8.6 8.6a5 5 0 0 1-7-7L13 4a3.3 3.3 0 0 1 4.7 4.7L9.4 17a1.7 1.7 0 0 1-2.4-2.4L14.5 7",
+  edit: "M4 20h4L19 9l-4-4L4 16zM14 6l4 4",
+  back: "M19 12H5m6-6-6 6 6 6",
+  alert: "M12 3.5 2.5 20h19zM12 10v4m0 3h.01",
+  file: "M6 3h8l4 4v14H6zM14 3v4h4",
+  folder: "M3 6h6l2 2.5h10V19H3z",
+  globe:
+    "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18M3 12h18M12 3c2.4 2.5 3.6 5.5 3.6 9s-1.2 6.5-3.6 9c-2.4-2.5-3.6-5.5-3.6-9S9.6 5.5 12 3",
+  "chevron-left": "m15 5-7 7 7 7",
+  minus: "M5 12h14",
+  download: "M12 4v12m0 0-5-5m5 5 5-5M4 20h16",
 };
 export function icon(name) {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");

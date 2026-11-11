@@ -28,3 +28,7 @@ Notification hooks เข้ารหัส ส่ง provider-aware success/fai
 ## Evidence และประวัติ
 
 Docker ใช้ทดสอบ API/dependencies/templates ไม่รับรอง apt/systemd/permissions/reboot ต้องมี Ubuntu host acceptance v0.1 เดิมเป็น owner-only; v0.8.1 ขยาย Master/User ตาม ADR 0027 ดู [scope/roadmap](scope-and-roadmap.md) และ [ADR](../adr/README.md) สำหรับสถานะและประวัติ
+
+## Mail หลังการตั้งค่าครั้งแรก
+
+เพิ่มหรือลบโดเมนเมลด้วย helper request เดียวที่เขียน address map กับตาราง DKIM แล้ว reload service โดย MX, SPF, DKIM, DMARC ของโดเมนแสดงเป็นสุขภาพของโดเมนและไม่เป็นเงื่อนไขของ host Portal อ่านและส่งเมลได้เอง: helper list/read/flag/move/store ไฟล์ Maildir ด้วย mailbox, folder และ reference ของข้อความเท่านั้น เป็นก้อนขนาดจำกัด ส่วน Portal ที่ไม่มีสิทธิ์เป็นผู้ถอดรหัสและแสดง markup ของผู้ส่งเฉพาะใน frame ที่ sandbox การส่งคือ SMTP ไปยัง Postfix ของ host เองทาง loopback ดู [ADR 0033](../adr/0033-mail-domains-apply-at-once-and-the-portal-reads-mailboxes.md)

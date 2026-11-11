@@ -730,3 +730,12 @@ gap ของ v0.6 อยู่แล้ว (`docs/en/knowledge/context/scope-an
 - `docs/en/knowledge/glossary.md` — runtime detection, mail readiness และ mail hostname
 - [ADR 0025](../../../en/knowledge/adr/0025-port-aware-mail-host-provisioning.md) — policy ที่ให้ mail
   provisioning เปิดเฉพาะพอร์ตที่ local policy อนุญาตและ fail closed
+
+## พฤติกรรมปัจจุบันหลัง ADR 0033
+
+บันทึกนี้เขียนก่อน [ADR 0033](../adr/0033-mail-domains-apply-at-once-and-the-portal-reads-mailboxes.md) จุดที่ต่างกันให้ถือ ADR และ source เป็นปัจจุบัน:
+
+- Wizard ใช้สำหรับการตั้งค่าครั้งแรก หลังจากนั้นจัดการโดเมน mailbox และ server ที่หน้า **Mail** (`/mail`) ซึ่งเปิดมาที่กล่องอีเมล
+- DNS records ของโดเมนไม่บล็อกขั้นตอน การ activate การสร้าง mailbox หรือการลบอีกแล้ว แสดงเป็นราย record พร้อม host และ value ที่ต้องกรอก ตรวจให้อัตโนมัติ และรายงานเป็นสุขภาพของโดเมน
+- การเพิ่มหรือลบโดเมนบน host ที่ตั้งค่าแล้วมีผลทันที (`sync-mail-domains`, `remove-mail-domain`) ไม่ต้องกด **Activate** ซ้ำ รายการ "เพิ่มโดเมนภายหลัง" ใน Phase 2 จึงทำแล้วที่หน้า Mail → Domains
+- Phase 3 ข้างต้นแนะนำว่า webmail ในอนาคตควรเป็นผลิตภัณฑ์แยกที่มี Maildir permission, session isolation และ audit scope ชัดเจน เจ้าของระบบขอให้อยู่ใน Portal แทน ADR จึงระบุทั้งสามข้อ: process ของ Portal ไม่ได้สิทธิ์อ่าน Maildir (ผ่าน helper operation แบบ typed เท่านั้น) ไม่มี session แยก (ตัวอ่านเป็นส่วนหนึ่งของ session Master ใน Portal) และ audit เฉพาะการส่ง ไม่ audit การอ่าน

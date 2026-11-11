@@ -65,9 +65,9 @@ export function renderPostfixMain({ hostname, domains, outboundMode, relay, plan
     'smtp_sasl_password_maps = hash:/etc/hostmgr/mail/sasl_passwd',
     'smtp_sasl_security_options = noanonymous'
   );
-  // Keep the intended recipient domains visible in the owned file as an audit
-  // aid, while Postfix itself reads the hash map above.
-  lines.push(`# Virtual domains: ${domains.join(', ')}`, '');
+  // Domains are added and removed without rewriting this file, so name the map
+  // Postfix reads instead of a list that would go stale.
+  lines.push(`# Virtual domains at configuration time: ${domains.join(', ')} (current list: /etc/postfix/hostmgr/domains)`, '');
   return lines.join('\n');
 }
 

@@ -17,7 +17,7 @@ export const groups = {
     links: [
       ["Host & runtimes", "/setup", "master"],
       ["Databases", "/databases", "master"],
-      ["Mail service", "/mail", "master"],
+      ["Mail", "/mail", "master"],
     ],
   },
   access: {

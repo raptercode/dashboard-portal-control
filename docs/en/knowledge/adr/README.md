@@ -25,3 +25,5 @@ Current operational decisions include [ADR 0020](0020-host-helper-keeps-shadow-u
 [ADR 0031](0031-maintenance-exclusion-and-install-recovery.md) defines cooperative maintenance exclusion, consistent installer snapshots, service/file recovery and boot-time lock recreation.
 
 [ADR 0032](0032-project-storage-is-a-linked-directory-outside-releases.md) gives a native project one persistent directory outside its releases, linked into each release at an owner-chosen relative path and created as the project user.
+
+[ADR 0033](0033-mail-domains-apply-at-once-and-the-portal-reads-mailboxes.md) amends ADR 0025: a mail domain is applied to a running service at once and its DNS records are reported as health instead of gating configuration, and the Portal reads and sends mail through typed helper operations on Maildir.

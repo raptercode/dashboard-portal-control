@@ -183,7 +183,7 @@ fi
 [[ "$PORTAL_NODE_MAJOR" =~ ^(20|22|24|26)$ ]] || die 'Portal Node.js major must be 20, 22, 24 or 26.'
 [[ -n "$DOMAIN" && "$DOMAIN" =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$ ]] || die 'A lower-case FQDN is required in --domain.'
 [[ -n "$EMAIL" && "$EMAIL" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]] || die 'A valid --email is required. HTTPS is mandatory for a public login.'
-[[ -f package.json && -f package-lock.json && -d src && -d public && -f scripts/hostmgr-deploy-helper.mjs && -f scripts/sqlite.mjs && -f scripts/node-versions.mjs && -f scripts/maintenance-lock.mjs && -f scripts/worker-health.mjs && -f scripts/worker-activation.mjs && -f scripts/mail-host-config.mjs && -f scripts/nginx-edge.mjs && -f scripts/domain-dns.mjs && -f scripts/nginx-realip.mjs &&-f scripts/password-config.mjs && -f scripts/strckro-update.mjs && -f scripts/software-update.mjs && -f "$UPDATE_PUBLIC_KEY_SOURCE" ]] || die 'Run this script from an extracted Strckro release directory.'
+[[ -f package.json && -f package-lock.json && -d src && -d public && -f scripts/hostmgr-deploy-helper.mjs && -f scripts/sqlite.mjs && -f scripts/node-versions.mjs && -f scripts/maintenance-lock.mjs && -f scripts/worker-health.mjs && -f scripts/worker-activation.mjs && -f scripts/mail-host-config.mjs && -f scripts/maildir-store.mjs && -f scripts/nginx-edge.mjs && -f scripts/domain-dns.mjs && -f scripts/nginx-realip.mjs &&-f scripts/password-config.mjs && -f scripts/strckro-update.mjs && -f scripts/software-update.mjs && -f "$UPDATE_PUBLIC_KEY_SOURCE" ]] || die 'Run this script from an extracted Strckro release directory.'
 source /etc/os-release
 [[ "${ID:-}" == 'ubuntu' && ( "${VERSION_ID:-}" == '24.04' || "${VERSION_ID:-}" == '25.04' ) ]] || die 'This installer supports Ubuntu 24.04 or 25.04 only.'
 [[ "$(dpkg --print-architecture)" == 'amd64' ]] || die 'This release currently supports amd64 only.'
@@ -426,6 +426,7 @@ install -d -m 0755 "$STAGING_ROOT"
 tar --exclude='.env' --exclude='data' --exclude='node_modules' --exclude='.git' --exclude='dist' --exclude='release-out' -cf - . | tar -xf - -C "$STAGING_ROOT"
 "$PORTAL_NODE" --check "$STAGING_ROOT/src/server.mjs"
 "$PORTAL_NODE" --check "$STAGING_ROOT/scripts/mail-host-config.mjs"
+"$PORTAL_NODE" --check "$STAGING_ROOT/scripts/maildir-store.mjs"
 while IFS= read -r -d '' ui_module; do
   "$PORTAL_NODE" --check "$ui_module"
 done < <(find "$STAGING_ROOT/public/ui" -type f -name '*.js' -print0)
@@ -457,6 +458,7 @@ install -m 0750 -o root -g root "$APP_ROOT/scripts/php-project.mjs" "$HELPER_ROO
 install -m 0750 -o root -g root "$APP_ROOT/scripts/project-service-user.mjs" "$HELPER_ROOT/project-service-user.mjs"
 install -m 0750 -o root -g root "$APP_ROOT/scripts/project-storage.mjs" "$HELPER_ROOT/project-storage.mjs"
 install -m 0750 -o root -g root "$APP_ROOT/scripts/mail-host-config.mjs" "$HELPER_ROOT/mail-host-config.mjs"
+install -m 0750 -o root -g root "$APP_ROOT/scripts/maildir-store.mjs" "$HELPER_ROOT/maildir-store.mjs"
 install -m 0750 -o root -g root "$APP_ROOT/scripts/nginx-edge.mjs" "$HELPER_ROOT/nginx-edge.mjs"
 install -m 0644 -o root -g root "$APP_ROOT/scripts/domain-dns.mjs" "$HELPER_ROOT/domain-dns.mjs"
 install -m 0644 -o root -g root "$APP_ROOT/scripts/nginx-realip.mjs" "$HELPER_ROOT/nginx-realip.mjs"

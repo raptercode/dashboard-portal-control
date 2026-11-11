@@ -2,7 +2,7 @@
 
 [ภาษาไทย](../../th/how-to/strckro.md) · [Documentation index](../README-index.md)
 
-Strckro is the new product name for Dashboard Portal. The control-plane release is `1.1.2`; the renamed npm client is `strckro@0.2.0`, with the commands `skctl` and `strckro`.
+Strckro is the new product name for Dashboard Portal. The control-plane release is `1.1.3`; the renamed npm client is `strckro@0.2.0`, with the commands `skctl` and `strckro`.
 
 ```sh
 npm install --global strckro
