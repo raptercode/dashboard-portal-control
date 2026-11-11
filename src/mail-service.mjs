@@ -2,6 +2,7 @@ import net from 'node:net';
 import tls from 'node:tls';
 import { generateKeyPairSync } from 'node:crypto';
 import { InputError, validateDomain } from './core.mjs';
+import { composeMessage } from './mail-message.mjs';
 
 export const MAIL_MAX_DOMAINS = 10;
 export const MAIL_OUTBOUND_MODES = Object.freeze(['direct', 'relay-587', 'relay-2525']);
@@ -121,17 +122,8 @@ function rootDomain(host) {
  * "250 OK". Not a general-purpose MTA — one recipient, short deadline.
  */
 export async function smtpSubmit({ host, port, tlsServername, username, password, from, to, subject, body, timeoutMs = SMTP_TIMEOUT_MS, connect = net.connect, upgradeTls = defaultUpgradeTls }) {
-  const message = [
-    `From: <${from}>`,
-    `To: <${to}>`,
-    `Subject: ${String(subject ?? '').replace(/[\r\n]/g, ' ')}`,
-    `Date: ${new Date().toUTCString()}`,
-    'MIME-Version: 1.0',
-    'Content-Type: text/plain; charset=utf-8',
-    '',
-    String(body ?? '')
-  ].join('\r\n');
-  return smtpDeliver({ host, port, tlsServername, username, password, from, recipients: [to], message, timeoutMs, connect, upgradeTls });
+  const { raw } = composeMessage({ from: { address: String(from ?? '') }, to: [String(to ?? '')], subject, text: body });
+  return smtpDeliver({ host, port, tlsServername, username, password, from, recipients: [to], message: raw, timeoutMs, connect, upgradeTls });
 }
 
 /**

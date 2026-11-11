@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.4 — 2026-11-11
+
+- Give the Mail setup test email a clear subject, a short plain-text note that explains the test, and a unique `Message-ID`. Postfix and relay submissions use the same message.
+- Show the SMTP error in the Mail setup test form and refresh **Last test** after a failed send, keeping the selected sender and recipient available for a retry.
+
 ## 1.1.3 — 2026-11-11
 
 - Read and send mail in the Portal. **Mail** now opens on a mailbox reader: folders (Inbox, Sent, Drafts, Spam, Trash) with unread counts, a message list with sender, subject, preview and attachment marker, a reading view, and a compose window for new messages, replies, reply-all and forwards. Star, mark read or unread, delete to Trash, erase from Trash, restore, and download attachments. A sent message is filed in Sent, where an IMAP client sees it too. It works with every inbound mail port closed. Master only. The root helper only lists and moves Maildir files by mailbox, folder and message reference; the Portal decodes them, shows sender HTML only in a sandboxed frame with remote images off until asked, and always serves attachments as downloads. Sending goes to the host's own Postfix on loopback. Composing has no attachments, drafts or search yet. New installer file `maildir-store.mjs`; see the how-to and ADR 0033.

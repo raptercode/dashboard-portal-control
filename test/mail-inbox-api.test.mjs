@@ -201,7 +201,7 @@ test('automatic DNS re-checks are audited only when a record changes state', asy
 
 // A real host: every change is one typed request to the root helper. The helper here
 // is a recorder; it certifies what the Portal asks for, not Postfix or Dovecot themselves.
-async function host(t, { fail = () => null } = {}) {
+async function host(t, { fail = () => null, mailSend } = {}) {
   const requests = [];
   const delivered = [];
   let app;
@@ -220,7 +220,7 @@ async function host(t, { fail = () => null } = {}) {
   };
   const started = await start({
     mode: 'host', autoSyncPollingEnabled: false, projectRuntimeProbe: async () => ({ state: 'active' }), ...dnsStubs(),
-    mailHelper, mailHelperSocket: '/run/test/helper.sock',
+    mailHelper, mailHelperSocket: '/run/test/helper.sock', mailSend,
     mailDeliver: async (input) => { delivered.push(input); return { ok: true, reply: '250 2.0.0 Ok: queued as 4F1A' }; }
   });
   app = started.app;
@@ -241,6 +241,35 @@ async function host(t, { fail = () => null } = {}) {
   const call = (method, path, body = {}) => request(started.base, path, headers, method, method === 'GET' ? undefined : body);
   return { app, ...started, headers, requests, delivered, mailbox, call };
 }
+
+test('the mail test uses the same recipient-facing message for Postfix and the relay', async (t) => {
+  const submissions = [];
+  const { call, mailbox } = await host(t, {
+    mailSend: async (input) => {
+      submissions.push(input);
+      return { ok: true, reply: '250 2.0.0 queued' };
+    }
+  });
+  const recipient = { mailboxId: mailbox.id, to: 'owner@example.net' };
+  const direct = await call('POST', '/api/mail/test/send', recipient);
+  assert.equal(direct.status, 200);
+  assert.equal(submissions[0].host, '127.0.0.1');
+  assert.equal(submissions[0].tlsServername, 'mail.example.test');
+
+  const settings = await call('POST', '/api/mail/outbound-mode', {
+    mode: 'relay-587', relay: { host: 'smtp.example.test', port: 587, username: 'fixture', password: 'fixture-password' }
+  });
+  assert.equal(settings.status, 200);
+  const relay = await call('POST', '/api/mail/test/send', recipient);
+  assert.equal(relay.status, 200);
+  assert.equal(submissions[1].host, 'smtp.example.test');
+  assert.equal(submissions[1].subject, 'Mail delivery check from Strckro');
+  assert.equal(submissions[0].subject, submissions[1].subject);
+  assert.equal(submissions[0].body, submissions[1].body);
+  assert.match(submissions[1].body, /^Hello,\n\nThis message was sent from hello@example\.test using Strckro\./);
+  assert.match(submissions[1].body, /\n\nPlease check which folder/);
+  assert.doesNotMatch(submissions[1].body, /smtp\.example\.test|fixture-password/);
+});
 
 test('on a configured host a new domain is synchronised at once, without DNS evidence or a second activation', async (t) => {
   const { app, requests, call } = await host(t);

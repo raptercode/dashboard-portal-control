@@ -1297,6 +1297,18 @@ export async function createApplication(options = {}) {
     if (!mailbox) throw new InputError('Select a mailbox to send from.');
     const to = validateEmail(body.to, 'Test recipient');
     const from = `${mailbox.localPart}@${mailbox.domain}`;
+    const message = {
+      from,
+      to,
+      subject: 'Mail delivery check from Strckro',
+      body: [
+        'Hello,',
+        `This message was sent from ${from} using Strckro. It helps verify that mail from this mailbox can reach the selected recipient.`,
+        'Please check which folder this message arrived in and whether the sender address looks right. You can also review the authentication results in the message headers when checking your mail setup.',
+        'This was a one-time test. No reply is needed.',
+        'Strckro'
+      ].join('\n\n')
+    };
     let outcome;
     if (mail.outboundMode !== 'direct' && mail.relay?.encryptedSecret && vault) {
       try {
@@ -1305,10 +1317,7 @@ export async function createApplication(options = {}) {
           port: mail.relay.port,
           username: mail.relay.username,
           password: vault.decrypt(mail.relay.encryptedSecret),
-          from,
-          to,
-          subject: 'Strckro mail test',
-          body: `Test message from ${from} sent through ${mail.relay.host}:${mail.relay.port} at ${new Date().toISOString()}.`
+          ...message
         });
         outcome = { status: 'passed', detail: result.reply };
       } catch (error) {
@@ -1316,7 +1325,10 @@ export async function createApplication(options = {}) {
       }
     } else if (mode === 'host') {
       try {
-        const result = await mailSend({ host: '127.0.0.1', port: 25, tlsServername: mail.hostname || undefined, username: null, password: null, from, to, subject: 'Strckro mail test', body: `Test message from ${from} at ${new Date().toISOString()}.` });
+        const result = await mailSend({
+          host: '127.0.0.1', port: 25, tlsServername: mail.hostname || undefined,
+          username: null, password: null, ...message
+        });
         outcome = { status: 'passed', detail: result.reply };
       } catch (error) {
         outcome = { status: 'failed', detail: String(error?.message ?? 'SMTP submission failed.').slice(0, 240) };
@@ -1324,11 +1336,17 @@ export async function createApplication(options = {}) {
     } else {
       outcome = { status: 'simulated', detail: 'Simulated: direct MX delivery only runs on a real host. Configure a relay to test real sending from the sandbox.' };
     }
+    const failed = outcome.status === 'failed';
+    const test = { at: new Date().toISOString(), from, to, ...outcome };
     await store.update((state) => {
-      state.mail.lastTest = { at: new Date().toISOString(), from, to, ...outcome };
-      appendAudit(state, { action: 'mail.test_send', outcome: outcome.status === 'failed' ? 'failure' : 'success', actor: 'owner', target: from, detail: `${outcome.status}: ${outcome.detail}`.slice(0, 240) });
+      state.mail.lastTest = test;
+      appendAudit(state, { action: 'mail.test_send', outcome: failed ? 'failure' : 'success', actor: 'owner', target: from, detail: `${outcome.status}: ${outcome.detail}`.slice(0, 240) });
     });
-    return sendJson(response, outcome.status === 'failed' ? 422 : 200, { ok: outcome.status !== 'failed', test: store.snapshot().mail.lastTest });
+    return sendJson(response, failed ? 422 : 200, {
+      ok: !failed,
+      ...(failed ? { error: outcome.detail || 'SMTP submission failed.' } : {}),
+      test
+    });
   }
 
   async function handleInstall(request, response, tool) {

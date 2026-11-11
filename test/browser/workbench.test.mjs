@@ -17,7 +17,7 @@ before(async () => {
 after(async () => {
   await browser?.close();
 });
-async function fixture(t) {
+async function fixture(t, options = {}) {
   const ctx = await start({
     projectRuntimeDetector: async () => ({
       recommendedRuntime: "node",
@@ -65,6 +65,7 @@ async function fixture(t) {
       ],
       recommendation: { mode: "direct" },
     }),
+    ...options,
   });
   await ctx.app.store.update((state) => {
     state.git.identity = { name: "UI fixture", email: "owner@local.test" };
@@ -738,4 +739,56 @@ test("Mail identity and delivery configuration save independently through the ne
   assert.equal(mail.outboundMode, "relay-587");
   assert.equal(mail.relay.hasPassword, true);
   assert.equal(JSON.stringify(mail).includes("fixture-relay-password"), false);
+});
+
+test("Mail test shows a failed SMTP submission in place of a previous success", async (t) => {
+  const detail = "Hostname/IP does not match certificate's altnames";
+  const { app, base, context, session, page, go } = await fixture(t, {
+    mailSend: async () => {
+      throw new Error(detail);
+    },
+  });
+  await app.store.update((state) => {
+    state.mail.configure = { status: "configured" };
+    state.mail.mailboxes = [
+      { id: "sender", localPart: "sender", domain: "example.test" },
+    ];
+    state.mail.lastTest = {
+      status: "passed",
+      at: "2026-09-20T18:43:00.000Z",
+      from: "sender@example.test",
+      to: "old@example.net",
+      detail: "250 Previously queued",
+    };
+  });
+  const delivery = await context.request.post(base + "/api/mail/outbound-mode", {
+    headers: { "x-csrf-token": session.csrfToken },
+    data: {
+      mode: "relay-587",
+      relay: {
+        host: "smtp.example.test",
+        port: 587,
+        username: "fixture",
+        password: "fixture-password",
+      },
+    },
+  });
+  assert.equal(delivery.status(), 200);
+
+  await go("/mail/setup?step=7");
+  await page.getByText("250 Previously queued", { exact: false }).waitFor();
+  const recipient = page.getByRole("textbox", { name: "Send to" });
+  await recipient.fill("new@example.net");
+  await page.getByRole("button", { name: "Send test email", exact: true }).click();
+  await page
+    .getByRole("dialog", { name: "ส่งอีเมลทดสอบ?" })
+    .getByRole("button", { name: "ส่งอีเมลทดสอบ", exact: true })
+    .click();
+
+  const error = page.locator("form [role=alert]");
+  await error.waitFor();
+  assert.equal(await error.textContent(), detail);
+  await page.getByText("sender@example.test → new@example.net", { exact: true }).waitFor();
+  await page.getByText("250 Previously queued", { exact: false }).waitFor({ state: "detached" });
+  assert.equal(await recipient.inputValue(), "new@example.net");
 });

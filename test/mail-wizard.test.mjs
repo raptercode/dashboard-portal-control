@@ -126,6 +126,7 @@ test('SMTP submission performs EHLO, AUTH, and DATA against a scripted server', 
   assert.equal(result.ok, true);
   assert.match(result.reply, /^250 2\.0\.0 queued/);
   assert.ok(exchanges.some((line) => line.startsWith('AUTH PLAIN ')));
+  assert.ok(exchanges.some((line) => /^Message-ID: <[a-f0-9-]{36}@example\.test>$/.test(line)));
   assert.ok(exchanges.includes('..leading dot line'));
 
   await assert.rejects(smtpSubmit({ host: '127.0.0.1', port: server.address().port, username: 'user', password: 'pw', from: 'x@example.test', to: 'fail@example.test', subject: 's', body: 'b', connect: () => { throw new Error('boom'); } }));

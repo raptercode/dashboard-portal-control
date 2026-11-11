@@ -495,7 +495,26 @@ export async function wizard(ctx) {
       pane.append(f);
     }
     if (step === 7) {
-      const last = mail.lastTest;
+      const lastTest = h("div");
+      const showLastTest = (last) => {
+        mail.lastTest = last;
+        lastTest.hidden = !last;
+        lastTest.replaceChildren();
+        if (!last) return;
+        lastTest.append(
+          panel(
+            "Last test",
+            `${last.from} → ${last.to}`,
+            h(
+              "div",
+              { class: "panel-body actions" },
+              badge(last.status, TEST_TONE[last.status] || "neutral"),
+              h("small", {}, when(last.at), " · ", last.detail),
+            ),
+          ),
+        );
+      };
+      showLastTest(mail.lastTest);
       pane.append(
         h(
           "p",
@@ -512,7 +531,18 @@ export async function wizard(ctx) {
               ))
             )
               return;
-            const result = await ctx.api.post("/api/mail/test/send", v);
+            let result;
+            try {
+              result = await ctx.api.post("/api/mail/test/send", v);
+            } catch (error) {
+              if (error.status === 422) {
+                await ctx.api
+                  .get("/api/mail", { force: true, ttl: 0 })
+                  .then((latest) => showLastTest(latest.mail.lastTest))
+                  .catch(() => {});
+              }
+              throw error;
+            }
             await reload();
             paint();
             ctx.toast(result.test?.detail || "ส่งคำขอทดสอบแล้ว");
@@ -531,17 +561,7 @@ export async function wizard(ctx) {
           }),
           submit("Send test email"),
         ),
-        last &&
-          panel(
-            "Last test",
-            `${last.from} → ${last.to}`,
-            h(
-              "div",
-              { class: "panel-body actions" },
-              badge(last.status, TEST_TONE[last.status] || "neutral"),
-              h("small", {}, when(last.at), " · ", last.detail),
-            ),
-          ),
+        lastTest,
         link("Open the mailbox →", "/mail", "btn"),
       );
     }
